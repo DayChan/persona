@@ -332,20 +332,27 @@ func (rh *RuntimeHost) event(h *runtimeConn, event string, params json.RawMessag
 		var p struct {
 			Sessions []proto.Session `json:"sessions"`
 		}
+		// Decoded into one slice the size of the last list (a few rows to spare), which normalizeRuntimeSessions keeps
+		// in place: not grown row by row from nil and then copied once more.
+		p.Sessions = make([]proto.Session, 0, h.listLen()+4)
 		if json.Unmarshal(params, &p) != nil {
 			return
 		}
 		var moved []string
 		if !h.isDaemon() { // a daemon's offline sessions are not resumed in this machine's terminal engine
-			h.setResume(resumeArgvs(params))
+			resume, ts := runtimeRowExtras(params)
+			h.setResume(resume)
 			// …nor read from this machine's transcripts: a daemon names none (runtimetranscript.go).
-			ts := runtimeTranscripts(params)
 			if n != nil {
 				ts = n.foundTranscripts(ts)
 			}
 			moved = h.setTranscripts(ts)
 		}
-		rewatch := rh.reg.setSessions(h, normalizeRuntimeSessions(h, p.Sessions))
+		list := normalizeRuntimeSessions(h, p.Sessions)
+		if cap(list) > 2*len(list)+8 { // the list shrank: keep no array of the old size
+			list = append(make([]proto.Session, 0, len(list)), list...)
+		}
+		rewatch := rh.reg.setSessions(h, list)
 		if n == nil {
 			return
 		}
@@ -363,8 +370,34 @@ func (rh *RuntimeHost) event(h *runtimeConn, event string, params json.RawMessag
 	}
 }
 
+// runtimeRowExtras is resumeArgvs and runtimeTranscripts of a runtime.sessions push, read in one pass over its rows
+// rather than one each. A push one of the two cannot read (a field of the wrong type) has each read on its own, as
+// before: the other may still read.
+func runtimeRowExtras(params json.RawMessage) (map[string][]string, map[string]string) {
+	var p struct {
+		Sessions []struct {
+			SessionID  string   `json:"session_id"`
+			ResumeArgv []string `json:"resume_argv"`
+			Transcript string   `json:"transcript"`
+		} `json:"sessions"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return resumeArgvs(params), runtimeTranscripts(params)
+	}
+	resume, transcripts := map[string][]string{}, map[string]string{}
+	for _, s := range p.Sessions {
+		if resumable(s.SessionID, s.ResumeArgv) {
+			resume[s.SessionID] = s.ResumeArgv
+		}
+		if namesTranscript(s.SessionID, s.Transcript) {
+			transcripts[s.SessionID] = s.Transcript
+		}
+	}
+	return resume, transcripts
+}
+
 // resumeArgvs reads the resume_argv of a runtime.sessions push: how the terminal engine resumes a session the runtime
-// lists offline (a pi that ran in herdr, pi.go). A command, then its arguments; bounded, no empty words.
+// lists offline (a pi that ran in herdr, pi.go).
 func resumeArgvs(params json.RawMessage) map[string][]string {
 	var p struct {
 		Sessions []struct {
@@ -377,21 +410,27 @@ func resumeArgvs(params json.RawMessage) map[string][]string {
 	}
 	out := map[string][]string{}
 	for _, s := range p.Sessions {
-		if len(s.ResumeArgv) == 0 || len(s.ResumeArgv) > 16 || !runtimeIDRe.MatchString(s.SessionID) {
-			continue
-		}
-		ok, size := true, 0
-		for _, w := range s.ResumeArgv {
-			size += len(w)
-			if w == "" || strings.ContainsAny(w, "\x00\n\r") {
-				ok = false
-			}
-		}
-		if ok && size <= 4096 {
+		if resumable(s.SessionID, s.ResumeArgv) {
 			out[s.SessionID] = s.ResumeArgv
 		}
 	}
 	return out
+}
+
+// resumable: argv is a resume_argv the node takes for session id. A command, then its arguments; bounded, no empty
+// words.
+func resumable(id string, argv []string) bool {
+	if len(argv) == 0 || len(argv) > 16 || !runtimeIDRe.MatchString(id) {
+		return false
+	}
+	size := 0
+	for _, w := range argv {
+		size += len(w)
+		if w == "" || strings.ContainsAny(w, "\x00\n\r") {
+			return false
+		}
+	}
+	return size <= 4096
 }
 
 // packageOffer is the update a runtime gets in its hello reply (docs/integrations/runtimes.md "Auto-update"): this node's package of

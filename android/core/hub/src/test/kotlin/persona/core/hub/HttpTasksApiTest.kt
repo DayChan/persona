@@ -135,6 +135,23 @@ class HttpTasksApiTest {
         }
     }
 
+    @Test fun directCompletionOnlyPatchesDoneAndDecodesTheUserCompletionReceipt() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("""{"todo":{"id":"todo/one","title":"Review the sample release","done_at":"2026-11-04T10:00:00Z"}}"""))
+            val completed = api(server).patchTodo("todo/one", done = true)
+            val request = server.takeRequest()
+            assertEquals("PATCH", request.method)
+            assertEquals("/api/v1/todos/todo%2Fone", request.path)
+            assertEquals("""{"done":true}""", request.body.readUtf8())
+            assertEquals("todo/one", completed.id)
+            assertTrue(completed.isDone)
+            assertNull(completed.doneBy)
+            assertNull(completed.doneReason)
+            assertNull(completed.ask)
+            assertEquals(1, server.requestCount)
+        }
+    }
+
     @Test fun createPatchDeleteAndLinkTodo() = runBlocking {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setBody("""{"todo":{"id":"todo_new","title":"测试待办","notes":"说明","agents":[]}}"""))

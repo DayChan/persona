@@ -53,6 +53,7 @@ class SelectedGroupSentTest {
     private fun hub(page: SentPage = rows) = object : HubSent {
         var calls = 0
         override suspend fun page(before: Long?, limit: Int?, connector: String?): SentPage { calls++; return page }
+        override suspend fun recall(id: Long) = page.items.firstOrNull { it.id == id }
     }
 
     @Test fun anotherGroupsRowsCarryItsSuffixAndThePrimaryGroupsAreUnchanged() = runBlocking {
@@ -62,6 +63,8 @@ class SelectedGroupSentTest {
         assertEquals("s-1", other.items.single().origin.sessionId)
         val primary = SelectedGroupSent { SelectedGroupSent.Group(inner, null) }.page()
         assertSame(rows, primary)
+        // The row a recall answers with is in the group's form too.
+        assertEquals("mac~g0a1b2c3d", SelectedGroupSent { SelectedGroupSent.Group(inner, "g0a1b2c3d") }.recall(1)?.origin?.machineId)
     }
 
     @Test fun eachReadAsksTheSelectedGroupOnceAtItsStart() = runBlocking {

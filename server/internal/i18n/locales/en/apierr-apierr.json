@@ -12,5 +12,9 @@
   "claude_missing_terminal": "The shell of new terminal tabs on {machine} ({pane_shell}) can't find Claude Code (“{missing}”) to start the model entry “{launcher}”. Install Claude Code where the terminal sees it, or put it on that shell's PATH.",
   "claude_missing_terminal_here": "The shell of new terminal tabs on this computer ({pane_shell}) can't find Claude Code (“{missing}”) to start the model entry “{launcher}”. Install Claude Code where the terminal sees it, or put it on that shell's PATH.",
   "terminal_default_shell": "the default shell",
-  "assistant_control_failed": "Claude could not apply this setting: {reason}"
+  "assistant_control_failed": "Claude could not apply this setting: {reason}",
+  "shell_waiting": "The new terminal tab on {machine} stopped on a question before the agent could start: “{line}”. Nothing ran; the tab stays open for a few minutes so the question can be answered.",
+  "shell_waiting_here": "The new terminal tab on this computer stopped on a question before the agent could start: “{line}”. Nothing ran; the tab stays open for a few minutes so the question can be answered.",
+  "start_line_rejected": "The new terminal tab on {machine} didn't take the start command, twice (it printed “{line}”). Nothing ran; check what that shell does when it starts, then try again.",
+  "start_line_rejected_here": "The new terminal tab on this computer didn't take the start command, twice (it printed “{line}”). Nothing ran; check what that shell does when it starts, then try again."
 }

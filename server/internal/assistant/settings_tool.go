@@ -75,6 +75,22 @@ func (s *Service) ownSettings() []ownSetting {
 			Value: "true or false"},
 			get: func(ctx context.Context) (string, error) { return fmt.Sprint(s.doneNeedsDelivery(ctx)), nil },
 			set: s.setDoneNeedsDelivery},
+		{Setting: Setting{Key: "assistant.review_sample_percent", Title: "Share of finished tasks to spot-check", Actions: getSet,
+			About: "100 (the default): every finished supervised task waits for your task_review. Below 100 the done judge also checks each " +
+				"done_when criterion; a task whose criteria are all checkable and met and whose work is live is closed by the judge, and " +
+				"only this share of those still comes to you to spot-check (tasks that fail the check wait for task_review as before). " +
+				"Applies from the next judgment on",
+			Value: "a whole number, 0–100"},
+			get: func(ctx context.Context) (string, error) { return fmt.Sprint(s.reviewSamplePercent(ctx)), nil },
+			set: s.setReviewSamplePercent},
+		{Setting: Setting{Key: "assistant.leaders", Title: "Leader conversations", Actions: getSet,
+			About: "empty (the default): only the main conversation supervises the tasks it hands out. A leader is a side conversation " +
+				"(one repository or long-running project each) that supervises the tasks it hands out with task_plan itself: their " +
+				"supervision messages go to it and it reviews them with task_review; needs_user and failed starts still come to the " +
+				"main conversation. Applies to tasks handed out from now on",
+			Value: "the whole list of leader conversation ids (conversations_list), [] for none"},
+			get: s.getLeaders,
+			set: s.setLeaders},
 		{Setting: Setting{Key: "assistant.launcher", Title: "Persona 的启动器", Actions: getSet,
 			About: "which launcher (model) new Persona conversations start with by default",
 			Value: "a launcher name from this setting's get"},
@@ -193,6 +209,7 @@ func orNone(s string) string {
 var settingTitles = map[string]string{"assistant.notes": "title_notes", "assistant.main_tasks_quiet": "title_main_tasks_quiet",
 	"assistant.start_requested_tasks": "title_start_requested_tasks", "assistant.launcher": "title_launcher",
 	"assistant.recording_days": "title_recording_days", "assistant.done_needs_delivery": "title_done_needs_delivery",
+	"assistant.review_sample_percent": "title_review_sample_percent", "assistant.leaders": "title_leaders",
 	"model_profiles.tiers": "title_model_tiers"}
 
 // clipped is a value as the card shows it, in l.
@@ -299,6 +316,30 @@ func (s *Service) setDoneNeedsDelivery(ctx context.Context, v json.RawMessage) (
 		return i18n.T(l, "assistant-settings_tool.change_done_needs_delivery", i18n.Args{"before": before, "after": after})
 	}, func(v *Settings) **bool { return &v.DoneNeedsDelivery },
 		"assistant.done_needs_delivery is %v from the next judgment and task on.")
+}
+
+func (s *Service) setReviewSamplePercent(ctx context.Context, v json.RawMessage) (*ownChange, error) {
+	var pct int
+	if err := json.Unmarshal(v, &pct); err != nil || pct < 0 || pct > 100 {
+		return nil, errors.New("value must be a whole number, 0–100")
+	}
+	before := s.reviewSamplePercent(ctx)
+	if pct == before {
+		return &ownChange{summary: "assistant.review_sample_percent is unchanged"}, nil
+	}
+	if s.store() == nil {
+		return nil, errors.New("no database on this hub")
+	}
+	return &ownChange{cardText: func(l i18n.Lang) string {
+		return i18n.T(l, "assistant-settings_tool.change_review_sample_percent", i18n.Args{"before": before, "after": pct})
+	},
+		apply: func(ctx context.Context) (string, error) {
+			if _, err := s.updateSettings(ctx, func(v *Settings) error { v.ReviewSamplePercent = &pct; return nil }); err != nil {
+				return "", err
+			}
+			s.settingsChanged(ctx)
+			return fmt.Sprintf("assistant.review_sample_percent is %d from the next judgment on.", pct), nil
+		}}, nil
 }
 
 // launchers are the launchers of the assistant's machine, as the apps list them.

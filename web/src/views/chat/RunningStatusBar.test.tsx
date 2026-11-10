@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { tokenCount, RunningStatusView, statusText, WaitingView } from "./RunningStatusBar";
+import { tokenCount, tokenRate, RunningStatusView, statusText, WaitingView } from "./RunningStatusBar";
 
 afterEach(() => vi.useRealTimers());
 
@@ -12,6 +12,15 @@ describe("tokenCount", () => {
     expect(tokenCount(1200)).toBe("1.2k");
     expect(tokenCount(22_800)).toBe("22.8k");
     expect(tokenCount(412.6)).toBe("413");
+  });
+});
+
+describe("tokenRate (#2518)", () => {
+  it("divides the turn's tokens by its seconds, once it has run long enough", () => {
+    expect(tokenRate(22_800, 975)).toBe(23);
+    expect(tokenRate(0, 3)).toBe(0);
+    expect(tokenRate(120, 2)).toBeUndefined();
+    expect(tokenRate(undefined, 10)).toBeUndefined();
   });
 });
 
@@ -37,6 +46,7 @@ describe("RunningStatusView", () => {
     expect(html).toContain("Frosting…");
     expect(html).toContain("16 分 15 秒");
     expect(html).toContain("↓ 22.8k tokens");
+    expect(html).toContain("23 tok/s");
     expect(html).toContain("text-status-accent");
     expect(html).toContain('data-running-status="on"');
   });
@@ -59,8 +69,8 @@ describe("RunningStatusView", () => {
     expect(html).toContain("Frosting…");
     expect(html).not.toContain("data-running-elapsed");
     expect(html).not.toContain("16 分 15 秒");
-    expect(html).not.toContain("·");
     expect(html).toContain("↓ 22.8k tokens");
+    expect(html).toContain("23 tok/s");
   });
 
   it("says the hub is out of reach, in front of the last state it knew", () => {

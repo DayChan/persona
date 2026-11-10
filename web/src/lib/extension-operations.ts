@@ -1,9 +1,13 @@
 // Installing, upgrading and removing an extension in steps (docs/protocol/protocol.md "Extension install, upgrade and uninstall progress", #3277): the
 // hub runs each as an operation and pushes `extension_operation` as it goes; a page that opens again lists the ones
 // in progress. Only with a hub that has `extension_operations`: an older one keeps the synchronous calls.
-import { api, enc } from "./api";
+// An operation lives only in the memory of the manager running it (#1832): a manager that restarts has none, sends no
+// final push, and the hub only pushes `managers`. So that push lists every manager's operations again, and one a
+// manager no longer lists, or answers 404 for, is let go: the page stops showing it in progress.
+import { api, ApiError, enc } from "./api";
 import { extRoot } from "./extension-api";
 import { itemHeaders, messageManager, otherManager } from "./manager-choice";
+import { currentRoster, installedManagers } from "./managers";
 import { changed } from "./extensions";
 import { previewConsent } from "./extension-model";
 import { bytes } from "./format";
@@ -69,13 +73,26 @@ export const operationsOn = (features: string[] = getState().features) => hubHas
 const OPS = () => `${extRoot()}/-/operations`;
 type Accepted = { operation: ExtensionOperation };
 
-/** The hub's list of operations: the default manager's (the list is not merged). */
-export const listOperations = () => api<{ operations?: ExtensionOperation[] }>(OPS()).then((r) => r.operations ?? []);
+/** A manager's list of operations (none: the default's; the hub doesn't merge this list). */
+export const listOperations = (manager?: string) => api<{ operations?: ExtensionOperation[] }>(OPS(), { headers: itemHeaders(manager) }).then((r) => r.operations ?? []);
+
+/** Whether e says the manager has no such operation (404 `not_found`: it restarted, or the operation ended long ago),
+ *  or no longer is a manager (404 `no_manager`): either way the operation is over. */
+export const opGone = (e: unknown) => e instanceof ApiError && e.status === 404 && (e.code === "not_found" || e.code === "no_manager");
+
+/** p, letting go of operation id of manager when the answer says it is gone (opGone); the error still goes on. */
+function orGone<T>(p: Promise<T>, id: string, manager?: string): Promise<T> {
+  return p.catch((e: unknown) => {
+    if (opGone(e)) forget({ id, manager: otherManager(manager) });
+    throw e;
+  });
+}
+
 // `manager` below: whose operation (ExtensionOperation.manager, or the manager a page installs for); none: the default's.
-export const getOperation = (id: string, manager?: string) => api<ExtensionOperation>(`${OPS()}/${enc(id)}`, { headers: itemHeaders(manager) });
+export const getOperation = (id: string, manager?: string) => orGone(api<ExtensionOperation>(`${OPS()}/${enc(id)}`, { headers: itemHeaders(manager) }), id, manager);
 export const retryOperation = (id: string, manager?: string) =>
-  api<Accepted>(`${OPS()}/${enc(id)}/retry`, { method: "POST", headers: itemHeaders(manager) }).then((r) => track(r.operation, manager));
-export const cancelOperation = (id: string, manager?: string) => api<unknown>(`${OPS()}/${enc(id)}`, { method: "DELETE", headers: itemHeaders(manager) });
+  orGone(api<Accepted>(`${OPS()}/${enc(id)}/retry`, { method: "POST", headers: itemHeaders(manager) }), id, manager).then((r) => track(r.operation, manager));
+export const cancelOperation = (id: string, manager?: string) => orGone(api<unknown>(`${OPS()}/${enc(id)}`, { method: "DELETE", headers: itemHeaders(manager) }), id, manager);
 
 /** Starts installing (or upgrading) a market's extension: download and checks in the background. */
 export const startFromMarket = (market: string, extension: string, manager?: string) =>
@@ -110,11 +127,16 @@ function emit() {
   listeners.forEach((l) => l());
 }
 
+/** raw as this page keeps it: `manager` set to whose it is when another than the default's, else left out. */
+function owned(raw: ExtensionOperation, manager?: string): ExtensionOperation {
+  const owner = otherManager(manager ?? raw.manager);
+  return owner ? (raw.manager === owner ? raw : { ...raw, manager: owner }) : raw.manager ? { ...raw, manager: undefined } : raw;
+}
+
 /** Keeps op (newer than what is known), and tells the pages; an operation that just succeeded refreshes the lists.
  *  `manager`: whose it is (a push's sender, or the manager a request named); none: the default's. */
 export function track(raw: ExtensionOperation, manager?: string): ExtensionOperation {
-  const owner = otherManager(manager ?? raw.manager);
-  const op: ExtensionOperation = owner ? { ...raw, manager: owner } : raw.manager ? { ...raw, manager: undefined } : raw;
+  const op = owned(raw, manager);
   const key = opKey(op);
   const was = ops.get(key);
   if (was && Date.parse(was.updated_at) > Date.parse(op.updated_at)) return was;
@@ -125,30 +147,52 @@ export function track(raw: ExtensionOperation, manager?: string): ExtensionOpera
   return op;
 }
 
-/** Lists the hub's operations again (on opening, after a reconnect). What was pushed or started while the list was
- * on its way stays where it is newer than the list's copy; a list answering after a later one was applied is dropped. */
+/** The managers whose operations are listed: the default (undefined), every other one this page knows an operation of,
+ *  and every other installed one the roster has online (one may have started an install from another device). */
+function listedManagers(): (string | undefined)[] {
+  const others = new Set<string>();
+  for (const o of ops.values()) if (o.manager) others.add(o.manager);
+  const roster = currentRoster();
+  if (roster) for (const m of installedManagers(roster)) if (m.online && otherManager(m.id)) others.add(m.id);
+  return [undefined, ...others];
+}
+
+/** Lists every manager's operations again (on opening, after a reconnect, when a manager reconnects): what a manager
+ * no longer lists is let go (it restarted, or the operation ended long ago). What was pushed or started while the
+ * list was on its way stays where it is newer than the list's copy; a list answering after a later one was applied is
+ * dropped. A manager whose list fails (offline, the network) keeps what is known of it; one the hub no longer has
+ * (404 `no_manager`) loses its operations. */
 export async function reloadOperations() {
   if (!operationsOn()) return;
   const mine = ++listing;
   const since = new Set<string>();
   listsOut.add(since);
   try {
-    const list = await listOperations();
-    if (mine < applied) return;
+    const managers = listedManagers();
+    const answers = await Promise.all(
+      managers.map((m) =>
+        listOperations(m).then(
+          (list) => ({ m, list: list.map((o) => owned(o, m)) }),
+          (e: unknown) => ({ m, list: opGone(e) && m ? [] : null }),
+        ),
+      ),
+    );
+    if (mine < applied || answers.every((a) => a.list === null)) return;
     applied = mine;
-    listed = true;
-    const next = new Map(list.map((o) => [o.id, o]));
-    for (const key of since) {
-      const known = ops.get(key);
-      const listed = next.get(key);
-      if (known && (!listed || Date.parse(known.updated_at) > Date.parse(listed.updated_at))) next.set(key, known);
+    const next = new Map(ops);
+    for (const { m, list } of answers) {
+      if (!list) continue;
+      if (!m) listed = true;
+      const owner = otherManager(m);
+      const fresh = new Map(list.map((o) => [opKey(o), o]));
+      for (const [key, o] of next) if (o.manager === owner && !fresh.has(key) && !since.has(key)) next.delete(key);
+      for (const [key, o] of fresh) {
+        const known = next.get(key);
+        if (!(known && since.has(key) && Date.parse(known.updated_at) > Date.parse(o.updated_at))) next.set(key, o);
+      }
     }
-    // the list is the default manager's: the other managers' operations stay as their pushes left them
-    for (const [key, o] of ops) if (o.manager && !next.has(key)) next.set(key, o);
     ops = next;
     emit();
-  } catch {
-    // a device that may not see them, or the hub is away: keep what is known
   } finally {
     listsOut.delete(since);
   }
@@ -163,6 +207,8 @@ function start() {
   });
   // after hello (its features are in the store by then): events missed while away are not replayed
   onHubEvent("hello", () => void reloadOperations());
+  // a manager came back (or went): one that restarted lost its operations and sends nothing about them (#1832)
+  onHubEvent("managers", () => void reloadOperations());
   void reloadOperations();
 }
 

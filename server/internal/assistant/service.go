@@ -81,29 +81,34 @@ type Service struct {
 	// running is Run's context: it ends when the service stops (runCtx).
 	running atomic.Pointer[context.Context]
 
-	titles     titleBook         // titles.go
-	prefs      settingsBook      // profile.go
-	main       mainBook          // start.go
-	archived   archiveBook       // conversations.go
-	origins    originBook        // origins.go
-	guests     guestBook         // guest.go
-	relays     relayBook         // conversations.go
-	quiet      quietBook         // quiet.go
-	supervise  superviseBook     // supervise_signals.go
-	autoRuns   autoReviewBook    // supervise_autoreview.go
-	reports    reportBook        // reports.go
-	upReports  reportRate        // agent_control.go: report_to_supervisor
-	noteRate   reportRate        // todo_decisions.go: todo_decision_add
-	adoptMu    sync.Mutex        // agent_control.go: one agent_supervise at a time
-	placeBook  placeBook         // places.go
-	accept     acceptBook        // acceptance.go
-	later      laterBook         // later.go: questions that can wait for a briefing
-	brief      briefBook         // briefing.go
-	reporters  reporterBook      // reporters.go
-	sched      schedule          // schedule.go
-	tasks      tasksState        // tasks.go
-	questions  questions         // tools.go (ask_user)
-	askTodos   askTodoBook       // ask_todo.go: the questions nobody answered, now to-dos
+	titles    titleBook      // titles.go
+	prefs     settingsBook   // profile.go
+	main      mainBook       // start.go
+	archived  archiveBook    // conversations.go
+	origins   originBook     // origins.go
+	guests    guestBook      // guest.go
+	relays    relayBook      // conversations.go
+	quiet     quietBook      // quiet.go
+	supervise superviseBook  // supervise_signals.go
+	autoRuns  autoReviewBook // supervise_autoreview.go
+	reports   reportBook     // reports.go
+	upReports reportRate     // agent_control.go: report_to_supervisor
+	noteRate  reportRate     // todo_decisions.go: todo_decision_add
+	adoptMu   sync.Mutex     // agent_control.go: one agent_supervise at a time
+	placeBook placeBook      // places.go
+	accept    acceptBook     // acceptance.go
+	later     laterBook      // later.go: questions that can wait for a briefing
+	brief     briefBook      // briefing.go
+	reporters reporterBook   // reporters.go
+	sched     schedule       // schedule.go
+	tasks     tasksState     // tasks.go
+	questions questions      // tools.go (ask_user)
+	// deadlineSweeping: a sweep of the decisions past their deadline is running (decision_deadline.go).
+	deadlineSweeping atomic.Bool
+	askTodos         askTodoBook // ask_todo.go: the questions nobody answered, now to-dos
+	// minutesMu is held while confirmed action items of meeting minutes become to-dos (kb_minutes.go): one
+	// confirmation at a time reads and records what the others made.
+	minutesMu  sync.Mutex
 	live       contextState      // context.go
 	todos      todoBook          // todos.go
 	work       workBook          // agents_work.go: the Agents business
@@ -116,7 +121,7 @@ type Service struct {
 	workbench  workbenchState    // feishu_workbench_pin.go: the pinned workbench
 	companions companionState    // feishu_companions.go: the notices for a companion bot
 	kb         kbState           // kb.go
-	inbox      inboxBook         // inbox.go
+	inbox      inboxBook         // inbox_book.go
 	board      boardBook         // workspace_board.go: the workspace board
 	viewEvents viewNotifications // views.go: only coalesced notifications; contents are stored first
 	viewMemo   viewMemo          // views.go: encoded cards for the feed snapshot, checked against the database
@@ -257,6 +262,16 @@ func (s *Service) call(ctx context.Context, device, method string, params, out a
 				p["message_source"] = source
 				p["text"] = prompts.MessageSourceText(text, source)
 			}
+		}
+	}
+	if p, ok := params.(map[string]any); ok && method == DeviceAssistantSend {
+		// The node reads a missing is_main as false, and is_main is part of what a process runs: a relay into the main
+		// conversation (deliverRelay) without it started that conversation, or restarted it when idle, on the ordinary
+		// compaction limits (#3028). Only this manager knows which conversation is main; what a sender set stands.
+		if _, set := p["is_main"]; !set {
+			id, _ := p["session_id"].(string)
+			cfg := s.settings(ctx)
+			p["is_main"] = id != "" && cfg.Main == id && cfg.MachineID == device
 		}
 	}
 	if p, ok := params.(map[string]any); ok && method == DeviceAssistantSend && p["supervision"] != true {

@@ -6,6 +6,7 @@
     <string name="settings_ext_dep_disabled">Turn it on first</string>
     <string name="settings_ext_dep_old">Version too old (now %1$s)</string>
     <string name="settings_ext_dep_unknown">Unknown state, preview again</string>
+    <string name="settings_ext_dep_unknown_installed">Unknown state, refresh details</string>
     <string name="settings_ext_sandbox_active">Sandbox is in effect</string>
     <string name="settings_ext_sandbox_inactive">Sandbox requested but not in effect</string>
     <string name="settings_ext_sandbox_off">Sandbox off</string>
@@ -137,6 +138,7 @@
     <string name="settings_ext_card_value">Value</string>
     <string name="settings_ext_card_total">Total</string>
     <string name="settings_ext_card_other">Other</string>
+    <string name="settings_ext_card_remaining">Remaining</string>
     <string name="settings_ext_card_current">Now</string>
     <string name="settings_ext_not_chosen">None</string>
     <string name="settings_ext_search">Search</string>
@@ -332,6 +334,9 @@
     <string name="settings_ext_cua_ready">Cua ready</string>
     <string name="settings_ext_cua_installed">Cua installed</string>
     <string name="settings_ext_machine_not_found">Machine not found</string>
+    <string name="settings_ext_machine_missing">%1$s (no such machine)</string>
+    <string name="settings_ext_launcher_missing">%1$s (no such launcher)</string>
+    <string name="settings_ext_launchers_loading">Loading launchers…</string>
     <string name="settings_ext_no_mac">No Macs on this hub yet.</string>
     <string name="settings_ext_no_machine">No machines on this hub yet.</string>
     <string name="settings_ext_turn_on_title">Turn on “%1$s”?</string>

@@ -63,6 +63,19 @@ nonisolated enum IslandMetrics {
     /// Above the expanded island's rows, below its corners.
     static let rowsTop: CGFloat = 4
 
+    // MARK: The recording activity (docs/apple/live-activity.md「Recording」)
+
+    /// The compact island's time: room for "1:23:45" at `timerNumber` (a two-hour meeting), no more.
+    static let recordingTimerWidth: CGFloat = 54
+    /// The expanded island's time, at `.title3`: "1:23:45" whole.
+    static let recordingExpandedTimerWidth: CGFloat = 92
+    /// The recording's mark on the Lock Screen.
+    static let recordingMark: CGFloat = 40
+    /// Between the Lock Screen's and the expanded island's two buttons.
+    static let buttonGap: CGFloat = 10
+    /// The Lock Screen's inset from the activity's edges.
+    static let lockPadding: CGFloat = 16
+
     // MARK: The settings page's picture of the island
 
     /// The pill, as wide as the island with both sides showing.

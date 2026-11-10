@@ -100,7 +100,10 @@ async function load() {
   vi.resetModules();
   const { initI18n } = await import("../../i18n");
   await initI18n("en");
-  return { ...(await import("./Persona")), t: (await import("../../i18n")).t };
+  const persona = await import("./Persona");
+  // the upload dialog is its own chunk (views/LazyOverlay.tsx): in before it is drawn, in this fresh module set
+  await (await import("../../lib/lazy-page")).loadPages();
+  return { ...persona, t: (await import("../../i18n")).t };
 }
 
 async function draw() {

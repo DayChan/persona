@@ -256,6 +256,21 @@ export function readTranscriptSteps(brainDir, full = false) {
   }
 }
 
+/** Native tool results are intermediate work. A completed assistant reply closes the turn. */
+export function transcriptStatus(steps, now = Date.now()) {
+  const last = steps.findLast((step) => ['USER_INPUT', 'PLANNER_RESPONSE', 'GENERIC', 'ERROR_MESSAGE'].includes(step?.type))
+  if (!last) return 'unknown'
+  if (last.type === 'ERROR_MESSAGE' || ['ERROR', 'CANCELLED', 'CANCELED'].includes(last.status)) return 'idle'
+  if (last.type === 'PLANNER_RESPONSE' && last.status === 'DONE' && typeof last.content === 'string' && last.content.trim() && !last.tool_calls?.length) {
+    return 'done'
+  }
+  if (!['RUNNING', 'PENDING', 'CREATED', 'DONE'].includes(last.status)) return 'unknown'
+  // Only recent unfinished steps establish external activity. Older history remains uncertain.
+  const started = Date.parse(last.created_at)
+  if (!Number.isFinite(started) || now - started > 24 * 60 * 60 * 1000) return 'unknown'
+  return 'working'
+}
+
 export function workspacePathOf(summary, fallbackCwd = '') {
   if (Array.isArray(summary?.WorkspaceURIs) && summary.WorkspaceURIs.length > 0) {
     const u = String(summary.WorkspaceURIs[0])

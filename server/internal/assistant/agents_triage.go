@@ -65,7 +65,7 @@ func (s *Service) triageTurnModel(ctx context.Context, v *workView, machine stri
 	}
 	s.work.mu.Unlock()
 	var out triageOut
-	if err := s.purposeModel("agent.triage").JSON(ctx, prompts.RenderAgentTriage(prompts.AgentTriage{Owner: s.owner(ctx)}),
+	if err := s.purposeModel("agent.triage").JSON(ctx, prompts.RenderAgentTriage(prompts.AgentTriage{Owner: s.owner(ctx), Language: answerLanguage(s.hello(ctx).Locale)}),
 		prompts.RenderAgentTriageInput(in), &out); err != nil {
 		return nil, false, err
 	}

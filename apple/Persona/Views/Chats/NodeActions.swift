@@ -64,9 +64,11 @@ nonisolated struct TerminalPanes: Decodable, Sendable, Equatable {
     }
 }
 
-/// What `panes/git` did: a one-line summary for the toast.
+/// What `panes/git` did: what came of it (`outcome`, said in the app's language, #1888), and the node's own one-line
+/// summary, which is all an older node sends.
 nonisolated struct PaneGitResult: Decodable, Sendable {
     var op: String?
+    var outcome: String?
     var message: String?
 }
 
@@ -124,7 +126,20 @@ nonisolated enum NodeMenu {
             case .fetch: Theme.Icon.gitFetch
             }
         }
-        /// The toast after it ran: the node's one-line summary ("Already up to date"), or Done.
+        /// What came of it in the app's language (#1888); nil for an outcome this app doesn't know (an older node
+        /// sends none), which then shows the node's own words.
+        static func outcome(_ code: String?) -> String? {
+            switch code {
+            case "fetched": String(localized: "Remote updates fetched")
+            case "up_to_date": String(localized: "Already up to date")
+            case "pulled": String(localized: "Pulled the latest code")
+            case "nothing_to_push": String(localized: "No commits to push")
+            case "pushed": String(localized: "Pushed")
+            default: nil
+            }
+        }
+
+        /// The toast after it ran: what came of it, else the node's one-line summary, or Done.
         func done(_ message: String?) -> String {
             let m = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let said = m.isEmpty ? String(localized: "Done [Extension System Presentation c0b3fb]") : m
@@ -248,7 +263,7 @@ final class NodeActions {
             do {
                 let data = try await api.nodeAction(machine: machine.id, "panes/git", body, timeout: 100)
                 let result = try? JSON.decoder.decode(PaneGitResult.self, from: data)
-                model.toast = Toast(op.done(result?.message), style: .success)
+                model.toast = Toast(op.done(NodeMenu.GitOp.outcome(result?.outcome) ?? result?.message), style: .success)
                 Haptics.success()
             } catch {
                 fail(String(localized: "\(op.title) failed"), error)

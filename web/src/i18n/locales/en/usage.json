@@ -13,7 +13,7 @@
   "days_hours": "{d}d {h}h",
   "reset_in": "Resets in {countdown}",
   "reset_at": "Resets at {time}",
-  "source_local": "This computer",
+  "source_local": "Computer",
   "sources_title": "From: {sources}",
   "problem_unreachable": "The gateway can't be reached; these are its last numbers",
   "problem_rejected": "The gateway turned the key away; update it in Admin → Usage sources. These are its last numbers",

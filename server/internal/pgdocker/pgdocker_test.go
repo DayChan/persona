@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -133,6 +134,27 @@ func TestProvisionManagerDBIsIdempotent(t *testing.T) {
 	o.Run, o.LookPath = f2.run, func(string) (string, error) { return "", errors.New("none") }
 	if _, _, err := ProvisionManagerDB(ctx, "m-0a1b2c", o); !errors.Is(err, ErrNoDocker) || len(f2.calls) != 0 {
 		t.Fatalf("no docker: %v %v", err, f2.calls)
+	}
+}
+
+// A container is made running postgres with ServerArgs after the image (lz4 for the WAL's full page images, fewer
+// checkpoints), and scripts/deploy/db.sh makes the hub's with the same.
+func TestCreateRunsPostgresWithServerArgs(t *testing.T) {
+	f := &fake{}
+	c := &Container{Name: "persona-postgres", Volume: "persona-pgdata", Port: 18661, Run: f.run}
+	if err := c.Create(context.Background(), "pw"); err != nil {
+		t.Fatal(err)
+	}
+	want := " " + Image + " postgres -c wal_compression=lz4 -c checkpoint_timeout=15min"
+	if f.count("docker run") != 1 || !strings.HasSuffix(f.calls[len(f.calls)-1], want) {
+		t.Fatalf("docker run does not end with %q:\n%s", want, strings.Join(f.calls, "\n"))
+	}
+	dbSh, err := os.ReadFile("../../../scripts/deploy/db.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dbSh), "\n    "+Image+" "+strings.Join(ServerArgs, " ")+" >/dev/null\n") {
+		t.Errorf("scripts/deploy/db.sh does not start %s with %v", Image, ServerArgs)
 	}
 }
 

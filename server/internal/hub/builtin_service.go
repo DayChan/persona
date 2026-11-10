@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/clitext"
 	"github.com/nwverse/persona/server/internal/identity"
 	"github.com/nwverse/persona/server/internal/managerconf"
 )
@@ -21,8 +23,16 @@ import (
 
 // ManagerMode is `persona-hub manager-mode [child|service]`: hub.json's assistant.mode, shown, or set (the other keys
 // as they were). A running hub reads it when it starts: the change takes effect with `persona-hub switch` (or a
-// restart of its service).
+// restart of its service). Help asked for prints the usage on out (exit 0); a usage mistake is a clitext.UsageError
+// (exit 2), found before the state directory is made.
 func ManagerMode(args []string, out io.Writer) error {
+	if slices.ContainsFunc(args, isManagerModeHelp) {
+		_, err := fmt.Fprintln(out, clitext.Named(managerModeUsage))
+		return err
+	}
+	if err := checkManagerModeArgs(args); err != nil {
+		return err
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -34,9 +44,29 @@ func ManagerMode(args []string, out io.Writer) error {
 	return managerMode(dir, args, out)
 }
 
+// managerModeUsage is `hub manager-mode`'s usage (clitext.Named puts the program's name in).
+const managerModeUsage = `usage: personad hub manager-mode [child|service]
+  (nothing)  show hub.json's assistant.mode
+  child      the hub starts the built-in manager (the default)
+  service    the built-in manager is a service of its own
+  A change is taken at the hub's next start: personad hub switch (or restart its service).`
+
+func isManagerModeHelp(a string) bool { return a == "help" || clitext.IsHelpArg(a) }
+
+// checkManagerModeArgs refuses anything but child, service or nothing.
+func checkManagerModeArgs(args []string) error {
+	switch {
+	case len(args) > 1:
+		return clitext.UsageError("manager-mode takes child, service or nothing\n" + clitext.Named(managerModeUsage))
+	case len(args) == 1 && args[0] != AssistantModeChild && args[0] != AssistantModeService:
+		return clitext.UsageError(fmt.Sprintf("manager-mode %q: child or service\n%s", args[0], clitext.Named(managerModeUsage)))
+	}
+	return nil
+}
+
 func managerMode(dir string, args []string, out io.Writer) error {
-	if len(args) > 1 {
-		return errors.New("manager-mode takes child, service or nothing")
+	if err := checkManagerModeArgs(args); err != nil {
+		return err
 	}
 	if len(args) == 0 {
 		cfg, err := readHubJSON(dir)
@@ -60,9 +90,6 @@ func managerMode(dir string, args []string, out io.Writer) error {
 		return err
 	}
 	mode := args[0]
-	if mode != AssistantModeChild && mode != AssistantModeService {
-		return fmt.Errorf("manager-mode %q: child or service", mode)
-	}
 	err := editHubJSON(dir, func(o *jsonObject) error {
 		a, err := o.Object("assistant")
 		if err != nil {

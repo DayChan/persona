@@ -23,6 +23,9 @@ func writeGitFile(t *testing.T, path, body string) {
 // them in their own folders), a submodule and a detached HEAD.
 func TestReadGitPlace(t *testing.T) {
 	home := t.TempDir()
+	// readGitPlace walks the filesystem itself, so GIT_CEILING_DIRECTORIES does not apply. An empty .git file
+	// stops discovery at the fixture boundary even when the temporary directory's parent is a repository.
+	writeGitFile(t, filepath.Join(home, ".git"), "")
 	repo := filepath.Join(home, "Code", "app")
 	writeGitFile(t, filepath.Join(repo, ".git", "HEAD"), "ref: refs/heads/main\n")
 	if err := os.MkdirAll(filepath.Join(repo, "web", "src"), 0o755); err != nil {

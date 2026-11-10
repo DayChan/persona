@@ -5,12 +5,15 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/nwverse/persona/server/internal/clitext"
 )
@@ -45,6 +48,13 @@ func silentHub(t *testing.T) string {
 		}
 	})
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	peerCLIHubAt(t, port)
+	return port
+}
+
+// peerCLIHubAt is an empty HOME whose hub.json points the commands at the hub on 127.0.0.1:port.
+func peerCLIHubAt(t *testing.T, port string) {
+	t.Helper()
 	home := peerCLIHome(t)
 	if err := os.MkdirAll(filepath.Join(home, ".persona"), 0o700); err != nil {
 		t.Fatal(err)
@@ -53,7 +63,6 @@ func silentHub(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(home, ".persona", "hub.json"), []byte(hubJSON), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return port
 }
 
 // peerCLIHome is an empty HOME for LoadConfig.
@@ -120,6 +129,46 @@ func TestPeerCommandsOnAHubThatNeverAnswers(t *testing.T) {
 				t.Errorf("%s: %v, want the hub on port %s not answering", name, err, port)
 			}
 		})
+	}
+}
+
+// `peer list` prints other hubs' names, ids and addresses: a discovered hub's come from an mDNS advert any host on the
+// LAN can send, a paired one's from that hub. Every control character is shown, not sent to the terminal, and each
+// hub stays on one line, so a hostile name cannot run terminal sequences or print a fake line.
+func TestPeerListPrintsOtherHubsTextInert(t *testing.T) {
+	const hostile = `Office\u001b]0;pwned\u0007\r\nfake line`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/admin/cli/peers":
+			io.WriteString(w, `{"peers":[{"hub_id":"h1\u009b2J","name":"`+hostile+`","state":"offline","error":"dial\u001b[31m\nfailed","machines":1,"role":"member"}],`+
+				`"discovered":[{"hub_id":"h2","name":"`+hostile+`","addresses":["https://192.0.2.6:18662\u0007"],"fp":""}]}`)
+		case "/api/v1/admin/cli/mesh":
+			io.WriteString(w, `{"role":"member","term":3,"center":{"hub_id":"h1","name":"`+hostile+`","online":true}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+	peerCLIHubAt(t, port)
+	var out strings.Builder
+	if err := PeerCommand(context.Background(), []string{"list"}, strings.NewReader(""), &out); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if strings.ContainsFunc(got, func(r rune) bool { return r != '\n' && unicode.Is(unicode.Cc, r) }) {
+		t.Errorf("raw control characters in %q", got)
+	}
+	if n := strings.Count(got, "\n"); n != 3 || strings.Contains(got, "\nfake line") {
+		t.Errorf("%d lines, want 3 (center, one peer, one discovered) and no injected line: %q", n, got)
+	}
+	const name = "Office<ESC>]0;pwned<U+0007><U+000D><U+000A>fake line"
+	for _, want := range []string{"中心是「" + name + "」（h1，",
+		"h1<U+009B>2J  " + name + "  成员  连不上：dial<ESC>[31m<U+000A>failed  1 台电脑\n",
+		"局域网里发现：h2  " + name + "  https://192.0.2.6:18662<U+0007>\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %q", want, got)
+		}
 	}
 }
 

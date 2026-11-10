@@ -224,6 +224,13 @@ internal fun loadMessage(error: Exception): Int {
     return when {
         failure?.code == "kb_disabled" -> R.string.knowledge_disabled_text
         failure?.code == "kb_unavailable" -> R.string.knowledge_opening
+        failure?.code == "kb_read_only" -> persona.core.designsystem.R.string.designsystem_knowledge_read_only
+        failure?.code == "assistant_offline" -> persona.core.designsystem.R.string.designsystem_feedback_assistant_restarting
+        failure?.code == "node_unreachable" -> persona.core.designsystem.R.string.designsystem_feedback_computer_offline
+        failure?.code == "timeout" || failure?.status == 504 -> R.string.knowledge_timeout
+        failure?.status == 401 -> persona.core.designsystem.R.string.designsystem_feedback_pairing_expired
+        failure?.status == 403 -> R.string.knowledge_forbidden
+        failure?.status == 404 -> R.string.knowledge_missing
         failure?.status != null -> R.string.knowledge_unreadable
         error is IOException -> R.string.knowledge_unreachable
         else -> R.string.knowledge_unreadable

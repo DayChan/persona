@@ -80,7 +80,8 @@ QUOTED = re.compile(r"`([^`\s]+)`")
 # A Markdown link target: [text](target) or [text](target "title"); <target> is unwrapped below.
 # A bare target may hold one level of balanced parentheses, as in foo(1).md.
 LINK = re.compile(r"\]\(\s*(<[^>]*>|(?:[^()\s]|\([^()\s]*\))+)(?:\s+\"[^\"]*\")?\s*\)")
-FENCE = re.compile(r"^\s*(```|~~~)")
+# A fence line: three or more backticks or tildes, then the info string (CommonMark 4.5).
+FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
 INLINE_CODE = re.compile(r"(`+).*?\1")
 SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
@@ -116,19 +117,27 @@ def quoted_paths(line):
         yield path
 
 
-def link_targets(text):
-    """Yield (line number, path) for each relative link target outside code blocks and inline code."""
-    fence = None
+def outside_fences(text):
+    """Yield (line number, line) for each line outside fenced code blocks.
+
+    A backtick fence's info string has no backtick, so a line that starts with an inline span showing a fence
+    (```` ```mermaid ````) opens nothing. A fence closes at a line of its own character, at least as long, with
+    nothing after it, or at the end of the file."""
+    fence = ""
     for number, line in enumerate(text.splitlines(), 1):
         mark = FENCE.match(line)
-        if mark:
-            if fence is None:
-                fence = mark.group(1)
-            elif mark.group(1) == fence:
-                fence = None
-            continue
-        if fence is not None:
-            continue
+        if not fence:
+            if mark and not (mark[1][0] == "`" and "`" in mark[2]):
+                fence = mark[1]
+            else:
+                yield number, line
+        elif mark and mark[1][0] == fence[0] and len(mark[1]) >= len(fence) and not mark[2].strip():
+            fence = ""
+
+
+def link_targets(text):
+    """Yield (line number, path) for each relative link target outside code blocks and inline code."""
+    for number, line in outside_fences(text):
         for target in LINK.findall(INLINE_CODE.sub("", line)):
             target = target.strip("<>")
             if not target or target.startswith("#") or SCHEME.match(target):  # anchors, URLs, mailto:
@@ -263,10 +272,19 @@ class DocPathTests(unittest.TestCase):
                     "```md",
                     "[fenced](fenced-missing.md)",
                     "```",
+                    "  ```` ```mermaid ```` starts a line but is an inline span, not a fence",
+                    "[after the span](span-missing.md)",
+                    "````md",
+                    "```",
+                    "[inside the longer fence](long-missing.md)",
+                    "````",
+                    "[after the long fence](long-after-missing.md)",
                 ]) + "\n")
                 self.assertEqual(["spec/fixtures/wire/README.md:1: lark.json",
                                   "spec/fixtures/wire/README.md:2: ../../../docs/gone.md",
-                                  "spec/fixtures/wire/README.md:5: bar(2).md"], missing_links(doc))
+                                  "spec/fixtures/wire/README.md:5: bar(2).md",
+                                  "spec/fixtures/wire/README.md:10: span-missing.md",
+                                  "spec/fixtures/wire/README.md:15: long-after-missing.md"], missing_links(doc))
 
     def test_module_guides_are_discovered_recursively(self):
         with tempfile.TemporaryDirectory(prefix="doc-modules-") as directory:

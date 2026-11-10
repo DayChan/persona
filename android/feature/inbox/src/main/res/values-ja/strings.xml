@@ -12,6 +12,35 @@
     <string name="inbox_close">閉じる</string>
     <string name="inbox_expand">展開</string>
     <string name="inbox_collapse">折りたたむ</string>
+    <string name="inbox_mark_done">対応済みにする</string>
+    <string name="inbox_group_agents">あなたを待っている Agent</string>
+    <string name="inbox_group_mail">メール · %1$s</string>
+    <string name="inbox_group_just">たった今</string>
+    <string name="inbox_group_today">今日</string>
+    <string name="inbox_group_yesterday">昨日</string>
+    <string name="inbox_group_week">7日以上前</string>
+    <string name="inbox_group_month">1か月以上前</string>
+    <string name="inbox_grouping_source">ソース別</string>
+    <string name="inbox_grouping_time">時間別</string>
+    <string name="inbox_jump_to">移動</string>
+    <string name="inbox_fold_all">すべて折りたたむ</string>
+    <string name="inbox_unfold_all">すべて展開</string>
+    <string name="inbox_select_all">すべて選択</string>
+    <string name="inbox_deselect_all">選択を解除</string>
+    <string name="inbox_end_selection">選択を終了</string>
+    <string name="inbox_pick_group">「%1$s」をすべて選択</string>
+    <string name="inbox_load_older">さらに読み込む</string>
+    <string name="inbox_loading_older">読み込み中…</string>
+    <string name="inbox_older_failed">以前の項目を読み込めませんでした</string>
+    <plurals name="inbox_selected_count">
+        <item quantity="other">%1$d件を選択</item>
+    </plurals>
+    <plurals name="inbox_group_picked">
+        <item quantity="other">%1$d件選択</item>
+    </plurals>
+    <plurals name="inbox_picked_folded">
+        <item quantity="other">%1$d件を選択（折りたたみ中 %2$d件）</item>
+    </plurals>
     <string name="inbox_source_lark">Lark</string>
     <string name="inbox_source_mail">メール</string>
     <string name="inbox_moments">Moments</string>
@@ -131,6 +160,8 @@
     <string name="inbox_handoff_who">依頼先</string>
     <string name="inbox_handoff_main_chat">メインチャット</string>
     <string name="inbox_handoff_no_agents">オンラインのエージェントがいません。まずPersonaに任せることができます。</string>
+    <string name="inbox_handoff_last_time">前回</string>
+    <string name="inbox_handoff_last_gone">前回渡したエージェントは終了しているため、今回は Persona に渡します。</string>
     <string name="inbox_handoff_mark_done">同時に対応済みにする</string>
     <string name="inbox_handoff_sending">引き継ぎ中…</string>
     <string name="inbox_hand_to_persona">Personaに任せる</string>

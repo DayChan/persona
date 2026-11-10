@@ -1,0 +1,97 @@
+{
+  "card": {
+    "type": "ring",
+    "title": "今天的热量分配",
+    "subtitle": "推荐全天摄入",
+    "total": {
+      "value": 2250,
+      "unit": "kcal"
+    },
+    "segments": [
+      {
+        "label": "早餐",
+        "value": 555,
+        "note": "已吃"
+      },
+      {
+        "label": "午餐",
+        "value": 900
+      },
+      {
+        "label": "晚餐",
+        "value": 750
+      }
+    ],
+    "rest": {
+      "label": "弹性空间",
+      "value": 45
+    }
+  },
+  "view": {
+    "sections": [
+      {
+        "title": "今天的热量分配",
+        "items": [
+          {
+            "type": "text",
+            "text": "推荐全天摄入",
+            "style": "secondary"
+          },
+          {
+            "type": "chart",
+            "kind": "donut",
+            "series": [
+              {
+                "points": [
+                  {
+                    "label": "早餐",
+                    "value": 555,
+                    "display": "555 kcal"
+                  },
+                  {
+                    "label": "午餐",
+                    "value": 900,
+                    "display": "900 kcal"
+                  },
+                  {
+                    "label": "晚餐",
+                    "value": 750,
+                    "display": "750 kcal"
+                  },
+                  {
+                    "label": "弹性空间",
+                    "value": 45,
+                    "display": "45 kcal"
+                  }
+                ]
+              }
+            ],
+            "unit": "kcal",
+            "center": "2,250 kcal"
+          },
+          {
+            "type": "row",
+            "value": "555 kcal",
+            "title": "早餐",
+            "subtitle": "已吃"
+          },
+          {
+            "type": "row",
+            "value": "900 kcal",
+            "title": "午餐"
+          },
+          {
+            "type": "row",
+            "value": "750 kcal",
+            "title": "晚餐"
+          },
+          {
+            "type": "row",
+            "value": "45 kcal",
+            "title": "弹性空间"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -666,6 +666,7 @@ func (s *Service) putEvent(c assistantwire.InboxSource, thread string, e planned
 		b.fileMuted(it, time.Now(), m.Name)
 	}
 	b.items[it.ID] = it
+	delete(b.listMemo.kept, it.ID) // saved after the batch's other appends (writeGroup): listed as it is meanwhile
 	return it
 }
 

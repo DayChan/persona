@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"strings"
 
@@ -10,7 +11,7 @@ import (
 
 func (m *Meta) applyQueue(op, content string) {
 	// Queued text keeps the <pasted_content> wrapper of long / voice input; show what the user wrote.
-	content = strings.TrimSpace(pastedRe.ReplaceAllString(content, ""))
+	content = strings.TrimSpace(dropTagged(pastedRe, "pasted_content", content))
 	if from, body, ok := CrossSession(content); ok {
 		content = "【来自 " + from + "】" + body
 	}
@@ -49,8 +50,26 @@ var caveatRe = lazyre.New(`(?s)<local-command-caveat>.*?</local-command-caveat>`
 var teammateRe = lazyre.New(`(?s)<teammate-message([^>]*)>\s*(.*?)\s*</teammate-message>`)
 var teammateIDRe = lazyre.New(`teammate_id="([^"]*)"`)
 
+// dropTagged removes re's matches from s, every one of which holds lit. A replacement copies s even when nothing
+// matches, and every user line comes through here: a line without lit is given back as it is.
+func dropTagged(re *lazyre.Regexp, lit, s string) string {
+	if !strings.Contains(s, lit) {
+		return s
+	}
+	return re.ReplaceAllString(s, "")
+}
+
+// noticeKey is what Meta.notified keeps of a notification: a digest, not the text, which can be kilobytes.
+type noticeKey [16]byte
+
+func noticeKeyOf(s string) noticeKey {
+	sum := sha256.Sum256([]byte(s))
+	return noticeKey(sum[:16])
+}
+
 func userText(mk func(int, string, string) proto.Item, s string, meta *Meta) []proto.Item {
-	trimmed := legacyLarkAgent(strings.TrimSpace(caveatRe.ReplaceAllString(pastedRe.ReplaceAllString(ContextRe.ReplaceAllString(s, ""), ""), "")))
+	s = dropTagged(caveatRe, "<local-command-caveat>", dropTagged(pastedRe, "pasted_content", dropTagged(ContextRe, "-context>", s)))
+	trimmed := legacyLarkAgent(strings.TrimSpace(s))
 	if trimmed == "" {
 		return nil
 	}
@@ -72,7 +91,7 @@ func userText(mk func(int, string, string) proto.Item, s string, meta *Meta) []p
 	// as a Bash call under it (the input line comes first; its command is kept for the output's call).
 	if strings.HasPrefix(trimmed, "<bash-input>") {
 		cmd := strings.TrimSpace(firstTag(trimmed, "bash-input"))
-		meta.bashInput, meta.localInput = cmd, true
+		meta.bashInput, meta.localInput = strings.Clone(cmd), true // kept until its output: not the whole line
 		it := mk(0, "user", proto.KindText)
 		it.Text = clip("! " + cmd)
 		return []proto.Item{it}
@@ -87,6 +106,10 @@ func userText(mk func(int, string, string) proto.Item, s string, meta *Meta) []p
 		use.ToolUseID, use.ToolName, use.ToolInput = id, "Bash", input
 		res := mk(1, "user", proto.KindToolResult)
 		res.ToolUseID, res.Text, res.IsError = id, clip(out), strings.TrimSpace(firstTag(trimmed, "bash-stderr")) != ""
+		res.Outcome = &proto.ToolOutcome{Status: proto.OutcomeOK, Tail: outputTail(out)} // no exit code is recorded
+		if res.IsError {
+			res.Outcome.Status = proto.OutcomeFailed
+		}
 		return []proto.Item{use, res}
 	}
 	if strings.HasPrefix(trimmed, "<command-name>") || strings.HasPrefix(trimmed, "<command-message>") {
@@ -128,13 +151,14 @@ func userText(mk func(int, string, string) proto.Item, s string, meta *Meta) []p
 		return []proto.Item{it}
 	}
 	if strings.HasPrefix(trimmed, "<task-notification>") {
-		if meta.notified[trimmed] {
+		key := noticeKeyOf(trimmed)
+		if meta.notified[key] {
 			return nil
 		}
 		if meta.notified == nil {
-			meta.notified = map[string]bool{}
+			meta.notified = map[noticeKey]bool{}
 		}
-		meta.notified[trimmed] = true
+		meta.notified[key] = true
 		it := mk(0, "system", proto.KindNotice)
 		it.Task, it.Text = taskNote(trimmed)
 		meta.noteCall(it.Task)

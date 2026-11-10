@@ -39,7 +39,7 @@ class ManagerWorkerTests(unittest.TestCase):
         self.publisher_config.write_text('{"activation":"frozen"}')
         self.config = dict(checkout=str(self.root), state_dir=str(self.root / 'state'),
             repository='example/canonical', update_url='https://example.invalid/dl',
-            publish_command=['hub-publisher'], publish_nodes=True,
+            publish_command=['hub-publisher'], publish_nodes=True, report_commit_status=True,
             manager_targets={'m-work': dict(publish_command=['manager-publisher', '--config', str(self.publisher_config)],
                                            activation='frozen'),
                              'm-home': dict(publish_command=['home-publisher'])})
@@ -367,6 +367,28 @@ class ManagerWorkerTests(unittest.TestCase):
         (directory / manifest['files']['darwin-arm64']['name']).write_bytes(b'corrupt')
         with self.assertRaises(ValueError):
             worker.cache_ready(directory, False, True)
+
+    def test_default_reporting_off_preserves_checked_activation_exit(self):
+        del self.config['report_commit_status']
+        with self.assertRaises(SystemExit) as raised:
+            self.invoke(phase='checked')
+        self.assertEqual(raised.exception.code, 3)
+        result = json.loads((self.root / 'state/manager/m-work/last.json').read_text())
+        self.assertEqual(result['result'], 'checked')
+        self.assertFalse(result['report_commit_status'])
+        self.assertFalse(any(c[0] == 'gh' for c in self.calls))
+
+    def test_reporting_off_preserves_corrupt_manager_cache_failure(self):
+        self.config['report_commit_status'] = False
+        result = self.invoke(['--validate-only'])
+        manifest = json.loads((Path(result['evidence']) / 'manager-manifest.json').read_text())
+        (Path(result['evidence']) / manifest['files']['darwin-arm64']['name']).write_bytes(b'corrupt')
+        self.calls.clear()
+        with self.assertRaises(ValueError):
+            self.invoke()
+        saved = json.loads((self.root / 'state/manager/m-work/last.json').read_text())
+        self.assertEqual(saved['result'], 'failure')
+        self.assertFalse(any(c[0] == 'gh' for c in self.calls))
 
 
 if __name__ == '__main__':

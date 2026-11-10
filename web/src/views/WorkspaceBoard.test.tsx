@@ -72,6 +72,7 @@ describe("the workflow board with many cards and Agents", () => {
     reset();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    localStorage.removeItem("persona.workspace-board.view");
   });
 
   it("reads no Agent and re-renders no kept card on a search keystroke, and each Agent once when they change", async () => {
@@ -108,5 +109,35 @@ describe("the workflow board with many cards and Agents", () => {
     expect(live.reads).toBeGreaterThan(0);
     expect(cardText("c7")).toContain(`${PER_CARD / 2} 个 Agent`);
     expect(cardText("c8")).toContain(`${PER_CARD} 个 Agent`);
+  });
+
+  it("flows cards by live agent state in the auto view, with actions on the card", async () => {
+    localStorage.setItem("persona.workspace-board.view", "auto");
+    await act(() => refresh());
+    setAgents(agents());
+    act(() => root.render(<WorkspaceBoard />));
+    await flush();
+    const lane = (name: string) => host.querySelector(`section[aria-label="${name}"]`);
+    const inLane = (name: string, id: string) => lane(name)?.querySelector(`article[data-card-id="${id}"]`) !== null;
+    // every session idle: every card waits for review, nothing needs you
+    expect(lane("待验收")?.querySelectorAll("article[data-card-id]").length).toBe(CARDS);
+    expect(lane("需要你")?.querySelectorAll("article[data-card-id]").length ?? 0).toBe(0);
+
+    const rows = agents();
+    rows[0] = { ...rows[0], state: "needs_you" }; // c0's agent
+    rows[1] = { ...rows[1], state: "working" }; // c1's agent
+    setAgents(rows);
+    expect(inLane("需要你", "c0")).toBe(true);
+    expect(inLane("待验收", "c0")).toBe(false);
+    expect(inLane("工作中", "c1")).toBe(true);
+    expect(lane("待验收")?.querySelectorAll("article[data-card-id]").length).toBe(CARDS - 2);
+    expect(host.textContent).toContain("打开会话");
+
+    // the agent is answered and stops: the card flows back to review without any dragging
+    rows[0] = { ...rows[0], state: "idle" };
+    rows[1] = { ...rows[1], state: "idle" };
+    setAgents(rows);
+    expect(inLane("待验收", "c0")).toBe(true);
+    expect(inLane("待验收", "c1")).toBe(true);
   });
 });

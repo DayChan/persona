@@ -17,6 +17,9 @@ import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
 import okhttp3.*
 import kotlin.random.Random
+import persona.core.hub.tunnel.HubTunnel
+import persona.core.hub.tunnel.HubWay
+import persona.core.hub.tunnel.HubWays
 
 data class HubNetwork(
     val id: String,
@@ -51,6 +54,11 @@ data class HubConnectionConfig(
     val center: Boolean = false,
     /** The hub id of the group's center, if known. */
     val centerHubId: String? = null,
+    /**
+     * Ways through to this hub and the group's other hubs when their addresses do not answer (docs/operations/network.md
+     * "Connecting to hub through SSH"), in the order tried. Opened through [OkHttpHubConnection]'s `ways`.
+     */
+    val tunnels: List<HubTunnel> = emptyList(),
 )
 
 /** Call onReady to restore subscriptions and reconcile pending interactions after hello. */
@@ -71,6 +79,10 @@ class OkHttpHubConnection(
      * when the hub only rejected the borrowed group credential. Not called for a connection without [HubConnectionConfig.members].
      */
     private val onMemberRevoked: (hubId: String, ownToken: Boolean) -> Unit = { _, _ -> },
+    /** Runs the tunnels of [HubConnectionConfig.tunnels]; without it they are not used. */
+    private val ways: HubWays? = null,
+    /** How often a socket that went through a tunnel because no address answered asks the addresses again. */
+    private val tunnelRecheckMillis: Long = HubWay.RECHECK_MILLIS,
 ) : HubConnection, ConnectionDiagnosticsSource, AutoCloseable {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val lock = Any()
@@ -82,6 +94,9 @@ class OkHttpHubConnection(
     /** Hubs that refused their credential, with the member as it was then; a changed member is tried again. */
     private val excluded = HashMap<String, HubMember>()
     @Volatile private var homeExcluded = false
+    @Volatile private var tunnels: List<HubTunnel> = config.tunnels
+    /** By the key of a tunnel's loopback address: the tunnel and the hub that answers through it. */
+    private val tunnelRoutes = java.util.concurrent.ConcurrentHashMap<String, Pair<HubTunnel, Owner>>()
     private val _memberEndpoints = MutableStateFlow<Map<String, List<Endpoint>>>(emptyMap())
     /** Candidates the other hubs of the group sent in their hello / endpoints events while connected through them. */
     val memberEndpoints = _memberEndpoints.asStateFlow()
@@ -127,6 +142,9 @@ class OkHttpHubConnection(
     val overrides = _overrides.asStateFlow()
     private val _route = MutableStateFlow<HubRoute?>(null)
     val route = _route.asStateFlow()
+    private val _tunnel = MutableStateFlow<HubTunnel?>(null)
+    /** The tunnel [route] goes through; null while it goes straight to a hub, or there is none. */
+    val tunnel = _tunnel.asStateFlow()
     private val _failure = MutableStateFlow<HubFailure?>(null)
     val failure = _failure.asStateFlow()
     private val _heartbeat = MutableStateFlow(Heartbeat(20, 15))
@@ -215,19 +233,104 @@ class OkHttpHubConnection(
 
     private fun clearRoute() {
         _route.value = null
+        _tunnel.value = null
         updateDiagnostics { it.copy(currentPath = null, fingerprint = null, heartbeatSeconds = null, pongTimeoutSeconds = null) }
     }
 
-    /** Races the enabled candidates in the order settings lists them; diagnostics start over for this attempt. */
+    /**
+     * Races the enabled candidates in the order settings lists them; diagnostics start over for this attempt. With
+     * tunnels, the way is picked step by step as [HubWay.next] says.
+     */
     private suspend fun selectRoute(): HubRoute {
         val candidates = usableEndpoints()
         syncPins()
+        tunnelRoutes.clear()
         updateDiagnostics { it.copy(candidates = candidates.map { endpoint ->
             ConnectionCandidate(endpoint.url, endpoint.kind, CoreText.of(Key.NotMeasured))
         }) }
+        val tunnels = usableTunnels()
+        val ways = ways
+        if (tunnels.isEmpty() || ways == null) return selectDirect(candidates)
+        val options = tunnels.map { HubWay.Option(it.always, ways.recent(it)) }
+        var seen = HubWay.Seen()
+        val through = HashMap<Int, HubRoute>()
+        var direct: Result<HubRoute>? = null
+        while (true) {
+            when (val step = HubWay.next(options, seen)) {
+                is HubWay.Step.Open -> {
+                    val route = openTunnel(ways, tunnels[step.index])
+                    if (route != null) through[step.index] = route
+                    seen = seen.copy(opened = seen.opened + (step.index to (route != null)))
+                }
+                is HubWay.Step.AskDirect -> {
+                    // A tunnel used last time starts while the addresses are asked, so one that does not answer costs no wait on top.
+                    val (answer, warmed) = coroutineScope {
+                        val warming = if (step.warming.isEmpty()) null else async {
+                            val tried = LinkedHashMap<Int, HubRoute?>()
+                            for (index in step.warming) {
+                                tried[index] = openTunnel(ways, tunnels[index])
+                                if (tried[index] != null) break
+                            }
+                            tried
+                        }
+                        val answer = try { Result.success(selectDirect(candidates)) }
+                            catch (cancelled: CancellationException) { throw cancelled }
+                            catch (error: Exception) { Result.failure(error) }
+                        if (answer.isSuccess) warming?.cancel()
+                        answer to if (answer.isSuccess) emptyMap() else warming?.await().orEmpty()
+                    }
+                    direct = answer
+                    warmed.forEach { (index, route) -> if (route != null) through[index] = route }
+                    seen = seen.copy(direct = answer.isSuccess, opened = seen.opened + warmed.mapValues { it.value != null })
+                }
+                HubWay.Step.Direct -> {
+                    closeTunnels()
+                    return direct!!.getOrThrow()
+                }
+                is HubWay.Step.Through -> {
+                    closeTunnels(except = tunnels[step.index], forget = false)
+                    return through.getValue(step.index)
+                }
+                HubWay.Step.None -> {
+                    closeTunnels(forget = false)
+                    throw direct?.exceptionOrNull() ?: HubFailure(HubError.Unreachable)
+                }
+            }
+        }
+    }
+
+    private suspend fun selectDirect(candidates: List<Endpoint>): HubRoute {
         val centerEndpoints = routes().filter { it.second.center }.map { endpointKey(it.first.url) }.toSet()
         return probeRoutes(candidates, centerEndpoints = centerEndpoints)
     }
+
+    /** The tunnel up and the hub answering its health check through it; null when either fails. */
+    private suspend fun openTunnel(ways: HubWays, tunnel: HubTunnel): HubRoute? {
+        val owner = ownerForHub(tunnel.hubId) ?: return null
+        val base = try { ways.open(tunnel) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { return null }
+        val endpoint = Endpoint(base, kind = tunnel.endpointKind)
+        tunnelRoutes[endpointKey(base)] = tunnel to owner
+        updateDiagnostics { snapshot -> snapshot.copy(candidates = snapshot.candidates.filter { it.url != base } +
+            ConnectionCandidate(base, tunnel.endpointKind, CoreText.of(Key.NotMeasured))) }
+        return try { probeRoutes(listOf(endpoint), TUNNEL_PROBE_MILLIS) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { null }
+    }
+
+    /** The tunnels of hubs this connection still tries (a hub that refused its credential is out). */
+    private fun usableTunnels(): List<HubTunnel> = tunnels.filter { ownerForHub(it.hubId) != null }
+
+    /** Closes this connection's tunnels but [except]; [forget] as [HubWays.close] says. */
+    private fun closeTunnels(except: HubTunnel? = null, forget: Boolean = true) {
+        val ways = ways ?: return
+        tunnels.filter { except == null || it.hubId != except.hubId || it.kind != except.kind }
+            .forEach { ways.close(it.hubId, it.kind, forget) }
+    }
+
+    /** The tunnel the route goes through; null for a route straight to a hub. */
+    private fun tunnelOf(route: HubRoute?): HubTunnel? = route?.let { tunnelRoutes[endpointKey(it.endpoint.url)]?.first }
 
     /** Probes [candidates] in order ([HubRouteSelector]), recording each measured probe in the diagnostics. */
     private suspend fun probeRoutes(
@@ -258,7 +361,23 @@ class OkHttpHubConnection(
     fun updateNetwork(value: HubNetwork) {
         if (network == value) return
         network = value
+        // A tunnel's connection was made on the network before: it is made again on this one.
+        closeTunnels(forget = false)
         reconnect()
+    }
+
+    /**
+     * The tunnels changed (Settings › Hubs): the way is picked again when it may change, so a fallback saved while the
+     * hub answers straight does not drop the socket.
+     */
+    fun updateTunnels(value: List<HubTunnel>) {
+        val previous = synchronized(lock) { tunnels.also { tunnels = value.toList() } }
+        if (previous == value) return
+        val ways = ways
+        if (ways != null) previous.filter { old -> value.none { it.sameWay(old) } }.forEach { ways.close(it.hubId, it.kind) }
+        val through = _tunnel.value
+        val newAlways = value.any { tunnel -> tunnel.always && previous.none { it.sameWay(tunnel) && it.always } }
+        if (_route.value == null || newAlways || through != null && value.none { it == through }) reconnect()
     }
 
     fun updateEndpoints(value: List<Endpoint>) {
@@ -295,6 +414,7 @@ class OkHttpHubConnection(
         val current = _route.value ?: return false
         val centerEndpoints = routes().filter { it.second.center }.map { endpointKey(it.first.url) }.toSet()
         if (centerEndpoints.isEmpty()) return false
+        tunnelRoutes[endpointKey(current.endpoint.url)]?.let { return !it.second.center }
         return endpointKey(current.endpoint.url) !in centerEndpoints
     }
 
@@ -329,6 +449,8 @@ class OkHttpHubConnection(
         val previous = _overrides.getAndUpdate { value }
         if (previous == value) return
         val active = _route.value?.endpoint?.url?.let(::endpointKey)
+        // Through a tunnel the addresses are asked again every so often anyway.
+        if (active != null && tunnelRoutes.containsKey(active)) return
         if (active == null || active !in usableEndpoints(value).map { endpointKey(it.url) }) reconnect()
     }
 
@@ -402,7 +524,7 @@ class OkHttpHubConnection(
             updateDiagnostics { it.copy(nextRetryAt = null) }
             try {
                 val candidates = usableEndpoints()
-                if (candidates.isEmpty() && permissionMissing()) {
+                if (candidates.isEmpty() && usableTunnels().isEmpty() && permissionMissing()) {
                     throw HubFailure(HubError.LocalNetworkPermission, retryable = false)
                 }
                 attemptOwner = null
@@ -411,6 +533,7 @@ class OkHttpHubConnection(
                 val owner = ownerFor(selected.endpoint)
                 routeOwner = selected to owner
                 attemptOwner = owner
+                _tunnel.value = tunnelOf(selected)
                 _route.value = selected
                 updateDiagnostics { it.copy(currentPath = "${selected.endpoint.kind} · ${selected.endpoint.url}") }
                 runSocket(selected) { backoff = 1L; updateDiagnostics { it.copy(lastAttemptFailure = null) } }
@@ -577,10 +700,22 @@ class OkHttpHubConnection(
             delay(15_000)
             if (!receivedHello) messages.send(Signal.Failed(HubFailure(HubError.Timeout)))
         }
+        val tunnel = tunnelOf(selected)
         val recheck = launch {
+            // Always through the tunnel: nothing to move back to.
+            if (tunnel?.always == true) return@launch
             while (isActive) {
-                delay(recheckMillis)
+                delay(if (tunnel != null) tunnelRecheckMillis else recheckMillis)
                 if (!foreground) continue
+                if (tunnel != null) {
+                    // Through a tunnel only because no address answered: back straight to the hub once one does.
+                    val direct = usableEndpoints().takeIf { it.isNotEmpty() } ?: continue
+                    try { probeRoutes(direct, DIRECT_PROBE_MILLIS) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { continue }
+                    reconnect()
+                    break
+                }
                 // Only a candidate listed above the one in use can take over; the list's order is the order tried. Each
                 // gets the step it has alone in the race: one that answers later would lose the race to the one in use
                 // again, and the connection would start over at every recheck for nothing.
@@ -812,9 +947,7 @@ class OkHttpHubConnection(
         val home = homeOwner()
         val own = if (homeExcluded) emptyList() else usable(candidates(overrides), overrides).map { it to home }
         val group = members.filter { synchronized(lock) { it.hubId !in excluded } }.flatMap { member ->
-            val memberIsCenter = (center != null && member.hubId == center) || (center == null && member.center)
-            val owner = Owner(member.hubId, member.fingerprint, member.token ?: config.token, member.token != null, home = false, center = memberIsCenter)
-            usable(memberCandidates(member), member.overrides).map { it to owner }
+            usable(memberCandidates(member), member.overrides).map { it to memberOwner(member, center) }
         }
         val all = (own + group).distinctBy { endpointKey(it.first.url) }
         return all.filter { it.second.center } + all.filter { !it.second.center }
@@ -836,8 +969,16 @@ class OkHttpHubConnection(
         _memberEndpoints.value[member.hubId]?.takeIf { it.isNotEmpty() } ?: member.endpoints, http.localAddressPolicy)
 
     /** Who answers at [endpoint], with which credential: this hub unless the group lists it under another hub. */
-    private fun ownerFor(endpoint: Endpoint): Owner =
-        routes().firstOrNull { endpointKey(it.first.url) == endpointKey(endpoint.url) }?.second ?: homeOwner()
+    private fun ownerFor(endpoint: Endpoint): Owner = tunnelRoutes[endpointKey(endpoint.url)]?.second
+        ?: routes().firstOrNull { endpointKey(it.first.url) == endpointKey(endpoint.url) }?.second ?: homeOwner()
+
+    /** The hub [hubId] as this connection tries it; null when it is not one of its hubs or refused its credential. */
+    private fun ownerForHub(hubId: String): Owner? {
+        if (hubId == config.hubId) return homeOwner().takeUnless { homeExcluded }
+        val member = members.firstOrNull { it.hubId == hubId } ?: return null
+        if (synchronized(lock) { hubId in excluded }) return null
+        return memberOwner(member)
+    }
 
     /**
      * Tells the client which hub's pin every TLS candidate must present (the client of a group trusts them all). All
@@ -853,6 +994,11 @@ class OkHttpHubConnection(
         add(candidates(), config.fingerprint)
         members.forEach { add(memberCandidates(it), it.fingerprint) }
         http.expectPins(pins)
+    }
+
+    private fun memberOwner(member: HubMember, center: String? = centerId): Owner {
+        val memberIsCenter = (center != null && member.hubId == center) || (center == null && member.center)
+        return Owner(member.hubId, member.fingerprint, member.token ?: config.token, member.token != null, home = false, center = memberIsCenter)
     }
 
     private fun ownerOf(route: HubRoute?): Owner = routeOwner?.takeIf { route != null && it.first === route }?.second ?: homeOwner()
@@ -899,7 +1045,7 @@ class OkHttpHubConnection(
             owner = refusedBy ?: attemptOwner ?: homeOwner()
             if (owner.home) homeExcluded = true
             else members.firstOrNull { it.hubId == owner.hubId }?.let { excluded[it.hubId] = it }
-            remaining = routes().isNotEmpty()
+            remaining = routes().isNotEmpty() || usableTunnels().isNotEmpty()
             if (remaining) {
                 _failure.value = error
                 updateDiagnostics { it.copy(lastDisconnectReason = error.message, lastAttemptFailure = endpointResultLabel(error.kind)) }
@@ -995,12 +1141,17 @@ class OkHttpHubConnection(
             clearRoute()
             scope.cancel()
             http.close()
+            closeTunnels(forget = false)
         }
     }
 
     companion object {
         /** How often the connection looks for an answer from a candidate listed above the one in use; configured, not measured. */
         const val RECHECK_MILLIS = 300_000L
+        /** How long the hub has to answer its health check through a tunnel that just came up. */
+        const val TUNNEL_PROBE_MILLIS = 10_000L
+        /** How long an address has to answer while the socket goes through a tunnel. */
+        const val DIRECT_PROBE_MILLIS = 3_000L
     }
 
     private sealed interface Signal {

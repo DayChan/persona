@@ -1,8 +1,9 @@
 // The bar above the composer while an Agent works (cindy's RunningStatusBar, #1963): what its status line says (the
-// spinner's verb, or "Thinking"), how long the turn has run and the tokens it has written so far. It breathes once each
-// time the count moves (output, not just time passing); when the turn ends it stays a second, then fades out. Without
-// a status line (another agent, an older hub) it says "Running" and counts from when the turn started. While the chat's live
-// work line ("Working…") ticks, the bar leaves the time to it (#3534: the same clock twice; iOS shows it there only).
+// spinner's verb, or "Thinking"), how long the turn has run, the tokens it has written so far and their rate (#2518).
+// It breathes once each time the count moves (output, not just time passing); when the turn ends it stays a second,
+// then fades out. Without a status line (another agent, an older hub) it says "Running" and counts from when the turn
+// started. While the chat's live work line ("Working…") ticks, the bar leaves the time to it (#3534: the same clock
+// twice; iOS shows it there only).
 // Once the turn is over and a workflow keeps the agent working (#3434, `background_working`), it says what runs:
 // "Background workflow · Verify · 169/185+", timed from the workflow's start (the turn's own time read as if the agent
 // were still at it). The count stays whole on a narrow screen: the words before it give way first. An agent whose
@@ -26,6 +27,11 @@ import { t } from "../../i18n";
 /** 22.8k, 1.2k, 950: thousands with one decimal (the reference client's formatRunningTokenCount; not lib/compaction's ten-thousand units). */
 export function tokenCount(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n)}`;
+}
+
+/** Tokens a second over the turn so far; nothing before it has run long enough to divide by (#2518). */
+export function tokenRate(tokens: number | undefined, elapsed: number): number | undefined {
+  return tokens === undefined || elapsed < 3 ? undefined : Math.round(tokens / elapsed);
 }
 
 /** The subagents the agent waits on and what they do (lib/tasks.ts agentsWorking). */
@@ -125,6 +131,7 @@ export function RunningStatusView({ live, working, startedAt, clock = true, agen
   // from the run's start; a run that does not say when it started, from the turn's (not from when the bar appeared)
   const elapsed = useElapsed(behind ? null : shown, behind ? (bg.since ?? startedAt) : startedAt, now);
   const tokens = useCountUp(shown?.tokens_down ?? 0);
+  const rate = tokenRate(shown?.tokens_down, elapsed);
   const breath = useBreath(shown?.tokens_down, phase === "on");
   if (phase === "off") return null;
   return (
@@ -151,6 +158,12 @@ export function RunningStatusView({ live, working, startedAt, clock = true, agen
           <>
             {showClock && <span aria-hidden>·</span>}
             <span data-running-tokens>↓ {tokenCount(tokens)} tokens</span>
+            {rate !== undefined && (
+              <>
+                <span aria-hidden>·</span>
+                <span data-running-rate>{t("chat-runningstatusbar.tokens_per_second", { n: rate })}</span>
+              </>
+            )}
           </>
         )}
       </div>

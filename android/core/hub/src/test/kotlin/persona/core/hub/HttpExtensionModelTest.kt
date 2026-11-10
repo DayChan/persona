@@ -12,6 +12,39 @@ import persona.core.contracts.api.*
 import kotlinx.serialization.json.*
 
 class HttpExtensionModelTest {
+    @Test fun installedModelsKeepTheirPinnedManagerOverHttp() = runBlocking {
+        AssistantManagerChoice.choose("hub", "other", "assistant")
+        try {
+            MockWebServer().use { server ->
+                HubHttpClient("hub", null, "test").use { hub ->
+                    val api = HttpExtensionManagement({ path, method, body ->
+                        val url = server.url(path).withRequestManager()
+                        hub.client.newCall(Request.Builder().url(url).method(method, body).build()).execute()
+                    })
+                    for (owner in listOf("assistant", "second")) {
+                        server.enqueue(MockResponse().setBody("""{"id":"example-pack","manager":"$owner",
+                            "depends":[{"id":"$owner-base","state":"not_ready"}],
+                            "extension_pack":[{"id":"$owner-member","market":"example","version":">=1.0.0"}]}"""))
+                        val pinned = api.pinned(ManagerPins.of(listOf(listOf("extensions", "example-pack")), owner))
+                        val detail = pinned.extension("example-pack")
+                        assertEquals(owner, detail.extension.manager)
+                        assertEquals("$owner-base", detail.depends.single().id)
+                        assertEquals("not_ready", detail.depends.single().state)
+                        assertEquals(ExtensionPackMember("$owner-member", "example", ">=1.0.0"), detail.extensionPack.single())
+                        val request = server.takeRequest()
+                        val named = owner.takeUnless { it == "assistant" }
+                        assertNull(request.getHeader(ManagerHeader))
+                        assertEquals(named, request.requestUrl?.queryParameter(ManagerQuery))
+                        assertEquals("/api/v1/extensions/example-pack/-/", request.requestUrl?.encodedPath)
+                        AssistantManagerChoice.pick("unrelated")
+                    }
+                }
+            }
+        } finally {
+            AssistantManagerChoice.reset()
+        }
+    }
+
     private fun withHub(legacy: Boolean = false, block: suspend (MockWebServer, HttpExtensionManagement) -> Unit) = runBlocking {
         MockWebServer().use { server ->
             val http = OkHttpClient.Builder().retryOnConnectionFailure(false).build()

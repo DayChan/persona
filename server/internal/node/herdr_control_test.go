@@ -372,7 +372,8 @@ func TestHerdrStartThatNeverRunsClaudeClosesItsTab(t *testing.T) {
 	}
 }
 
-// Claude runs but never shows its input box: the start fails claudeReadyWait after claude came up.
+// Claude runs but never shows its input box: the start fails claudeReadyWait after claude came up, as
+// agent_start_stalled with the tab's last lines, and keeps the tab for someone to look at (#2570).
 func TestHerdrStartThatNeverGetsReady(t *testing.T) {
 	n, f, home := herdrNode(t)
 	withStartWaits(n, time.Minute, 1500*time.Millisecond)
@@ -383,11 +384,18 @@ func TestHerdrStartThatNeverGetsReady(t *testing.T) {
 	f.setScreen("w1:p2", "Claude Code\n loading…")
 	began := time.Now()
 	_, err := request(t, n, "session.start", map[string]any{"cwd": home, "workspace_id": "w1", "prompt": "hi"})
-	if err == nil || !strings.Contains(err.Error(), "did not become ready within 1.5s of starting") {
+	if err == nil || !strings.Contains(err.Error(), "did not become ready within 1.5s of starting") || rpcCode(err) != proto.CodeAgentStartStalled {
 		t.Fatalf("start: %v", err)
 	}
 	if d := time.Since(began); d > 10*time.Second {
 		t.Errorf("waited %s, not claudeReadyWait after claude came up", d)
+	}
+	if data := refusalData(t, err); !strings.Contains(data, `"screen":"Claude Code\n loading…"`) || !strings.Contains(data, `"pane":"w1:p2"`) ||
+		!strings.Contains(data, `"kept_until":`) {
+		t.Errorf("data %s", data)
+	}
+	if got := f.trace("tab.close"); len(got) != 0 {
+		t.Errorf("closed the tab of a claude that stopped: %v", got)
 	}
 }
 

@@ -111,7 +111,22 @@ struct ShellView: View {
                          openTodos: { go(.todos) },
                          onMachines: { go(.machines) },
                          onOpenExtension: { go(.extensionPage($0)) },
-                         openHealth: { go(.health) })
+                         openHealth: { go(.health) },
+                         startMeeting: startMeeting)
+    }
+
+    /// The drawer's Meeting Recording: records the meeting and opens Recordings (`MeetingRecorder`), or opens the
+    /// recording already running.
+    private var startMeeting: (() -> Void)? {
+        #if os(iOS)
+        return {
+            shell.drawer.close()
+            if RecordingCapture.shared.state != .idle { go(.recordings) }
+            else { Task { await MeetingRecorder.shared.startMeeting(inForeground: true) } }
+        }
+        #else
+        return nil
+        #endif
     }
 
     private func go(_ page: ShellPage) {

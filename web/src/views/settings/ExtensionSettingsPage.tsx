@@ -36,7 +36,7 @@ export function ExtensionSettingsPage({ detail: d, manager, busy, offline = fals
   return (
     <div data-extension-settings={d.id}>
       <section data-extension-section="enabled" aria-label={t("settings-extensions.enable")}>
-        <Group footer={offline ? t("settings-extensions.manager_offline") : editable ? t("settings-extensions.enable_footer") : t(d.read_only ? "settings-extensions.read_only" : "settings-extensions.externally_managed")}>
+        <Group footer={offline ? t("settings-extensions.manager_offline") : editable ? enableFooter(d) : t(d.read_only ? "settings-extensions.read_only" : "settings-extensions.externally_managed")}>
           <Row label={t("settings-extensions.enable")}>
             <Switch on={d.enabled ?? true} onChange={onEnabled} disabled={blocked || !editable} label={t("settings-extensions.enable")} />
           </Row>
@@ -62,6 +62,16 @@ export function ExtensionSettingsPage({ detail: d, manager, busy, offline = fals
       </section>
     </div>
   );
+}
+
+/** What the Enabled switch does. A pack's takes its members along only on a hub that says so (#1830). */
+export function enableFooter(d: HubExtensionDetail): string {
+  if (!d.extension_pack?.length) return t("settings-extensions.enable_footer");
+  if (!d.pack_members_follow) return t("settings-extensions.enable_footer_pack_alone");
+  if (d.enabled === false && d.pack_off?.length) {
+    return t("settings-extensions.enable_footer_pack_off", { names: d.pack_off.join(t("settings-extensionmarket.list_separator")) });
+  }
+  return t("settings-extensions.enable_footer_pack");
 }
 
 /** Capabilities follow the full-rights market routes, not a manifest's configuration or arbitrary source URL. */

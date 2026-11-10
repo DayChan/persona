@@ -43,6 +43,50 @@ func TestAgentSendTaskMakesATask(t *testing.T) {
 	}
 }
 
+// A task handed without a title is named as task_plan's are (#3020): the instruction cleaned now, not its first 40
+// characters, and the model's name for it once it answers; the instruction stays the notes, as written.
+func TestAgentSendTaskWithoutATitleIsNamed(t *testing.T) {
+	s, f := newQuietService(t)
+	secretary(f)
+	f.mu.Lock()
+	f.todoTitleReply = "整理周报数据"
+	f.mu.Unlock()
+	text := "ultrathink 主人 11-05 19:47 的反馈，已授权直接开工：把周报数据拉一下，按部门汇总，再把表格链接贴回来给我看一眼" // i18n-ignore
+	if _, err := runJSON(t, s, "conv1", "agent_send", map[string]any{"machine": "box", "session_id": "sec00001", "text": text,
+		"task": map[string]any{"done_when": []string{"表格链接贴回来"}}}); err != nil { // i18n-ignore
+		t.Fatal(err)
+	}
+	todo := onlyTodo(s)
+	if strings.HasPrefix(todo.Title, "ultrathink") || strings.Contains(todo.Title, "11-05") || todo.Notes != text {
+		t.Fatalf("made with %q (notes %q)", todo.Title, todo.Notes)
+	}
+	s.todos.titling.Wait()
+	if got := onlyTodo(s).Title; got != "整理周报数据" { // i18n-ignore
+		t.Fatalf("not named by the model: %q", got)
+	}
+	f.mu.Lock()
+	asked := f.todoTitleAsked
+	f.mu.Unlock()
+	if len(asked) != 1 || !strings.Contains(asked[0].User, "按部门汇总") { // i18n-ignore
+		t.Fatalf("asked %+v", asked)
+	}
+}
+
+// agent_supervise names its task the same way: a real title stays, one that reads as a prompt is cleaned (and named
+// by the model later), and without one the session's title stays (TestAgentSuperviseAndReport).
+func TestAgentSuperviseTitle(t *testing.T) {
+	s, f := newQuietService(t)
+	secretary(f)
+	if _, err := runJSON(t, s, "conv1", "agent_supervise", map[string]any{"machine": "box", "session_id": "sec00001",
+		"title": "ultrathink 已授权直接开工：拉周报数据"}); err != nil { // i18n-ignore
+		t.Fatal(err)
+	}
+	if got := onlyTodo(s).Title; got != "拉周报数据" { // i18n-ignore
+		t.Fatalf("title %q", got)
+	}
+	s.todos.titling.Wait()
+}
+
 // The same agent handed more of its task: no second todo, the new criteria replace the old once the text went (a send
 // that fails changes nothing). Other work (another title) is refused, so it is not filed under that task.
 func TestAgentSendTaskAgainKeepsOneTask(t *testing.T) {

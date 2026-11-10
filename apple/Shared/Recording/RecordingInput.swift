@@ -36,5 +36,12 @@ nonisolated enum RecordingInput: String, CaseIterable, Sendable {
         let types: Set<AVAudioSession.Port> = [.bluetoothHFP, .bluetoothA2DP, .bluetoothLE]
         return (route.inputs + route.outputs).contains { types.contains($0.portType) }
     }
+
+    /// The microphone a recording started outside the Recordings page uses: the one chosen there, the Bluetooth one only
+    /// while it is still connected.
+    static var chosen: RecordingInput {
+        guard bluetoothConnected else { return .phone }
+        return UserDefaults.standard.string(forKey: storageKey).flatMap(RecordingInput.init(rawValue:)) ?? .phone
+    }
     #endif
 }

@@ -37,6 +37,9 @@ interface InboxRepository : persona.core.contracts.api.InboxRepository {
     val connectionState: Flow<ConnectionState> get() = flowOf(ConnectionState.Connecting)
     val preferences: Flow<InboxPreferences> get() = flowOf(InboxPreferences())
     suspend fun savePreferences(value: InboxPreferences) = Unit
+    /** Where Hand to AI last sent each source's items (#2121, [InboxHandOffMemory]): the group's own, latest first. */
+    val handOffMemory: Flow<List<HandOffMemoryEntry>> get() = flowOf(emptyList())
+    suspend fun saveHandOffMemory(value: List<HandOffMemoryEntry>) = Unit
     suspend fun refreshNow() = refresh()
     suspend fun askPersona(itemId: String, action: InboxAiAction) {
         error("Persona entry is not connected")
@@ -81,6 +84,14 @@ interface InboxRepository : persona.core.contracts.api.InboxRepository {
     suspend fun setDone(items: List<persona.core.contracts.api.InboxDoneTarget>, done: Boolean): InboxBulkResult =
         bulk(items, if (done) persona.core.contracts.api.InboxBulkAction.Done else persona.core.contracts.api.InboxBulkAction.Reopen)
     /** Clean up all (dismiss) / Mark all as seen / Clear all (done) / Move back (reopen) over [items] in one request ([setDone] is its done / reopen). */
+    /**
+     * One page of [manager]'s done history (#2200, #2576; null: the default manager), newest done first, after [cursor]
+     * (null: from the newest). A hub without history answers an empty page with no next.
+     */
+    suspend fun doneHistory(manager: String?, cursor: InboxDoneCursor?): InboxDonePage = InboxDonePage()
+
+    /** [manager]'s done items per day in [zone] (#2967), newest first; null from a hub that doesn't count them. */
+    suspend fun doneDays(manager: String?, zone: java.time.ZoneId): List<InboxDoneDay>? = null
     suspend fun bulk(items: List<persona.core.contracts.api.InboxDoneTarget>, action: persona.core.contracts.api.InboxBulkAction): InboxBulkResult =
         error("批量处理尚未接入") // i18n-ignore: developer error for a repository without the hub
     suspend fun readDraft(target: ReplyTarget): ReplyDraft?
@@ -392,7 +403,20 @@ data class InboxPreferences(
     val query: String = "",
     val section: String = "",
     val expanded: List<String> = listOf("action", "fyi"),
+    /** Needs you, FYI and Collapsed grouped by source or by time (#2576, persona.core.domain.inbox.InboxGroups). */
+    val grouping: String = persona.core.domain.inbox.InboxGroups.SOURCE,
+    /** The groups opened or folded against how they start, as "section/key" (InboxGroups.isOpen). */
+    val folds: List<String> = emptyList(),
 )
+
+/** Where a manager's done history goes on: after the entry done at [before] with id [beforeId] (the hub's `next`). */
+data class InboxDoneCursor(val before: String, val beforeId: String?)
+
+/** A page of done history: its items as records (the app's ids), and where the next page starts (null: none). */
+/** How many items were done on [day] (#2967). */
+data class InboxDoneDay(val day: java.time.LocalDate, val count: Int)
+
+data class InboxDonePage(val records: List<InboxRecord> = emptyList(), val next: InboxDoneCursor? = null)
 
 enum class InboxAiAction { Summarize, DraftReply, Handoff }
 @Serializable

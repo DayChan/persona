@@ -42,7 +42,8 @@ export function HerdrNotices({ watch: given }: { watch?: HerdrWatch } = {}) {
     };
   }, [watch, watched]);
 
-  const rows = watched.filter((m) => snap.stopped.has(m.id));
+  // Polling depends on ids and engines; labels must follow a rename even when that polling set stays the same.
+  const rows = machines.filter((m) => herdrWatched(m) && snap.stopped.has(m.id));
   if (!rows.length) return null;
   return (
     <div className="mt-1.5 flex flex-col gap-0.5">

@@ -243,7 +243,7 @@ final class AgentSync {
         guard let api = model.api(key.group) else { return .failed(refused: false) }
 
         do {
-            try await Self.pullToDisk(key, api)
+            try await Self.pullToDisk(key, api, cacheFolder: model.stateFolder)
             return .pulled
         } catch let e as APIError {
             return .failed(refused: AgentSyncPacing.refused(status: e.status))
@@ -273,8 +273,8 @@ final class AgentSync {
     /// No store in memory: update the disk cache the chat will open from (decoding and writing off the main thread).
     /// What comes after the cache's `covered` is added when it continues it; anything else (a capped catch-up, a
     /// replaced transcript) writes the latest page instead.
-    private nonisolated static func pullToDisk(_ key: SessionKey, _ api: APIClient) async throws {
-        let cached = await Task.detached(priority: .utility) { ChatCache.load(key) }.value
+    private nonisolated static func pullToDisk(_ key: SessionKey, _ api: APIClient, cacheFolder: URL?) async throws {
+        let cached = await Task.detached(priority: .utility) { ChatCache.load(key, in: cacheFolder) }.value
         if let cached, let covered = cached.covered ?? cached.items.last?.seq {
             let r = try await api.items(key, afterSeq: covered)
             let sameFile = r.history == nil || cached.history == nil || r.history == cached.history
@@ -285,7 +285,7 @@ final class AgentSync {
                     let all = ChatStore.ordered(cached.items + ChatStore.withImageRefs(r.items, key).filter { !have.contains($0.id) })
                     let tail = ChatCache.tail(all, turns: 2)
                     ChatCache.save(key, items: tail, hasMore: cached.hasMore || tail.count < all.count,
-                                   history: r.history ?? cached.history, covered: max(covered, r.toSeq ?? all.last?.seq ?? covered))
+                                   history: r.history ?? cached.history, covered: max(covered, r.toSeq ?? all.last?.seq ?? covered), in: cacheFolder)
                 }.value
                 return
             }
@@ -293,7 +293,7 @@ final class AgentSync {
         let page = try await api.items(key, beforeSeq: nil)
         await Task.detached(priority: .utility) {
             ChatCache.save(key, items: ChatStore.withImageRefs(page.items, key), hasMore: page.hasMore,
-                           history: page.history, covered: page.toSeq)
+                           history: page.history, covered: page.toSeq, in: cacheFolder)
         }.value
     }
 }

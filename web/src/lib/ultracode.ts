@@ -22,10 +22,11 @@ export const ULTRACODE = "ultracode";
 
 const isClaude = (s: Pick<Session, "agent">) => !s.agent || s.agent === "claude";
 
-/** Whether a chat offers the switch: the hub has it, the agent is Claude Code whose thinking effort can change now
- *  (the composer's mode chips), and it is not a Persona conversation (the main one included). */
+/** Whether a chat offers the switch: the hub has it, the agent is Claude Code in one of Persona's terminals whose thinking
+ *  effort can change now (the composer's mode chips), and it is not a Persona conversation (the main one included). A
+ *  runtime's Claude (Orca) has the chips but no terminal for the node to type the switch into. */
 export function ultracodeOffered(s: Session | undefined, features: string[]): boolean {
-  if (!s || s.assistant || !hubHas(features, ULTRACODE_FEATURE)) return false;
+  if (!s || s.assistant || s.source_kind || !hubHas(features, ULTRACODE_FEATURE)) return false;
   return isClaude(s) && hasModes(s) && stateOf(s) !== "offline";
 }
 

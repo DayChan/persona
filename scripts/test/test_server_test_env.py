@@ -169,7 +169,8 @@ class ServerTestEnvironmentTests(unittest.TestCase):
             tools = root / "tools"
             remote = root / "remote"
             profile = remote / "live-profile"
-            for path in (checkout / "scripts/test", checkout / "server", checkout / "spec", checkout / "apple",
+            for path in (checkout / "scripts/test", checkout / "scripts/mock", checkout / "server/internal/hub",
+                         checkout / "spec", checkout / "apple",
                          checkout / "docs", checkout / "sdk/go/ext", checkout / "sdk/go/wire/schema",
                          checkout / "sdk/templates/go", checkout / "sdk/ts/src", checkout / "sdk/ts/node_modules/typescript",
                          checkout / "schema/extension/examples/invalid", tools, profile):
@@ -218,7 +219,7 @@ class ServerTestEnvironmentTests(unittest.TestCase):
             tool("rsync", "import json,os,pathlib,shutil,sys\n"
                  "source=pathlib.Path(sys.argv[-2]); target=sys.argv[-1].split(':',1)[1]\n"
                  "destination=pathlib.Path(os.environ['HOME'])/target\n"
-                 "if source.is_file():\n destination.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(source,destination)\n"
+                 "if source.is_file():\n assert destination.parent.is_dir(); shutil.copy2(source,destination)\n"
                  "else:\n"
                  " assert source.is_dir() and destination.parent.is_dir()\n"
                  " if '--delete' in sys.argv and destination.exists(): shutil.rmtree(destination)\n"
@@ -246,7 +247,9 @@ class ServerTestEnvironmentTests(unittest.TestCase):
                  "assert (base/'sdk/templates/go/persona-extension.json').read_text()=='{\"template\":true}\\n'\n"
                  "assert (base/'sdk/ts/src/index.ts').read_text()=='export const fixture = true;\\n'\n"
                  "assert not (base/'sdk/ts/node_modules').exists()\n"
-                 f"pathlib.Path({str(capture)!r}).write_text(json.dumps({{'args':sys.argv[1:],'env':dict(os.environ),'sdk_source':(sdk/'ext/fixture.go').read_text()}}))\n"
+                 # Read from the package directory exactly as the hub's inboxBody test helper does.
+                 "inbox_source=(base/'server/internal/hub/../../../scripts/mock/inbox_events.json').read_text()\n"
+                 f"pathlib.Path({str(capture)!r}).write_text(json.dumps({{'args':sys.argv[1:],'env':dict(os.environ),'sdk_source':(sdk/'ext/fixture.go').read_text(),'inbox_source':inbox_source}}))\n"
                  "sys.exit(int(os.environ.get('FAKE_GO_EXIT','0')))\n")
             environment = {
                 "PATH": str(tools) + os.pathsep + os.environ["PATH"], "HOME": str(remote),
@@ -266,6 +269,8 @@ class ServerTestEnvironmentTests(unittest.TestCase):
             )):
                 source = f"package fixture // snapshot {index}\n"
                 (sdk / "ext/fixture.go").write_text(source)
+                inbox_source = json.dumps({"items": [{"id": f"fixture-{index}"}]}) + "\n"
+                (checkout / "scripts/mock/inbox_events.json").write_text(inbox_source)
                 if index and remote_sdk.is_dir():
                     (remote_sdk / "stale.go").write_text("package stale\n")
                 if index and remote_schema.is_dir():
@@ -277,6 +282,7 @@ class ServerTestEnvironmentTests(unittest.TestCase):
                     recorded = json.loads(capture.read_text())
                     child = recorded["env"]
                     self.assertEqual(recorded["sdk_source"], source)
+                    self.assertEqual(recorded["inbox_source"], inbox_source)
                     self.assertEqual(json.loads(sdk_capture.read_text()),
                                      ["-a", "--delete", "sdk/go/", "fake-hub:.cache/persona-test-checkout/sdk/go/"])
                     self.assertFalse((remote_sdk / "stale.go").exists())
@@ -308,6 +314,14 @@ class ServerTestEnvironmentTests(unittest.TestCase):
                     self.assertFalse([call for call in calls if "--prepare" in call], calls)
             capture.unlink(missing_ok=True)
             cache_capture.unlink(missing_ok=True)
+            # A missing local fixture must stop staging, even if the remote has an older copy.
+            (checkout / "scripts/mock/inbox_events.json").unlink()
+            result = subprocess.run(["bash", str(checkout / "scripts/test/test-server.sh")], env=environment,
+                                    capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(capture.exists())
+            self.assertFalse(cache_capture.exists())
+            (checkout / "scripts/mock/inbox_events.json").write_text(inbox_source)
             for source in (
                 "postgres://user:synthetic@localhost/custom",
                 "postgres://user:synthetic@localhost/persona?dbname=persona",

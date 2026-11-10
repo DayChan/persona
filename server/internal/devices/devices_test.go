@@ -191,6 +191,7 @@ func TestEventsGoToTheHubAsTheyCame(t *testing.T) {
 	d.opts.Store = st
 	n := &testNode{}
 	m := connectedMachine(t, d, "box", n)
+	m.noteWatch("session.watch", json.RawMessage(`{"session_id":"s1"}`)) // the hub watches s1: its last seq is kept
 	p := n.current()
 	_ = p.Notify("sessions.changed", map[string]any{"sessions": []proto.Session{{SessionID: "s1", Status: proto.StatusWorking}}})
 	_ = p.Notify("session.items", map[string]any{"session_id": "s1", "items": []proto.Item{{Seq: 7, Kind: "user", Text: "hi"}}})

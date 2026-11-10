@@ -21,7 +21,7 @@ struct AgentSentLine: View {
     var body: some View {
         let text = item.text ?? ""
         VStack(alignment: .leading, spacing: 0) {
-            header(first: SentToAgents.firstLine(text))
+            header(first: ExchangeText.plain(SentToAgents.firstLine(text)))
             if open {
                 AgentSentText(text: text)
                     .padding(.horizontal, Theme.Space.m)
@@ -97,7 +97,7 @@ struct AgentSentText: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
-            Text(text)
+            Text(ExchangeText.linked(text)) // Markdown rendered; Copy keeps the text as sent (#2363)
                 .font(Theme.Font.secondary)
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -185,7 +185,7 @@ struct TaskSentList: View {
                     if item.interrupted {
                         ThemedIcon(Theme.Icon.interrupt).font(Theme.Font.label).foregroundStyle(.secondary)
                     }
-                    Text(SentToAgents.firstLine(text))
+                    Text(ExchangeText.plain(SentToAgents.firstLine(text)))
                         .font(Theme.Font.secondary)
                         .foregroundStyle(.primary)
                         .lineLimit(1)

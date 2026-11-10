@@ -77,8 +77,11 @@ type entry struct {
 	// must not lose the line.
 	Origin json.RawMessage `json:"origin"`
 	Cwd    string          `json:"cwd"`
-	// toolUseResult, a tool's own copy of its output (often as long as the tool_result itself), is not read: items take
-	// a result from the message, and a field here would copy every one of them for nothing.
+	// toolUseResult is Claude Code's own record of a tool call, its output included (often as long as the tool_result
+	// itself): items take the output from the message, and only what outcomes read is decoded (claudeToolResult,
+	// outcome.go), never the output. toolDenialKind says why a call did not run (user-rejected, permission-rule…).
+	ToolUseResult  claudeToolResult `json:"toolUseResult"`
+	ToolDenialKind denialKind       `json:"toolDenialKind"`
 
 	// system/api_error: {message, formatted}, and which retry this is. An assistant line Claude Code wrote itself for a
 	// request that failed (isApiErrorMessage) carries the error's kind here as a string (rate_limit,
@@ -234,9 +237,9 @@ type Meta struct {
 	beforeLocal [2]bool // TurnOpen, TurnClosed
 	// bashInput is the last "! cmd" typed in Claude Code, for the Bash call its output line turns into.
 	bashInput string
-	// notified holds the background-task notifications already shown: one is often recorded twice (as a user line and
-	// as a queued_command attachment). The same task reporting again with other content is a new event and shows.
-	notified map[string]bool
+	// notified holds the background-task notifications already shown, by digest: one is often recorded twice (as a user
+	// line and as a queued_command attachment). The same task reporting again with other content is a new event and shows.
+	notified map[noticeKey]bool
 	// taskCalls: a background task's id → the call that started it, from its notifications that name both, for a
 	// later one that names only the task (noteCall). It grows like notified.
 	taskCalls map[string]string
@@ -641,6 +644,11 @@ func parseLine(seq int, line []byte, meta *Meta) []proto.Item {
 			return nil
 		}
 		var out []proto.Item
+		// The line's record of a call (toolUseResult, toolDenialKind) is its result's when it holds only one.
+		record, denial := &noToolResult, ""
+		if oneToolResult(blocks) {
+			record, denial = &e.ToolUseResult, string(e.ToolDenialKind)
+		}
 		for i, b := range blocks {
 			switch b.Type {
 			case "text":
@@ -678,6 +686,7 @@ func parseLine(seq int, line []byte, meta *Meta) []proto.Item {
 				it.ToolUseID = b.ToolUseID
 				it.IsError = b.IsError
 				it.Text = clip(text)
+				it.Outcome = claudeOutcome(text, b.IsError, record, denial)
 				out = append(out, it)
 				for j, img := range imgs {
 					im := mk(i*100+j+1, "user", proto.KindImage)

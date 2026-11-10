@@ -6,6 +6,7 @@ struct AgentSettingOptionsTests {
     // Every enum option the node lists (claudeconfig.go, codexconfig.go, codex_effort.go).
     private let options: [String: [String]] = [
         "effortLevel": ["low", "medium", "high", "xhigh", "max"],
+        "permissions.defaultMode": ["default", "acceptEdits", "plan", "auto", "bypassPermissions"],
         "autoUpdatesChannel": ["latest", "stable"],
         "model_reasoning_effort": ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
         "model_reasoning_summary": ["auto", "concise", "detailed", "none"],
@@ -24,6 +25,8 @@ struct AgentSettingOptionsTests {
         #expect(AgentSettingOptions.name("xhigh", key: "effortLevel") == "很高")
         #expect(AgentSettingOptions.name("ultra", key: "model_reasoning_effort") == "极高")
         #expect(AgentSettingOptions.name("latest", key: "autoUpdatesChannel") == "最新版")
+        #expect(AgentSettingOptions.name("auto", key: "permissions.defaultMode") == "自动")
+        #expect(AgentSettingOptions.name("default", key: "permissions.defaultMode") == "手动确认")
         #expect(AgentSettingOptions.name("on-request", key: "approval_policy") == "它觉得需要时问")
         #expect(AgentSettingOptions.name("danger-full-access", key: "sandbox_mode") == "不设限（危险）")
     }

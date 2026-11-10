@@ -377,6 +377,26 @@ Other values: allowing 450 tokens per append (500-token limit, rejection observe
   page (a plan card in BeautifulUI at the standard size): another loop. Now it uses only values the cards do not move: the page height, the open
   header, the bar's own measured height (`VoiceBarRoom`) and the count's. The rule: what sizes an area must not take inputs the area itself moves.
 
+## The call's audio route (#3015, 2026-11-10)
+
+- **"Always on the loudspeaker" with a headset connected**: the session was `.playAndRecord` / `.voiceChat` / `[.defaultToSpeaker]` and nothing else.
+  `.voiceChat` implies Bluetooth hands-free (the SDK header says so), but not A2DP, so a Bluetooth device the system does not bring up as hands-free is
+  not a route at all, and `.defaultToSpeaker` then plays on the loudspeaker. The call also never chose a route itself: a connected headset the system left
+  out stayed out, and mid-call it only watched `AVAudioEngineConfigurationChange`. Code reading found no `overrideOutputAudioPort` anywhere, and the other
+  session users (recording, dictation) cannot overlap a call and clear their preferred input.
+- **`AVAudioEngineConfigurationChange` is not a route change**: it fires when the I/O unit's format changes and says nothing about why. Deciding where the
+  voice goes needs `AVAudioSession.routeChangeNotification` and its reason.
+- **Don't decide again on every route change**: the call's own `setPreferredInput` and `overrideOutputAudioPort`, and the user's pick in Control Center, post
+  route changes too. Act on `newDeviceAvailable` / `oldDeviceUnavailable` (and, for 2 s after the session goes active, on anything: a hands-free microphone
+  appears late, the same reason `RecordingCapture` polls for it), and never ask twice for a microphone the route did not take, or the call loops.
+- **Asking for a microphone moves the output**: preferring a Bluetooth hands-free or wired headset input brings the voice to that device; preferring the
+  built-in microphone while AirPods are on hands-free takes the voice off them. So the policy only asks for an external device's own microphone, never
+  another headset's, and never for the built-in one.
+- **What lasts**: `overrideOutputAudioPort(.speaker)` lasts until the next route change; a preferred input lasts for the app's shared session. Clear both
+  when the call ends, or the next recording or dictation starts on the call's choice.
+- **Only a device tells**: the simulator has no Bluetooth or wired routes. On a phone, read `voice: route after …` in Console (subsystem `persona`,
+  category `voice`): it lists port kinds only, never device names, which can carry a person's name.
+
 ## Choosing the voice (#2411, 2026-11-09)
 
 - **Every call went out with no voice, and nobody could tell**: the app asked for the voice list once, as the call started, and ignored a failure

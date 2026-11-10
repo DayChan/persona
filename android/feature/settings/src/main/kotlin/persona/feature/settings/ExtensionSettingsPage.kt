@@ -62,6 +62,7 @@ internal fun ExtensionSettingsPage(
         item("configuration-title") { JSectionHeader(stringResource(R.string.settings_extension_configuration)) }
         configuration()
         hostInformation(detail)
+        installedExtensionModel(detail)
         information()
         item("updates-title") { JSectionHeader(stringResource(R.string.settings_extension_updates)) }
         item("updates-check") {

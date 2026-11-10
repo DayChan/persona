@@ -269,6 +269,11 @@ func TestGoldenTaskDone(t *testing.T) {
 		Prompt: "任务启动失败时一直显示正在开，修好",
 		Replies: []prompts.TaskDoneReply{{Machine: "box", Ask: "再把「全部 N」挪到这一行最左边",
 			Text: "挪好了，PR 已合并，TestFlight 构建号 202611040923。没截图的：Mac。"}}, Build: true}))
+	// The user only asked whether it is done: the report is in the turn before (#3111).
+	golden(t, "task_done_input.check_in", prompts.RenderTaskDoneInput(prompts.TaskDoneInput{Title: "新空间加模型",
+		Prompt: "给新空间加上新模型，部署并验证",
+		Replies: []prompts.TaskDoneReply{{Machine: "mac", Ask: "好了吗？", Text: "好了，全部完成。",
+			Earlier: "加好了：PR https://github.com/o/r/pull/77 已合并，已部署，接口实测返回新模型列表。"}}}))
 }
 
 // What a finished task came to (todo/outcome, #2820): the system prompt, and the task with two agents' last replies.

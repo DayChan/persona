@@ -1,0 +1,13 @@
+{
+  "card": {
+    "type": "ring",
+    "title": "只有一块",
+    "segments": [
+      {
+        "label": "早餐",
+        "value": 500
+      }
+    ]
+  },
+  "view": null
+}

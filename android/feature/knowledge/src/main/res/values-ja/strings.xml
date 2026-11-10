@@ -132,4 +132,7 @@
     <string name="knowledge_disabled_title">ナレッジは無効です</string>
     <string name="knowledge_disabled_text">このマネージャーのナレッジは無効です。マネージャーの設定で有効にすると閲覧できます。</string>
     <string name="knowledge_opening">ナレッジを起動中です。しばらくしてから再試行してください。</string>
+    <string name="knowledge_timeout">ナレッジの要求がタイムアウトしました。しばらくしてから再試行してください。</string>
+    <string name="knowledge_forbidden">このデバイスには、このナレッジを読む権限がありません。アクセス権を確認してください。</string>
+    <string name="knowledge_missing">内容が見つからないか、ハブがこのナレッジ機能にまだ対応していません。</string>
 </resources>

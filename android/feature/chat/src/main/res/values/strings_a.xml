@@ -275,6 +275,7 @@
     <string name="chat_tasks_answered_default">Answered</string>
     <string name="chat_tasks_permission_accept_edits">Can edit files</string>
     <string name="chat_tasks_permission_plan">Plan first</string>
+    <string name="chat_tasks_permission_auto">Auto</string>
     <string name="chat_tasks_permission_bypass">Allow all</string>
     <string name="chat_tasks_permission_default">Ask every step</string>
     <plurals name="chat_tasks_plan_started">

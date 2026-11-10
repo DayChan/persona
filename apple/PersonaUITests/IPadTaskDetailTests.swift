@@ -1,6 +1,6 @@
 import XCTest
 
-/// iPad (regular width, #2816): a task opened from the main conversation's dock, and an agent of its own, fill the
+/// iPad (regular width, #2816): a task opened from the main conversation's Progress tray, and an agent of its own, fill the
 /// detail column beside the sidebar (pushed onto the conversation's stack) instead of rising as the small form sheet in
 /// the middle of the screen. Their header's ‹ goes back to the conversation. Against scripts/mock/mock_hub.py with
 /// MOCK_TASKS=1 MOCK_TASKS_NO_ASKS=1 (PERSONA_MOCK_HUB); skipped on a phone (the sheet, `TaskDockAgentTests`). With
@@ -44,11 +44,11 @@ final class IPadTaskDetailTests: XCTestCase {
         app.launchArguments = ["-pairURL", url]
         app.launchPinned()
 
-        let tasks = app.buttons.matching(identifier: "task-dock.pill")
-        let agents = app.buttons.matching(identifier: "task-dock.agent")
-        XCTAssertTrue(tasks.firstMatch.waitForExistence(timeout: 20), "no task in the dock:\n\(app.debugDescription)")
-        let deadline = Date.now.addingTimeInterval(20)
-        while agents.count == 0 && Date.now < deadline { usleep(200_000) }
+        // The action bar's trays list them (#2879): Progress the tasks, Agents the agents.
+        let progress = app.openActionTray("progress")
+        let tasks = app.trayTasks
+        let agents = app.trayAgents
+        XCTAssertTrue(tasks.firstMatch.waitForExistence(timeout: 20), "no task in Progress:\n\(app.debugDescription)")
         sleep(2) // the conversation settles
         try shot(app, "conversation")
 
@@ -57,22 +57,20 @@ final class IPadTaskDetailTests: XCTestCase {
         let back = app.buttons["返回"].firstMatch
         XCTAssertTrue(back.waitForExistence(timeout: 5), "no ‹ on the task's page:\n\(app.debugDescription)")
         XCTAssertFalse(app.buttons["关闭"].exists, "the task rose as a sheet")
-        XCTAssertFalse(tasks.firstMatch.isHittable, "the conversation's dock still shows beside the task")
+        XCTAssertFalse(progress.isHittable, "the conversation's action bar still shows beside the task")
         sleep(2)
         try shot(app, "task")
 
         back.tap()
-        XCTAssertTrue(tasks.firstMatch.waitForExistence(timeout: 5))
-        XCTAssertTrue(tasks.firstMatch.isHittable, "back did not come back to the conversation")
+        XCTAssertTrue(progress.waitForExistence(timeout: 5))
+        XCTAssertTrue(progress.isHittable, "back did not come back to the conversation")
         sleep(1)
 
         // An agent of its own: the same page, under its own title (its chat's header, #3255).
+        app.openActionTray("agents")
+        app.waitForRows(agents, atLeast: 1)
         let agent = agents.firstMatch
         XCTAssertTrue(agent.waitForExistence(timeout: 5), app.debugDescription)
-        for _ in 0..<3 where !agent.isHittable { // the dock is wider than the column: scroll it from a task
-            tasks.element(boundBy: 0).swipeLeft()
-            sleep(1)
-        }
         agent.tap()
         XCTAssertTrue(app.buttons.matching(identifier: "chat.title").firstMatch.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(app.buttons["返回"].firstMatch.exists, "no ‹ on the agent's page")
@@ -80,6 +78,6 @@ final class IPadTaskDetailTests: XCTestCase {
         sleep(2)
         try shot(app, "agent")
         app.buttons["返回"].firstMatch.tap()
-        XCTAssertTrue(tasks.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(progress.waitForExistence(timeout: 5))
     }
 }

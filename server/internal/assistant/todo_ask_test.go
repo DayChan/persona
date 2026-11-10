@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/db"
+	"github.com/nwverse/persona/server/internal/proto"
 )
 
 // The to-do waiting for the owner carries its open ask (#2056): what the briefing's `accept[]` row says of it, so the apps
@@ -121,6 +123,107 @@ func TestTodoAskEndsWhenTheReviewMovesOn(t *testing.T) {
 	reviewTask(t, s, todo.ID, map[string]any{"verdict": "rework", "note": "用户在对话里说了直接全量，按全量做"})
 	if ask := listedAsk(t, s, todo.ID); ask != nil {
 		t.Fatalf("still an ask after rework: %v", ask)
+	}
+}
+
+// Direct completion is the existing user PATCH, not acceptance of the recommendation.
+// It ends a decision even when its agent is already closed, and keeps normal idle cleanup.
+func TestDirectCompletionEndsDecisionWithoutSending(t *testing.T) {
+	for _, tc := range []struct {
+		name, recommend string
+		closed          bool
+	}{
+		{"idle with recommendation", "Use staged rollout", false},
+		{"closed with recommendation", "Use staged rollout", true},
+		{"closed without recommendation", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			todoStores(t, func(t *testing.T, e *todoEnv, database *db.DB) {
+				ctx := context.Background()
+				todo, err := e.s.createTodo(ctx, "Choose rollout", "Review rollout options", "conv1", "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				c := idleAgent(time.Now().Add(-time.Hour))
+				if tc.closed {
+					c.Status, c.PaneID = proto.StatusOffline, ""
+				}
+				e.f.setSessions("box", c)
+				if err := e.s.linkTodoAgent(ctx, todo.ID, "box", "s1", "Rollout", "/code/app", "claude"); err != nil {
+					t.Fatal(err)
+				}
+				e.s.superviseTodo(ctx, todo.ID, "conv1", nil, 0)
+				reviewTask(t, e.s, todo.ID, map[string]any{"verdict": "needs_user", "reason": "Choose a rollout", "recommend": tc.recommend})
+				ask := listedAsk(t, e.s, todo.ID)
+				if ask == nil || ask["outcome"] != outcomeDecide {
+					t.Fatalf("no decision waiting: %v", ask)
+				}
+				at := ask["asked_at"].(string)
+				sent := len(sentToAgent(e.f))
+				var response struct{ Todo Todo }
+				if err := json.Unmarshal(e.must("PATCH", "/api/v1/todos/"+todo.ID, `{"done":true}`).Body.Bytes(), &response); err != nil {
+					t.Fatal(err)
+				}
+				if got := response.Todo; got.DoneAt == nil || got.DoneBy != "" || got.DoneReason != "" {
+					t.Fatalf("not a user completion: %+v", got)
+				}
+				if listedAsk(t, e.s, todo.ID) != nil || len(e.s.awaitingAcceptance(ctx)) != 0 {
+					t.Fatal("the completed decision still waits in todos/briefing")
+				}
+				for _, row := range e.s.boardRows(ctx, e.s.botLang(ctx), "", time.Now()) {
+					if row.id == todo.ID {
+						t.Fatal("the completed task is still on the pending board")
+					}
+				}
+				if e.todoOf("box", "s1") != "" || !strings.Contains(e.f.eventTypes(), "todos") {
+					t.Fatal("completion did not clear session decoration and notify clients")
+				}
+				if rec := acceptAt(e.s, todo.ID, at); rec.Code != http.StatusConflict {
+					t.Fatalf("late acceptance: %d %s", rec.Code, rec.Body.String())
+				}
+				if database != nil {
+					reloadTodos(t, e.s)
+					if mem, stored := todoDoneBoth(t, e, database, todo.ID); !mem || !stored {
+						t.Fatal("completion did not survive reload")
+					}
+					decisions, err := database.ListTodoDecisions(ctx, todo.ID, true)
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, d := range decisions {
+						if d.Source == db.DecisionManual {
+							t.Fatalf("completion took a recommendation: %+v", d)
+						}
+					}
+				}
+				// A later working report must not undo the user's choice, even with a needs_user ledger.
+				e.s.taskWorking(ctx, "box", "s1")
+				if todoNow(e.s, todo.ID).DoneAt == nil {
+					t.Fatal("agent activity reopened the user-completed task")
+				}
+				e.s.closeDoneTaskAgents(ctx, taskCloseRefused{})
+				if len(e.f.retires()) != 0 {
+					t.Fatal("completion bypassed the idle grace period")
+				}
+				old := taskCloseIdle
+				taskCloseIdle = 0
+				t.Cleanup(func() { taskCloseIdle = old })
+				e.s.closeDoneTaskAgents(ctx, taskCloseRefused{})
+				if got := e.f.retires(); len(got) != map[bool]int{true: 0, false: 1}[tc.closed] {
+					t.Fatalf("idle cleanup: %v", got)
+				}
+				if got := len(sentToAgent(e.f)); got != sent {
+					t.Fatalf("completion/late acceptance sent %d messages (would resume a closed agent)", got-sent)
+				}
+				e.must("PATCH", "/api/v1/todos/"+todo.ID, `{"done":false}`)
+				if listedAsk(t, e.s, todo.ID) != nil {
+					t.Fatal("reopening revived the old decision")
+				}
+				if rec := acceptAt(e.s, todo.ID, at); rec.Code != http.StatusConflict {
+					t.Fatalf("acceptance after reopen: %d %s", rec.Code, rec.Body.String())
+				}
+			})
+		})
 	}
 }
 

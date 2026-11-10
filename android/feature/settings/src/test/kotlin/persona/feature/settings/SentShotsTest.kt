@@ -97,6 +97,12 @@ internal class FakeSent(var rows: List<SentItem> = SentSample, private val pageS
         val got = hit.take(pageSize)
         return SentPage(got, next = if (hit.size > pageSize) got.last().id else null)
     }
+
+    override suspend fun recall(id: Long): SentItem? {
+        fail?.let { throw it }
+        rows = rows.map { if (it.id == id) it.copy(recalledAt = "2026-11-05T12:05:00Z", canRecall = false) else it }
+        return rows.firstOrNull { it.id == id }
+    }
 }
 
 /**
@@ -125,7 +131,7 @@ class SentShotsTest {
     }
 
     /** [height] in dp of the picture; null lets it be as tall as what it draws (the sheet's body). */
-    private enum class Shot(val height: Int?) { Settings(2600), List(1100), Detail(null), DetailCut(null), Empty(700), Filtered(700), NoDatabase(700), Failed(700) }
+    private enum class Shot(val height: Int?) { Settings(2600), List(1100), Detail(null), DetailCut(null), Recall(null), Recalled(null), Empty(700), Filtered(700), NoDatabase(700), Failed(700) }
 
     /** A chip, not a row that has the same words: rows are buttons, chips check boxes. */
     private fun chip(text: String) = hasText(text) and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Checkbox)
@@ -143,15 +149,23 @@ class SentShotsTest {
                     when (shot) {
                         // The real settings list (docs/lessons/android.md: not hand-drawn rows), its Connection section on top.
                         Shot.Settings -> SettingsScreen(services, onOpen = {})
-                        Shot.List -> SentContent(SentLoaded, SentNow, {}, false, {}, {}, {}, {}, {}, onChat = { _, _ -> })
+                        // The review row was recalled: its tag.
+                        Shot.List -> SentContent(SentLoaded.copy(items = SentSample.map { if (it.id == 4L) it.copy(recalledAt = "2026-11-02T08:05:00Z") else it }), SentNow, {}, false, {}, {}, {}, {}, {}, onChat = { _, _ -> })
                         // The sheet's body on the sheet's own surface (JSheet draws it over a scrim in the app).
-                        Shot.Detail, Shot.DetailCut -> Column(Modifier.fillMaxWidth().background(if (style == AppStyle.Brief) palette.background else palette.surfaceOpaque)
+                        Shot.Detail, Shot.DetailCut, Shot.Recall, Shot.Recalled -> Column(Modifier.fillMaxWidth().background(if (style == AppStyle.Brief) palette.background else palette.surfaceOpaque)
                             .padding(horizontal = pagePadding, vertical = Tokens.Space.l)) {
-                            val row = if (shot == Shot.Detail) SentSample[1] else cut
+                            val row = when (shot) {
+                                Shot.Detail -> SentSample[1]
+                                // Recall offered, after a refusal; and a row taken back.
+                                Shot.Recall -> SentSample[0].copy(canRecall = true)
+                                Shot.Recalled -> SentSample[0].copy(recalledAt = "2026-11-05T12:28:00Z")
+                                else -> cut
+                            }
                             androidx.compose.material3.Text(SentText.connectorName(androidx.compose.ui.platform.LocalResources.current, row.connector),
                                 style = PersonaTheme.type.title, color = palette.ink)
                             Spacer(Modifier.height(Tokens.Space.m))
-                            SentDetailBody(row, onChat = { _, _ -> }, onDone = {})
+                            SentDetailBody(row, onChat = { _, _ -> }, onDone = {}, onRecall = {},
+                                recallError = if (shot == Shot.Recall) SentText.recallProblem(HubFailure(HubError.Server, "unknown", 504, "recall_unknown")) else null)
                         }
                         Shot.Empty -> SentContent(SentState(items = emptyList()), SentNow, {}, false, {}, {}, {}, {}, {}, onChat = null)
                         Shot.Filtered -> SentContent(SentState(items = emptyList(), filter = "lark", seen = listOf("mail")), SentNow, {}, false, {}, {}, {}, {}, {}, onChat = null)
@@ -171,6 +185,34 @@ class SentShotsTest {
                 capture("sent-${next.name.lowercase()}-$suffix")
             }
         }
+    }
+
+    /** Recall is offered only where the hub says so, asks in a dialog first, and the details then say the row was recalled. */
+    @Test fun recallAsksFirstThenShowsTheRowRecalled() {
+        val hub = FakeSent(SentSample.mapIndexed { i, it -> if (i == 0) it.copy(canRecall = true) else it })
+        rule.setContent {
+            PersonaTheme(darkTheme = false, reduceMotion = true, style = AppStyle.Glass) {
+                Box(Modifier.width(400.dp).height(2400.dp)) { SentAsYouPage(hub, onBack = {}, onChat = null) }
+            }
+        }
+        rule.waitForIdle()
+        rule.onNodeWithText("ann@example.com · Lunch on Friday").performClick()
+        rule.waitForIdle()
+        rule.onAllNodesWithText("撤回…").assertCountEquals(0)
+        rule.onNode(hasText("完成") and hasClickAction()).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("example-org/app#12").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("撤回…").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("撤回这条消息？").assertExists()
+        assertTrue(hub.rows[0].recalledAt.isEmpty()) // asked first
+        rule.onNode(hasText("撤回") and hasClickAction()).performClick()
+        rule.waitForIdle()
+        assertTrue(hub.rows[0].recalledAt.isNotEmpty())
+        rule.onAllNodesWithText("撤回…").assertCountEquals(0)
+        rule.onAllNodesWithText("已撤回").assertCountEquals(2) // the row's tag and the details' fact
+        assertEquals(2, hub.asked.size) // the list read again
     }
 
     /** A row opens its details, and the chat it names opens by its ids; a row with no chat has no link. */

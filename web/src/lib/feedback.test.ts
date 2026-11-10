@@ -22,7 +22,7 @@ describe("FeedbackGate: errors while the hub is out of reach", () => {
   it("knows the texts of a request that never reached the hub", () => {
     expect(isOfflineError("连不上 hub")).toBe(true);
     expect(isOfflineError("已处理失败：连不上 hub")).toBe(true);
-    expect(isOfflineError("HTTP 502")).toBe(true);
+    expect(isOfflineError("HTTP 502")).toBe(false);
     expect(isOfflineError("HTTP 500")).toBe(false);
     expect(isOfflineError("名字重复")).toBe(false);
   });

@@ -7,19 +7,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Persona lets Claude read and add calendar events when you ask, for example to check whether you are free on Friday afternoon or to book a meeting."
+            "value": "Persona lets Claude read and add calendar events when you ask, for example to check whether you are free on Friday afternoon or to book a meeting. It also names a meeting recording after the event happening now."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "依頼したときにClaudeがカレンダーの予定を読み取り、追加できるようにします。たとえば金曜の午後が空いているか確認したり、会議を入れたりします。"
+            "value": "依頼したときにClaudeがカレンダーの予定を読み取り、追加できるようにします。たとえば金曜の午後が空いているか確認したり、会議を入れたりします。会議の録音には進行中の予定の名前を付けます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你让 Claude 看日程时，Persona 允许它读取和添加日历事件，比如看看周五下午有没有空，或者约一个会。"
+            "value": "你让 Claude 看日程时，Persona 允许它读取和添加日历事件，比如看看周五下午有没有空，或者约一个会。会议录音也会用正在进行的日程命名。"
           }
         }
       }

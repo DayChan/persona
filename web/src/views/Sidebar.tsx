@@ -1,7 +1,7 @@
 import { removeStoredValue, storedValue, storeValue } from "../lib/compatibility";
 // Beautiful UI's Sidebar Nav: workspace row, quick search, sections, one gliding highlight. Persona's main conversation
 // is the first entry (the app opens on the assistant); a new conversation and a new agent are the "+" of their sections (#1239).
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { t } from "../i18n";
 import { NARROW, useMedia } from "../lib/viewport";
 import { AGENT_FILTERS, agentFilter, applyFilter, arrangeSpaces, BOTMUX_HIDDEN_KEY, botmuxAndFilter, filterCounts, isBotmux, isSpaceMuted, matchingKeys, shownFilters, unreadOf, withoutBotmux, type AgentFilter, type FilterCounts } from "../lib/agent-filter";
@@ -10,6 +10,7 @@ import { agentGrouping, AGENT_GROUPINGS, type AgentGrouping, buildAgentGroups, b
 import { buildRepoMachineTree } from "../lib/agent-repos";
 import { keyedRefs } from "../lib/keyed-refs";
 import { buildMachineTree } from "../lib/herdr-tree";
+import { selectSidebarMachines } from "../lib/sidebar-machines";
 import { machineWithHub } from "../lib/mesh";
 import { baseName, tabLabel } from "../lib/format";
 import { agentKey, isSpacePinned, pinnedSessions } from "../lib/pins";
@@ -23,21 +24,21 @@ import { useAgentSessions, useFullAgentSessions } from "../lib/sessions";
 import { refresh, useStore } from "../lib/store";
 import { conversationTitle } from "./assistant/conversations";
 import { BREATHING, connStatus, phaseTone, type ConnPhase } from "../lib/connection";
-import { buildTodoTree } from "../lib/todo-tree";
+import { buildTodoTree, shareTree, type TodoTree } from "../lib/todo-tree";
 import { openTodoFromTag, TODO_STATUS_INFO, type TodoStatus } from "../lib/todos";
 import type { Machine, Session } from "../lib/types";
 import { Collapse, cx, EASE, Kbd, Menu, Spinner, useMenu, type MenuItem } from "../ui/atoms";
 import { StatusMark } from "../ui/StatusMark";
 import { AppMark } from "../ui/AppMark";
 import { Icon, type IconName } from "../ui/icons";
-import { HerdrNotices } from "./agents/HerdrNotices";
-import { HubNoticeLine } from "./agents/HubNoticeRow";
+import { HerdrNotices as HerdrNoticesContent } from "./agents/HerdrNotices";
+import { HubNoticeLine as HubNoticeLineContent } from "./agents/HubNoticeRow";
 import { ArchiveCloseDialog, CloseAgentDialog, DeleteSessionDialog, RenameDialog, RenameSpaceDialog } from "./chat/SessionDialogs";
 import { AGENT_ARCHIVES_FEATURE } from "../lib/agent-archives";
-import { AgentRowMenu, MarkSeenDialog, SpaceMenu } from "./AgentMenus";
+import { AgentRowMenu, MarkSeenDialog as MarkSeenDialogContent, SpaceMenu } from "./AgentMenus";
 import { NodeMenu } from "./NodeMenu";
-import { NodePrompt } from "./NodePrompt";
-import { SidebarUsage } from "./UsageBars";
+import { NodePrompt as NodePromptContent } from "./NodePrompt";
+import { SidebarUsage as SidebarUsageContent } from "./UsageBars";
 import "../lib/node-palette";
 import type { MenuNode } from "../lib/node-actions";
 import type { MenuAt } from "../ui/menu-model";
@@ -45,7 +46,7 @@ import { useSidebarTerminals } from "../lib/sidebar-terminals";
 import { usePanes } from "../lib/terminal-panes";
 import { buildTerminalTree, shellsOnly, type TermSpace } from "../lib/terminals";
 import { setTheme, useTheme, type Theme } from "./theme";
-import { LinkTodoDialog, type LinkTargetSpace } from "./LinkTodoDialog";
+import { LinkTodoDialog as LinkTodoDialogContent, type LinkTargetSpace } from "./LinkTodoDialog";
 import { hubMenuItems, useHubs } from "./Hubs";
 import { FoldScope, useFolded } from "../lib/use-folded";
 import { clipsOverflow, glideBox, glideStyle, sameBox, type GlideBox, type Span } from "../lib/glide";
@@ -65,6 +66,14 @@ import { CollapseButton, PagesTally } from "./SidebarRail";
 export { useNavPages, type NavPage } from "./SidebarParts";
 export { AgentRow, PersonaRow, PinnedHeading, SessionRow } from "./SidebarRows";
 export { SidebarRail } from "./SidebarRail";
+
+// Skip parent pushes with unchanged props; each leaf still receives its own state and subscription updates.
+const HerdrNotices = memo(HerdrNoticesContent);
+const HubNoticeLine = memo(HubNoticeLineContent);
+const NodePrompt = memo(NodePromptContent);
+const SidebarUsage = memo(SidebarUsageContent);
+const LinkTodoDialog = memo(LinkTodoDialogContent);
+const MarkSeenDialog = memo(MarkSeenDialogContent);
 
 /** Brings `el` to the middle of its nearest scrolling ancestor when it is not fully in view (rows loading above it
  *  later still leave it on screen). Not `scrollIntoView`: that also scrolls the clipped (overflow-hidden) box of a
@@ -448,21 +457,26 @@ function AgentsBlock(props: AgentsBlockProps) {
   // A saved grouping (including an explicitly selected default) is a view preference the paged API cannot express.
   const grouped = AGENT_GROUPINGS.some((g) => g.key === grouping);
   const full = pins.sessions.length > 0 || pins.spaces.length > 0 || grouped;
-  const chooseGrouping = (g: AgentGrouping) => {
+  const chooseGrouping = useCallback((g: AgentGrouping) => {
     storeValue("persona.agentGrouping", g);
     setGrouping(g);
     props.hover(null);
-  };
+  }, [props.hover]);
+  const returnToPagedList = useCallback(() => {
+    removeStoredValue("persona.agentGrouping");
+    setGrouping(null);
+    props.hover(null);
+  }, [props.hover]);
   // Back to the paged list: forget the saved grouping. Offered only where the paged list exists and nothing is pinned
   // (pins keep the full list either way).
   const pagedList = bounded && grouped && pins.sessions.length === 0 && pins.spaces.length === 0
-    ? () => { removeStoredValue("persona.agentGrouping"); setGrouping(null); props.hover(null); }
+    ? returnToPagedList
     : undefined;
   return bounded && !full ? <BoundedAgentsBlock {...props} chooseGrouping={chooseGrouping} /> : <LegacyAgentsBlock {...props} grouping={agentGrouping(grouping)} chooseGrouping={chooseGrouping} pagedList={pagedList} />;
 }
 
 function BoundedAgentsBlock({ reg, hover, activeKey, go, onNewAgent, add = true, chooseGrouping }: AgentsBlockProps) {
-  const machines = useStore((s) => s.machines);
+  const machines = useStore(selectSidebarMachines);
   const archives = useStore((s) => s.features.includes(AGENT_ARCHIVES_FEATURE));
   const [rowMenu, setRowMenu] = useState<{ s: Session; anchor: HTMLElement; at?: MenuAt } | null>(null);
   const [renaming, setRenaming] = useState<Session | null>(null);
@@ -470,6 +484,7 @@ function BoundedAgentsBlock({ reg, hover, activeKey, go, onNewAgent, add = true,
   const [closing, setClosing] = useState<Session | null>(null);
   const [archiveClosing, setArchiveClosing] = useState<Session | null>(null);
   const [linkTarget, setLinkTarget] = useState<Session>();
+  const closeLinkTarget = useCallback(() => setLinkTarget(undefined), []);
   // the ⋯ toggles the menu, as in the full list
   const onRowMenu = useCallback<RowMenuFn>((s, anchor, at) => setRowMenu((m) => (!at && m?.anchor === anchor ? null : { s, anchor, at })), []);
   return <>
@@ -487,12 +502,12 @@ function BoundedAgentsBlock({ reg, hover, activeKey, go, onNewAgent, add = true,
     {deleting && <DeleteSessionDialog open session={deleting} machineName={machineWithHub(deleting.machine_id, machines)} onClose={() => setDeleting(null)} />}
     {closing && <CloseAgentDialog open session={closing} machineName={machineWithHub(closing.machine_id, machines)} onClose={() => setClosing(null)} />}
     {archiveClosing && <ArchiveCloseDialog open session={archiveClosing} machineName={machineWithHub(archiveClosing.machine_id, machines)} onClose={() => setArchiveClosing(null)} />}
-    <LinkTodoDialog open={Boolean(linkTarget)} session={linkTarget} onClose={() => setLinkTarget(undefined)} />
+    <LinkTodoDialog open={Boolean(linkTarget)} session={linkTarget} onClose={closeLinkTarget} />
   </>;
 }
 
 function LegacyAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate, add = true, foldable = false, grouping, chooseGrouping, pagedList }: AgentsBlockProps & { grouping: AgentGrouping; chooseGrouping: (g: AgentGrouping) => void; pagedList?: () => void }) {
-  const machines = useStore((s) => s.machines);
+  const machines = useStore(selectSidebarMachines);
   const { sessions: all, loaded } = useFullAgentSessions();
   const mutes = useStore((s) => s.mutes);
   const pins = useStore((s) => s.pins);
@@ -518,16 +533,10 @@ function LegacyAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate, 
   // "botmux" beside the filters (#2786): botmux sessions shown or hidden in this browser
   const [botmuxHidden, setBotmuxHidden] = useState(() => botmuxAndFilter(filter, localStorage.getItem(BOTMUX_HIDDEN_KEY) === "1", "filter").hidden);
   const botmuxCount = useMemo(() => all.filter(isBotmux).length, [all]);
-  const saveBotmuxHidden = (next: boolean) => {
+  const saveBotmuxHidden = useCallback((next: boolean) => {
     localStorage.setItem(BOTMUX_HIDDEN_KEY, next ? "1" : "0");
     setBotmuxHidden(next);
-  };
-  const toggleBotmux = () => {
-    const next = botmuxAndFilter(filter, !botmuxHidden, "botmux");
-    saveBotmuxHidden(next.hidden);
-    if (next.filter !== filter) choose(next.filter);
-    hover(null);
-  };
+  }, []);
   const listed = useMemo(() => withoutBotmux(all, botmuxHidden), [all, botmuxHidden]);
   const { live, recent: offline } = useMemo(() => splitAgentSessions(listed, machines), [listed, machines]);
   const seeded = useRef(false);
@@ -538,7 +547,9 @@ function LegacyAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate, 
     setKept(matchingKeys(live, filter, mutes));
   }, [loaded, live, filter, mutes]);
   const filtered = filter !== "all";
-  const filterTotals = useMemo(() => filterCounts(live, mutes), [live, mutes]);
+  const { needs, unread, working, bg_waiting, feishu, terminal } = useMemo(() => filterCounts(live, mutes), [live, mutes]);
+  // A session can change its text or timestamp without changing any filter's count.
+  const filterTotals = useMemo(() => ({ needs, unread, working, bg_waiting, feishu, terminal }), [needs, unread, working, bg_waiting, feishu, terminal]);
   const shown = useMemo(() => applyFilter(live, filter, mutes, kept), [live, filter, mutes, kept]);
   // a pinned agent shows once, under "Pinned" (an offline one too, unless a filter is on); the groups below are the rest
   const pinnedAgents = useMemo(() => pinnedSessions(filtered ? shown : [...shown, ...offline], pins), [filtered, shown, offline, pins]);
@@ -559,11 +570,14 @@ function LegacyAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate, 
   // by todo waits for the first GET /todos: the socket pushes the sessions before it answers, and a tree drawn without
   // the todos puts every agent under No to-do for a moment, then moves them under their todos (#2812)
   const todosPending = shownGrouping === "todo" && !todosLoaded;
+  // Only inputs the tree reads rebuild it; unchanged nodes keep their objects so their rows' memo holds.
+  const lastTodoTree = useRef<TodoTree | undefined>(undefined);
   const todoTree = useMemo(() => {
     if (shownGrouping !== "todo" || !todosLoaded) return undefined;
     const built = buildTodoTree(unpinned, machines, todos, mutes);
-    return byUpdate ? todoTreeByUpdate(built) : built;
+    return shareTree(lastTodoTree.current, byUpdate ? todoTreeByUpdate(built) : built);
   }, [unpinned, machines, shownGrouping, mutes, todos, todosLoaded, byUpdate]);
+  lastTodoTree.current = todoTree;
   const repoMachines = useMemo(() => {
     if (shownGrouping !== "repo") return [];
     const built = buildRepoMachineTree(unpinned, machines);
@@ -577,13 +591,23 @@ function LegacyAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate, 
   // by todo a group mixes hosts (herdr, botmux…): when the list has more than one, rows outside herdr name theirs (#1836)
   const mixedHosts = useMemo(() => shownGrouping === "todo" && hostsOf(live).size > 1, [shownGrouping, live]);
   const unreadShown = filter === "unread" ? unreadOf(shown) : [];
-  const choose = (f: AgentFilter) => {
+  // Stable event handlers read the last committed list, including pushes received since the bar last rendered.
+  const filterInputs = useRef({ live, mutes });
+  useLayoutEffect(() => { filterInputs.current = { live, mutes }; }, [live, mutes]);
+  const choose = useCallback((f: AgentFilter) => {
     if (botmuxAndFilter(f, botmuxHidden, "filter").hidden !== botmuxHidden) saveBotmuxHidden(false);
     storeValue("persona.agentFilter", f);
     setFilter(f);
-    setKept(matchingKeys(live, f, mutes));
+    setKept(matchingKeys(filterInputs.current.live, f, filterInputs.current.mutes));
     hover(null);
-  };
+  }, [botmuxHidden, hover, saveBotmuxHidden]);
+  const toggleBotmux = useCallback(() => {
+    const next = botmuxAndFilter(filter, !botmuxHidden, "botmux");
+    saveBotmuxHidden(next.hidden);
+    if (next.filter !== filter) choose(next.filter);
+    hover(null);
+  }, [filter, botmuxHidden, saveBotmuxHidden, choose, hover]);
+  const botmux = useMemo(() => botmuxCount > 0 || botmuxHidden ? { hidden: botmuxHidden, onToggle: toggleBotmux } : undefined, [botmuxCount, botmuxHidden, toggleBotmux]);
   // Settings › Appearance › Show terminals in sidebar (off): the plain shells of each machine's terminal host, under its agents in "By machine"
   const showTerminals = useSidebarTerminals() && shownGrouping === "machine";
   const { listing: panes, refresh: refreshPanes } = usePanes(machines, showTerminals);
@@ -617,6 +641,10 @@ function LegacyAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate, 
   const recentShown = showAllRecent ? recent : firstAndCurrent(recent, 8, (s) => rowKey(s) === activeKey);
   const [linkTargetSession, setLinkTargetSession] = useState<Session | undefined>();
   const [linkTargetSpace, setLinkTargetSpace] = useState<LinkTargetSpace | undefined>();
+  const closeLinkSession = useCallback(() => setLinkTargetSession(undefined), []);
+  const closeLinkSpace = useCallback(() => setLinkTargetSpace(undefined), []);
+  const closeMarkSeen = useCallback(() => setConfirmSeen(null), []);
+  const clearKept = useCallback(() => setKept(new Set()), []);
 
   // a space with nothing to look at (every agent seen and waiting, none awaiting your reply) goes to "Idle spaces", like
   // the app; the open conversation's space stays where it is so the row under the pointer doesn't move away
@@ -661,7 +689,7 @@ function LegacyAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate, 
       <Collapse open={!folded}>
       <div inert={folded || undefined}>
       <GroupingBar groupings={availableGroupings} selection={shownGrouping} onChoose={chooseGrouping} />
-      <FilterBar selection={filter} counts={filterTotals} onChoose={choose} botmux={botmuxCount > 0 || botmuxHidden ? { hidden: botmuxHidden, onToggle: toggleBotmux } : undefined} />
+      <FilterBar selection={filter} counts={filterTotals} onChoose={choose} botmux={botmux} />
       {/* "herdr is not running on <computer>" with "Start" (#1916): before a message to an agent there fails */}
       {/* the one line about the hub (#2897): updating, rolled back, a newer version or image */}
       {!folded && <HubNoticeLine />}
@@ -763,16 +791,16 @@ function LegacyAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate, 
       {deleting && <DeleteSessionDialog open session={deleting} machineName={machineWithHub(deleting.machine_id, machines)} onClose={() => setDeleting(null)} />}
       {closingAgent && <CloseAgentDialog open session={closingAgent} machineName={machineWithHub(closingAgent.machine_id, machines)} onClose={() => setClosingAgent(null)} />}
       {archiveClosing && <ArchiveCloseDialog open session={archiveClosing} machineName={machineWithHub(archiveClosing.machine_id, machines)} onClose={() => setArchiveClosing(null)} />}
-      <MarkSeenDialog list={confirmSeen} onClose={() => setConfirmSeen(null)} onDone={() => setKept(new Set())} />
-      <LinkTodoDialog open={Boolean(linkTargetSession)} session={linkTargetSession} onClose={() => setLinkTargetSession(undefined)} />
-      <LinkTodoDialog open={Boolean(linkTargetSpace)} space={linkTargetSpace} onClose={() => setLinkTargetSpace(undefined)} />
+      <MarkSeenDialog list={confirmSeen} onClose={closeMarkSeen} onDone={clearKept} />
+      <LinkTodoDialog open={Boolean(linkTargetSession)} session={linkTargetSession} onClose={closeLinkSession} />
+      <LinkTodoDialog open={Boolean(linkTargetSpace)} space={linkTargetSpace} onClose={closeLinkSpace} />
     </>
   );
 }
 
 /** How Agents are grouped (#2812): one segment per grouping, "By to-do" first, above the quick filter. The segments say
  *  the short name (To-do / Machine…) so all five fit the sidebar's width on one line; the full name is their label. */
-function GroupingBar({ groupings, selection, onChoose }: { groupings: readonly { key: AgentGrouping; label: string; short: string }[]; selection: AgentGrouping; onChoose: (g: AgentGrouping) => void }) {
+const GroupingBar = memo(function GroupingBar({ groupings, selection, onChoose }: { groupings: readonly { key: AgentGrouping; label: string; short: string }[]; selection: AgentGrouping; onChoose: (g: AgentGrouping) => void }) {
   return (
     <div role="radiogroup" aria-label={t("sidebar.grouping_header")} className="mt-1.5 mx-1 flex gap-0.5 rounded-full bg-inset p-0.5 shadow-hairline">
       {groupings.map((g) => {
@@ -797,12 +825,12 @@ function GroupingBar({ groupings, selection, onChoose }: { groupings: readonly {
       })}
     </div>
   );
-}
+});
 
 /** "All" / "Needs you" / "Unread" / "Working" with their counts (iOS QuickFilterBar): "All" and the states that have agents now; the
  * chosen one stays while it empties, so it can be left. Then "botmux" (#2786), when there are botmux sessions: a
  * show / hide switch that stacks on any filter. Hidden when there is nothing to pick. */
-function FilterBar({ selection, counts, onChoose, botmux }: { selection: AgentFilter; counts: FilterCounts; onChoose: (f: AgentFilter) => void; botmux?: { hidden: boolean; onToggle: () => void } }) {
+const FilterBar = memo(function FilterBar({ selection, counts, onChoose, botmux }: { selection: AgentFilter; counts: FilterCounts; onChoose: (f: AgentFilter) => void; botmux?: { hidden: boolean; onToggle: () => void } }) {
   const keys = shownFilters(selection, counts);
   if (keys.length < 2 && !botmux) return null;
   return (
@@ -849,9 +877,9 @@ function FilterBar({ selection, counts, onChoose, botmux }: { selection: AgentFi
       )}
     </div>
   );
-}
+});
 
-function AccountRow({ phase, online, total }: { phase: ConnPhase; online: number; total: number }) {
+const AccountRow = memo(function AccountRow({ phase, online, total }: { phase: ConnPhase; online: number; total: number }) {
   const menu = useMenu();
   const theme = useTheme();
   const otherHubs = hubMenuItems(useHubs());
@@ -893,7 +921,7 @@ function AccountRow({ phase, online, total }: { phase: ConnPhase; online: number
       {disconnect.dialog}
     </>
   );
-}
+});
 
 // Every group in the sidebar is one of these: its title folds it, and the fold is kept in this browser (useFolded).
 const ORIGIN_ICON: Record<AutoOrigin, IconName> = { inbox: "inbox", task: "clock", lark_agent: "at", spawned: "fork", extension: "extension", other: "more" };

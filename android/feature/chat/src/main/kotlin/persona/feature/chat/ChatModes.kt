@@ -16,6 +16,7 @@ import persona.core.designsystem.icons.PhIcons
 import persona.core.domain.sort.canChangeEffortOnly
 import persona.core.domain.sort.canChangeModes
 import persona.core.domain.sort.canTypeClaudeCommands
+import persona.core.domain.sort.hasSource
 
 /** Claude Code's permission modes, effort levels and /model aliases as the app shows them (iOS SessionModes, node/modes.go). */
 internal object SessionModes {
@@ -90,12 +91,72 @@ internal object SessionModes {
     }
 }
 
+/**
+ * Claude Code's ultracode switch (#582; docs/protocol/protocol.md "Claude Code ultracode", the web's lib/ultracode.ts and
+ * iOS `Ultracode`): every task runs as a multi-agent workflow. Its own switch under the thinking effort, for the
+ * session's current process only, off by default and never remembered.
+ */
+internal object Ultracode {
+    /** The hub takes the switch (hello `features`): an older hub never shows it. */
+    const val FEATURE = "ultracode"
+    /** A proper name, never translated (docs/protocol/i18n.md). */
+    const val NAME = "ultracode"
+
+    /** The chat offers it: the hub has it, a Claude Code agent of the user's (not a Persona conversation, no read-only source) that runs and takes messages. */
+    fun offered(session: Session?, features: Set<String>): Boolean =
+        session != null && FEATURE in features && !session.assistant && !session.hasSource && session.canChangeModes
+
+    /** The node saw it on (unknown is not on) and the process still runs: a resume starts it off. */
+    fun on(session: Session): Boolean = session.ultracode == true && !session.assistant && session.isClaude && session.isLive
+
+    /**
+     * A switch this phone asked for: the node answers by pushing the session, sometimes after the request returns, and a
+     * queued change (`ultracode_pending`) says it waits, not what for. While either holds, the switch stands where it was put.
+     * [answered]: the session as drawn when the request came back; the push with the result has not come while it still is.
+     */
+    data class Ask(val on: Boolean, val sending: Boolean = true, val answered: Session? = null)
+
+    /** Where the switch stands: what was asked while it is on its way, otherwise what the node saw. */
+    fun shownOn(session: Session, ask: Ask?): Boolean = when {
+        ask == null -> session.ultracode == true
+        ask.sending || session.ultracodePending -> ask.on
+        ask.answered == session && session.ultracode != ask.on && session.ultracodeNote.isNullOrBlank() -> ask.on
+        else -> session.ultracode == true
+    }
+
+    /** An ask that no longer says anything: the session moved past it. */
+    fun spent(session: Session, ask: Ask): Boolean = !ask.sending && !session.ultracodePending && ask.answered != session
+
+    /**
+     * The line under the switch: that a change waits for the turn (one this phone asked for says "Applies next turn"), the
+     * node's reason, or what it does. The reason does not gray the switch: many clear elsewhere, the rest the node refuses again at once.
+     */
+    fun line(session: Session, ask: Ask?, resources: Resources): String {
+        val note = session.ultracodeNote?.trim().orEmpty()
+        if (session.ultracodePending) {
+            val queued = resources.getString(if (ask != null) R.string.chat_ultracode_pending else R.string.chat_ultracode_pending_other)
+            return if (note.isEmpty()) queued else queued + resources.getString(R.string.chat_modes_hint_separator) + note
+        }
+        return note.ifEmpty { resources.getString(R.string.chat_ultracode_subtitle) }
+    }
+}
+
+/**
+ * The switch under the thinking effort, with [Ultracode.line] under it in full: its last part ("this session only") or
+ * the node's reason is what the user must read, and Glass's narrower text column or a large font needs a third line.
+ */
+@Composable
+internal fun UltracodeSwitchRow(session: Session, ask: Ultracode.Ask?, enabled: Boolean, onChange: (Boolean) -> Unit) =
+    JSwitchRow(Ultracode.NAME, Ultracode.shownOn(session, ask), onChange, subtitle = Ultracode.line(session, ask, LocalResources.current),
+        leadingIcon = WorkflowIcon, enabled = enabled, subtitleLines = Int.MAX_VALUE)
+
 /** Non-default settings and the current GPT model in the existing hint above the composer. */
 internal fun chatModeHint(session: Session?, resources: Resources, includeModes: Boolean = true): String? = listOfNotNull(
     session?.permissionMode?.takeIf { includeModes && it != "default" }?.let { SessionModes.modeLabel(it, resources) },
     session?.effort?.takeIf { includeModes && it != "high" }?.let {
         resources.getString(R.string.chat_modes_effort_hint, SessionModes.effortLabel(it, resources))
     },
+    session?.takeIf { includeModes && Ultracode.on(it) }?.let { Ultracode.NAME },
     // Only GPT ids get a model hint: other models keep the composer's existing presentation.
     session?.model?.let { id -> modelName(id).takeUnless { it == id } },
 ).takeIf { it.isNotEmpty() }?.joinToString(resources.getString(R.string.chat_modes_hint_separator))
@@ -130,6 +191,10 @@ internal fun ChatModeBar(
     val effortOnly = session?.canChangeEffortOnly == true
     val editable = session != null && state.available && online && (session.canChangeModes || effortOnly)
     val bypass = session?.permissionMode == SessionModes.BYPASS
+    val ultracodeOffered = Ultracode.offered(session, LocalHubFeatures.current)
+    var ultracodeAsk by remember(session?.key) { mutableStateOf<Ultracode.Ask?>(null) }
+    val latest by rememberUpdatedState(session)
+    LaunchedEffect(session, ultracodeAsk) { ultracodeAsk?.let { ask -> if (session != null && Ultracode.spent(session, ask)) ultracodeAsk = null } }
     JIconButton(PhIcons.SlidersHorizontal, stringResource(if (bypass) R.string.chat_modes_button_bypass else R.string.chat_modes_button), { open = true },
         tint = if (bypass) PersonaTheme.palette.cautionText else null)
     if (open) JSheet(onDismiss = { open = false }, title = stringResource(R.string.chat_modes_title), scrollable = true) {
@@ -151,6 +216,13 @@ internal fun ChatModeBar(
                 SessionModes.effortOptions(session).forEach { option ->
                     JRow(option.title(resources), subtitle = option.detail(resources), trailing = { JRadio(option.id == session.effort, null) }, enabled = editable,
                         onClick = { open = false; if (option.id != session.effort) state.run(session, ChatAction.Modes(effort = option.id)) })
+                }
+                // Applies at once, its own request (never with the effort); the sheet stays open to show what the node says.
+                if (ultracodeOffered) UltracodeSwitchRow(session, ultracodeAsk, editable) { on ->
+                    ultracodeAsk = Ultracode.Ask(on)
+                    state.run(session, ChatAction.Modes(ultracode = on)) { ok ->
+                        ultracodeAsk = if (ok) Ultracode.Ask(on, sending = false, answered = latest) else null
+                    }
                 }
                 // /model types into Claude's pane: Claude in a terminal engine only (Codex and compatible variants pick in a menu the phone can't drive).
                 if (onPickModel != null && session.canTypeClaudeCommands) {

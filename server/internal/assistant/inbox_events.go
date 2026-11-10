@@ -94,8 +94,11 @@ type InboxRelated struct {
 }
 
 // chainAdd appends an entry stamped with the next id, keeping the newest chainMax. An item from before chains (none
-// yet, but messages and a tier) gets its two synthesized entries first, so they don't vanish. Under b.mu.
+// yet, but messages and a tier) gets its two synthesized entries first, so they don't vanish. The item changed, so
+// GET /api/v1/inbox encodes it again (inbox_list_memo.go): many changes put an entry here and make a call before they
+// save, or never save (a reply kept open). Under b.mu.
 func (b *inboxBook) chainAdd(it *InboxItem, e InboxChainEntry) {
+	delete(b.listMemo.kept, it.ID)
 	if len(it.Chain) == 0 && e.Kind != ChainReceived {
 		it.Chain = synthesizedChain(b.userLang(), it)
 		it.ChainSeq = len(it.Chain)

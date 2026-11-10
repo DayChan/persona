@@ -1,5 +1,15 @@
 # Lessons: web UI and interactions
 
+## A clipping fold left a tall card's buttons out of sight (2026-11-10, #3112)
+
+- **A sticky footer sticks in its nearest clipping ancestor, not the box that scrolls**: #2026 made a waiting card `shrink-0` with an `overflow-clip` root and a `sticky -bottom-1` footer, which works where the cards sit straight in the dock. On a phone and in a side panel (an agent's or task's chat over the main one, `compactDock`) PendingCards puts the open cards in a `Collapse`, whose clip box was `overflow-hidden`: a scroll container of its own, so the footer stuck inside it and stayed at the card's natural bottom, below `data-chat-cards`. A Feishu permission card with a long `python3 -c …` command showed half of its "Always allow covers…" line and no Allow / Deny. Open folds are `unclipped` now. Look for every `overflow-hidden` between a sticky element and the scroller you mean.
+- **Check every place a card is drawn**: the main chat's tray, an agent's own page, the side panel and a phone each wrap the cards differently; the fix for one passed while another stayed broken. `scripts/test/web_card_scroll_e2e.py --path` covers each one against the mock hub's `MOCK_ASK_LONG`.
+- **Drive real gestures**: in headless Chromium CDP `Input.synthesizeScrollGesture` scrolled nothing even where a finger does; use `Input.dispatchTouchEvent` start / move / end, start the swipe off a box that scrolls by itself (a command block), and aim the wheel at the card, not the window's middle (a side panel is off to the right).
+
+## A completed task's omitted ask must clear the partial store merge (#3038)
+
+`putTodo` merges partial records. A completed to-do response omits `ask`, so passing it directly leaves the old decision card in the attention tray until another list read. Explicitly clear the returned optional ask when applying completion, invalidate earlier list reads with `todosAsked.forget()`, then refresh the list. Regress a delayed pre-completion read followed by a failed refresh: an accepted write must not roll back. Admit completion and recommendation acceptance through one synchronous guard: disabling buttons after a React render does not block mixed actions in the same event batch. Regress successful completion with JSON-omitted optional fields, not an object containing `ask: undefined`. Offer direct completion only on the live Pending row, never a historical briefing snapshot that may describe an earlier run.
+
 ## Shared wire projections need one property declaration (#2947)
 
 Two independently merged features can add the same optional field to an interface without a text conflict. Keep one declaration backed by the shared wire type, including its compatibility with unknown values; an older inline union can disagree with the extracted type and break the production TypeScript build. Derived projections such as a brief's acceptance row should reference that shared field type too, rather than maintain another narrower union. Run the normal build on the integrated branch: focused runtime tests alone do not detect duplicate interface properties.
@@ -50,6 +60,7 @@ The supervision feed's `body.evidence` is a separate array, not part of `body.te
 - A flex child with `overflow-hidden` has a `min-height:auto` of 0, so flex squeezes it below its content when the box above the input is full. The card's footer (the answer buttons) then sits below the fold, and a receipt can be squeezed to a fraction of its content. Give every card in that box `shrink-0`, not only the one that was reported (`Card`, `AnsweredCard`, `DelegatedCard`).
 - An `overflow-hidden` ancestor makes itself the scroll container that `position: sticky` refers to, so a sticky footer inside it never sticks to the outer scroller. Use `overflow-clip`: it clips to the rounded corners the same way but is not a scroll container. The sticky offset also has to cancel the scroller's padding (`-bottom-1` for the dock's `p-1`), or the body shows under the footer.
 - jsdom has no layout; check it in a browser with `scripts/test/web_card_actions_e2e.py`, which asserts the button row's box is inside the viewport and the dock's visible area.
+- The assistant's Pending tray is itself the scroller, so cards inside it must not open a second scroll box (`PendingCards narrow`): the sticky answer row then sticks to the inner box and sits below the tray's fold. The action bar holding the tray also has to `shrink` with the dock (`min-h-0`), or on a short window it stands taller than the dock and the card's answer row ends up under the composer (#3083). Check with `web/e2e/ask-card-dock.mjs`.
 
 ## A native select's arrow ignores the field's padding (#2314)
 
@@ -73,6 +84,10 @@ The supervision feed's `body.evidence` is a separate array, not part of `body.te
 
 - A contiguous reconnect replay can still be incomplete when its final batch carries `more_after`. Follow that flag on pushed batches as well as HTTP pages, continuing from the updated contiguous coverage cursor through the existing gap-fill timer; do not wait for another push to reveal a gap.
 
+## A poll that keeps its last answer must still redraw on failure (#1905)
+
+- `useUsageWindows` keeps the last answer when a refresh fails, and the bars judge its age (`stale_at`) at render time. A failure that sets nothing renders nothing, so kept numbers would stay "fresh" until something else redrew the sidebar. On failure it hands back a copy of what it keeps (`kept.slice()`): every consumer renders again once per poll and judges with the time now. Anything judged against the clock needs a clock or a render, not only new data.
+
 ## State updaters stay pure under StrictMode (#1165)
 
 - Keep React state updaters free of mutations to refs. Echo matching claims transcript IDs, so do it in the effect, then pass captured IDs and a timestamp into a pure pending-message filter. Exercise sending and transcript delivery under StrictMode to catch double-invocation failures.
@@ -94,6 +109,10 @@ The web's `turns=2` initial page and two-turn cache deliberately preserve a smal
 ## Render-count tests must separate store pushes from live clocks (#1989)
 
 A Profiler counts every commit beneath it, including status clocks and deferred mount work unrelated to the store update under test. Drain mount timers before taking the baseline, keep time fixed during the measured push sequence, and explicitly flush the real store's batched notifications inside `act`. Freezing timers without delivering those notifications can make a zero-redraw test pass vacuously: retain all negative assertions and add a positive control proving a current-conversation update still redraws and changes the DOM. Clear timers and restore real time after unmounting each test.
+
+## A scroll handler sets state only when its answer changes (#2998)
+
+A handler that runs on every scroll event (each frame of snap scrolling or a smooth `scrollBy`) and every `ResizeObserver` report must not call `setState` with a new object each time: `Object.is` never matches, so the component and all its children render on every frame (an extension carousel rendered its tiles once per scroll event). Returning the previous state from an updater is not enough either: React skips that render only while the component has no pending work, so a same-state resize report still rendered once and the next real change rendered twice. Keep what is shown in a ref and skip `setState` when nothing changed (`Carousel` in `web/src/views/extensions/ViewBody6.tsx`). Count `<Profiler>` commits for unchanged scrolls, unchanged resize reports and one real change (`web/src/views/extensions/ViewBody6.renders.test.tsx`).
 
 ## Streamed stat grids need the same text bounds as snapshots (#1703)
 
@@ -466,6 +485,7 @@ Six parallel lanes (chat rendering, message actions, Agents list / Machines, Ter
 - Paint containment clips overflow and outlines, and Chromium applies `overflow-clip-margin` to it. Fixed-position descendants are contained as well: the zoomed Mermaid diagram is `fixed inset-0` and not portaled, so exchanges holding `[aria-modal="true"]` are excluded.
 - With the exchanges skipped, a cold open still forced a layout of the whole chat before its first paint: each bubble reads its own height in a layout effect (`getComputedStyle` + `scrollHeight`) to decide whether it folds, and then `useFoldScroll` reads its scroll height for the fade.
   A message that cannot pass 14 lines even in a bubble far narrower than any real one now skips the first read, and a block that is not folded skips the second. Skipping only the first moved the whole cost to the second read (in the profile `moreBelow` took what the bubble's effect had taken): after removing a forced layout, profile again, because the next read in the same commit pays for it.
+  Two more reads remained in that frame (#2905): each table placed its copy button from `offsetTop` / `offsetWidth` in a mount effect, and the lazy highlighter read each code block's position. Place the button from the table's ResizeObserver, whose first report comes after layout and is not made for a table in a skipped exchange until that exchange is drawn (the synchronous placement stays only where there is no ResizeObserver). A block's own `getBoundingClientRect` inside a skipped exchange lays that exchange out; the exchange's own box does not, so read it first and leave the chat's blocks in a far exchange to the IntersectionObserver. A block in a box of its own (an open quote, a fold) is still read: it is near by its place in that box, and was colored before that box came into view.
 - Context that every row reads but only an open menu uses (why "Rewind to here" is off) belongs in a small store, read with `useSyncExternalStore` only while the menu is open. A set that every reader checks for its own id (fresh words) becomes a per-id subscription. With these, a send and a pushed item render the rows they touch instead of every exchange.
 
 ## Opening and refreshing chats stays at latest (2026-11-04, #1340)
@@ -589,6 +609,8 @@ Writes without items (titles, modes) also advance `updated_at`, returning empty 
 
 - Global `prefers-reduced-motion` rules in `styles.css` reduce CSS animation / transition duration to 1 ms, but cannot control explicit JS `scrollTo({ behavior: "smooth" })` / `scrollIntoView({ behavior: "smooth" })`.
   All scripted scrolling must use `scrollBehavior()` (`src/ui/stream/motion.ts`, reuses `prefersReducedMotion`), not duplicate `matchMedia` strings.
+- Since 2026-11-10 (#2998) `src/ui/stream/scroll-motion.test.ts` enforces it: it scans `web/src` and fails on `behavior: "smooth"`, an inline `reduce ? "auto" : "smooth"`, or a scroller styled `scroll-behavior: smooth` / `scroll-smooth` (that one animates `"auto"` too) anywhere outside `motion.ts`.
+  Pick the target before scrolling: `a?.scrollIntoView() ?? b?.scrollIntoView()` runs both, since `scrollIntoView` returns `undefined`, and the second scroll wins (diff review's open-threads button always went to the first thread).
 
 ## Reduced motion and busy indicators (2026-11-05, #3475)
 
@@ -616,13 +638,16 @@ If the header grows, elements below it (App.tsx connection-status pill) cannot a
 
 - **Chat answers remount wholesale**: when streaming ends, item `Answer` replaces the streaming version. When another answer joins the same segment, `SegmentView`'s live-dependent `cut` changes and moves the old answer between `WorkNodes` groups. Remounting `Markdown` with `fade` creates a new timeline: already-visible text visibly fades out / in, one span per word, then switches back to ordinary Markdown after 0.35 s. This explains CPU-profile long frames at both start and end; more answers in a segment make it slower. Now remember recent timelines by text (`rememberShown` / `shownBefore` in `wordFade.ts`); remounts reuse them, and finished words render normally.
 - **Measure these frames with 2× CPU throttling first**: unthrottled, longest frames with fade on / off both lie at 50–100 ms, obscured by other processes; 2× gives stable differences. Restart mock hub before each measurement group; `/mock/say` appends replies to the same ever-growing segment.
-- **`useSyncExternalStore` updates are always synchronous**, even within `startTransition`. To redraw answers in a transition after a lazy-loaded plugin arrives, use `useState` + subscription. Plugins are functions: `useState(plugin)` / `setState(plugin)` calls them as initializer / updater, so use `() => plugin`.
+- **Write nothing to the page as each word finishes fading** (#2905): taking the word's class and the list marker's attribute off at `animationend` was a DOM write per word, and each made the next frame recompute style and layout (8.7 layouts per frame at 200 turns while a reply streamed). The animation's fill keeps the finished word as it ends, so `animationend` only marks the word settled, and the next parse of its chunk draws it without the class (`FadeSpan.tsx`, `wordFade.ts`).
+- **`useSyncExternalStore` updates are always synchronous**, even within `startTransition`. To redraw answers in a transition after a lazy-loaded plugin arrives, use `useState` + subscription. Plugins are functions: `useState(plugin)` / `setState(plugin)` calls them as initializer / updater, so use `() => plugin`. A reply's own sync render before that transition commits (another store's answer, such as path presence) must still draw without the plugin: returning the loaded module there parsed every waiting reply again with KaTeX in that one non-yielding frame, 0.4-0.6 s on a 200-turn chat whenever the answer landed in the transition's window (#2905, `lazy-plugin.ts`).
 
 ## A lazy rehype plugin re-renders every reply; keep finished trees by content (#2465)
 
 - **Whole-reply plugins make their arrival a full re-render**: rehype-highlight ran as a plugin of each reply, so when its chunk arrived every reply with a fenced block re-rendered and was parsed again from scratch, off-screen ones included (about 2,600 component renders while scrolling right after opening a 200-turn chat). Work that only a part of a block needs belongs in that part's component, which can then take it up near the viewport only (`CodeBlock`, `stream/highlight.ts`).
 - **rehype-highlight builds its lowlight inside the plugin**: `createLowlight(common)` runs every time a processor is made, that is once per block per draw; a shared instance cost 156 ms for all 325 blocks of the same history against about 1.7 s through the plugin.
 - **react-markdown's `Markdown()` is a plain function** (no hooks: create processor, parse, `runSync`, to JSX), so its result can be kept and drawn again. The key must hold everything the tree is made from: the text, the remark plugin list, each rehype plugin that runs, and whatever the components close over (machine, directory); a new input to the tree joins the key, or a kept tree is drawn stale. Components built in a `useMemo` per mount make a kept tree's component types differ from a fresh one's; share them per key instead.
+- **Find the scroll container by a mark, not by computed style** (#2905): walking up a new block's ancestors with `getComputedStyle` to find the box that scrolls it made the browser resolve the styles of the whole chat as it opened. The chat, a fold and the other scrolling boxes that hold Markdown carry a mark (`data-chat-scroll`, `data-fold-scroll`, `data-scroll-box`) and a block takes the nearest with `closest()`; a page with no marked box still walks up. Every box that scrolls between a block and a marked one must be marked too, or the block takes the outer box. With the walk gone, the profile put the cost in the next read (each block's `getBoundingClientRect`, which laid out skipped exchanges, see #2485): profile again after each removed read.
+- **A transition is drawn with every other pending one** (#2905): React renders all pending transitions together, so a small update put in a transition waits for the slowest one with it. Once a long chat opened faster, the grammars and KaTeX came in together, and the code in view was colored only after KaTeX had drawn every reply with a formula, in the same frame. Code blocks take their colors in an ordinary update now (`show` in `stream/highlight.ts`). Such an update is drawn before transitions that have not started, but it does not interrupt one that is already rendering.
 - **Count with a `<Profiler>` per block and a probe on a hook the reply calls** (`highlight-lazy.test.tsx`): a Profiler's `onRender` fires for any commit in its subtree, so it tells which blocks updated, not whether the reply itself rendered again.
 
 ## Cleanup warnings after successful uninstall (#4757)
@@ -695,6 +720,19 @@ A narrow shell can unmount its sidebar list and mount the same list in the Agent
 - On the first commit a child's `useLayoutEffect` runs before React attaches its parent's ref, so a child that reads `parentRef.current` there gets `null` and the column renders without its width. Pass the column's `id` (`useId`) and look it up with `document.getElementById` instead.
 - Modules mocked by `AppShellRenders.test` (for example `views/SidePanel`) expose only the exports the mock defines, so a new shell component that imports a constant from such a module fails with `No "X" export is defined on the mock`. Shared layout constants (`CHAT_MIN`, `PANEL_MIN`) belong in `lib/layout.ts`.
 
+## Rows that keep their memo across pushes (2026-11-10, #2914)
+
+- `memo` helps only when the row's props keep their identity. A value rebuilt on every push (the "By to-do" tree from `buildTodoTree`, the rail's ticks from the chat lines) breaks it even when nothing changed. Share the rebuilt value with the previous one (`shareTree`, `stabilizeLines`), or cache the result per input object in a `WeakMap`. Store the parts the result was read from next to it and check them, because callers and tests can change a line in place.
+- A prop that every row receives but only one row uses (the open row's key, the list of computers) re-renders all of them when it changes. Pass the open row's key only to the branch that holds it ("" elsewhere), and pass a lookup that keeps its identity while the labels it returns stay the same.
+- Sharing a rebuilt tree does not avoid building it (#3059). Subscribe to the machine fields the tree and its descendants read, including the never-connected predicate (trust and whether `last_seen` exists), so telemetry-only pushes keep the memo input unchanged. Memoized bars also need stable count objects and handlers; handlers must read the latest committed sessions when the bar skips a push. Keep usage and notice subscriptions inside their memo boundaries so their own updates still arrive.
+- A shortcut on text must give the same result as the full pass. `navRailExcerpt` reads only the head of a long answer, and only when no comment or link runs past the cut. Its test compares it with the whole-text excerpt on random Markdown; removing either check must make that test fail.
+- `querySelectorAll` on the chat scroller searches every message's markup. The line wrappers (`[data-line]`) are direct children of `[data-chat-content]`, so read those children instead.
+
+## A chart hover redraws its crosshair, not its lines (#2998)
+
+- A hover moment that several charts share re-renders whatever owns it on every `pointermove`. The machine page kept it in the page component, so each move rendered the page, the now tiles and all four charts, and every chart built each `points` string again (two `toFixed` a point, about 360 points a range): 20 moves cost 20 page renders and 71,505 `toFixed` calls. Keep the moment in the smallest component that renders everything following it (`Charts` in `views/machines/MachineDetail.tsx`), and draw what does not depend on it as `memo` layers (`YGrid` / `Lines` in `MetricChart.tsx`, `ThroughputLayers` / `HitRateLine` in `UsageSection.tsx`).
+- A memo holds only on stable props: memoized series, formatters at module level (an inline `(v) => ...` is new every render), primitives instead of a fresh `{ value, label }`, and memoized derived arrays (`kinds` filtered on each render recomputed the usage chart's layers on every move). Pin it in jsdom by counting `Number.prototype.toFixed` calls or renders over 20 moves, and compare the SVG markup before and after the change to show the look did not move.
+
 ## Manual mail drafts belong to their manager and item (#1252)
 
 - The merged Inbox can contain the same item id under two managers. Scope retained drafts and the live form's React key to both owner and item; resolve an omitted owner to the roster default so explicit and implicit default stamps share one draft. The mail body's open-reply key also needs the owner, or switching managers can leave the previous reply template open. Exercise late send failures after unmount while another owner's same-id draft is open, and verify recipients, account and reply headers as well as text through mocked sends.
@@ -712,6 +750,26 @@ A saved credential and an empty input are different from explicitly removing tha
 
 A successful token check does not prove the subsequent device-token exchange succeeded: a redeemed pairing code can still read during its grace period. Keep the legacy credential only when the exchange returns 404 for an old hub. Authentication refusal, server failure and transport failure must reject sign-in without replacing browser credentials. Both opened and pasted links should classify a 401 by status, not by the exact error sentence returned by the hub.
 
+## A gateway status is not an outage diagnosis (#1915)
+
+Classify stable business codes before generic status messages, including in toast folding. A 503 can mean disabled knowledge, an unready index or a disconnected manager; it does not prove the hub or a computer is down. Keep old-hub compatibility at the REST boundary, requiring the route, status, code and exact known diagnostic together. Retain diagnostics on the error object, not inside business messages, and exercise the rendered page through the real decoder.
+
 ## An op receipt keeps the hub's answer and the digest covers the body (#2459)
 
 A write under an op id can be repeated only unchanged: the hub replays the answer it kept for that id (a refusal included) and answers `409 op_id_reused` when the body changed. So a retry after a gap keeps the id and the request as they were, which means a start that may have reached the hub cannot reopen its form; a retry after a refusal needs a new id. Another request of the same flow, such as the Codex start with a prompt, has its own id. A repeat can also come back `202 {"state":"pending"}` or `{"state":"unknown"}`, which `res.ok` reads as success, so a caller that needs the real answer has to look at `state`.
+
+## A control meant to look like the chips must reuse the chip's class (#2999)
+
+#2920 drew the Assistant's Pending / Progress / Agents entries as a new three-column grid of 36 px rounded rectangles with
+14 px type, next to the dock's 32 px "All" / task capsules, and they read as heavy buttons. The capsule was a local
+constant inside `TaskDock`, so nothing pointed the new code at it. Shared look lives in one exported class
+(`DOCK_CAPSULE`) used by every chip that should match; tests assert the classes are shared and the e2e measures the rendered
+height against 2 rem in a real browser.
+
+## A progress count must follow "not closed", not "an agent is running" (#3162)
+
+The old dock's pills and iOS's Progress count kept a task only while its agent was working, waiting or unseen. A
+supervised task spends most of its life stopped between rounds (`follow_up`: the agent's turn ended and was seen, the task
+is not done), so the owner saw one task out of four and asked what the others were doing. The #2920 Progress tray went the
+other way and listed every slot ever dispatched, closed ones included. "Open" is a property of the task (`done_at`,
+`start_error`, an open plan), not of its agent: filter on that, sort what needs the user first, and fold the closed ones.

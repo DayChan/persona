@@ -533,6 +533,7 @@ func TestMergedExtensionsKeepOfflineManagers(t *testing.T) {
 		t.Fatalf("revoked manager with cached answer: %d", code)
 	}
 	reads.away.Store(true)
+	h.expireOwners() // the roster read a moment ago is not kept any more
 	if code, _ := ownershipGet(t, h, srv, http.MethodGet, "/api/v1/extensions", nil); code != http.StatusServiceUnavailable {
 		t.Fatalf("unreadable installed identities: %d", code)
 	}
@@ -572,6 +573,7 @@ func TestMergedExtensionsExcludeRemovedExternalAssistant(t *testing.T) {
 		t.Fatalf("removed external assistant still cached: %d %v", code, out)
 	}
 	settings.fail.Store(true)
+	h.expireOwners() // the default read a moment ago is not kept any more
 	if code, _ := ownershipGet(t, h, srv, http.MethodGet, "/api/v1/extensions", nil); code != http.StatusServiceUnavailable {
 		t.Fatalf("unreadable default setting: %d", code)
 	}

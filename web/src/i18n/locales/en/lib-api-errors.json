@@ -10,5 +10,6 @@
   "failed": "The model request failed",
   "not_logged_in": "Claude Code isn't signed in",
   "bad_key": "The model's key is wrong or has expired",
-  "bad_model": "This model isn't available now"
+  "bad_model": "This model isn't available now",
+  "safeguards": "The model's safeguards flagged this message"
 }

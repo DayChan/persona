@@ -30,4 +30,18 @@ describe("a model error's fix", () => {
     expect(html).toContain("重试");
     expect(html).not.toContain("去修");
   });
+
+  it("recognizes safeguards as requiring action and offers editing only on a supported agent chat", () => {
+    const text = "API Error: Opus 5.5's safeguards flagged this message. Details: [frontier_llm]";
+    const info = parseAPIError(text)!;
+    expect(info.code).toBe("safeguards");
+    expect(info.transient).toBe(false);
+    const html = renderToStaticMarkup(<ChatLineView line={line(text)} mid="m" sid="s" expandFold={async () => {}} onRetry={() => {}} onEditLastMessage={() => {}} />);
+    expect(html).toContain("编辑上一条消息");
+    expect(html).toContain("模型的安全检查拦截了这条消息");
+    expect(html).not.toContain(">重试</button>");
+    expect(render(text, false)).not.toContain("编辑上一条消息");
+    const main = renderToStaticMarkup(<ChatLineView line={line(text)} mid="m" sid="s" expandFold={async () => {}} assistant onEditLastMessage={() => {}} />);
+    expect(main).not.toContain("编辑上一条消息");
+  });
 });

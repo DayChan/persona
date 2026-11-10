@@ -32,6 +32,7 @@ struct AssistantView: View {
     @State private var openedExtension: ExtensionNavRoute?
     /// Health: the health space's page (docs/assistant/health.md).
     @State private var showHealth = false
+    @State private var showRecordings = false
     /// The sidebar (Chat History, or a drag to the right anywhere on the page): docs/apple/ios.md「Persona top bar and sidebar」.
     @State private var drawer = AssistantDrawer()
     /// Regular width (iPhone Duo open): the sidebar is a column beside the conversation; Chat History shows or hides it.
@@ -127,7 +128,21 @@ struct AssistantView: View {
                                 openTodos: places ? { show(.todos) } : { drawer.close(); showTodos = true },
                                 onMachines: places ? { show(.machines) } : nil,
                                 onOpenExtension: places ? { show(.extensionPage($0)) } : { r in drawer.close(); openedExtension = r },
-                                openHealth: places ? { show(.health) } : { drawer.close(); showHealth = true })
+                                openHealth: places ? { show(.health) } : { drawer.close(); showHealth = true },
+                                startMeeting: Self.startMeeting(places ? { show(.recordings) } : { drawer.close(); showRecordings = true }))
+    }
+
+    /// The sidebar's Meeting Recording: records the meeting (opening Recordings), or `open`s the recording running already.
+    /// nil off the iPhone and iPad (the Mac records nothing).
+    private static func startMeeting(_ open: @escaping () -> Void) -> (() -> Void)? {
+        #if os(iOS)
+        return {
+            if RecordingCapture.shared.state != .idle { open() }
+            else { open(); Task { await MeetingRecorder.shared.startMeeting(inForeground: true, openPage: false) } }
+        }
+        #else
+        return nil
+        #endif
     }
 
     /// Chat History: the drawer on a phone, the sidebar column beside the conversation on a wide display.
@@ -167,7 +182,8 @@ struct AssistantView: View {
 
     /// Nothing pushed on the page: the sidebar's drag only works here (pushed pages have their own back swipe).
     private var atRoot: Bool {
-        var pushed = showProfile || showKnowledge || showRoutines || showTodos || openedExtension != nil || showHealth || !path.isEmpty
+        var pushed = showProfile || showKnowledge || showRoutines || showTodos || openedExtension != nil || showHealth || showRecordings
+            || !path.isEmpty
         #if DEBUG
         pushed = pushed || showAvatars
         #endif
@@ -232,6 +248,13 @@ struct AssistantView: View {
             #endif
             .navigationDestination(isPresented: $showProfile) { AssistantProfileView() }
             .navigationDestination(isPresented: $showKnowledge) { KnowledgeView() }
+            .navigationDestination(isPresented: $showRecordings) {
+                #if os(iOS) || os(visionOS)
+                RecordingsPage()
+                #else
+                KnowledgeView() // the Mac records nothing: its Knowledge lists the hub's recordings
+                #endif
+            }
             .navigationDestination(isPresented: $showRoutines) { AssistantRoutinesView() }
             .navigationDestination(isPresented: $showTodos) { TodosView() }
             .navigationDestination(item: $openedExtension) { ExtensionNavPage(route: $0) }
@@ -260,7 +283,12 @@ struct AssistantView: View {
             // from the knowledge base, even when its conversation is the one already open.
             // A start error belongs to the home page it failed on: another conversation (from any menu, the Mac's
             // ⇧⌘N, a quick action) leaves it behind.
-            .onChange(of: model.assistantCurrent) { backToRoot() }
+            .onChange(of: model.assistantCurrent) { old, new in
+                // The app picking the main conversation by itself once the hub answers (none was open) is not the user
+                // opening one: Recordings, opened by a Control or the home screen's menu at launch, stays.
+                if showRecordings, old == nil, new == model.assistantMain { return }
+                backToRoot()
+            }
             .onChange(of: model.assistantManagerID) { starterLauncher = nil } // a launcher of the manager shown before
             .onChange(of: model.assistantReveal) { backToRoot(); activeDrawer.close() }
             #if DEBUG
@@ -294,6 +322,7 @@ struct AssistantView: View {
                 case "knowledge": show(.knowledge)
                 case "profile": show(.profile)
                 case "health": show(.health)
+                case "recordings": show(.recordings)
                 default: break
                 }
             }
@@ -327,6 +356,7 @@ struct AssistantView: View {
         case .machines: path.append(ShellRoute.machines)
         case .extensionPage(let r): path.append(ShellRoute.extensionPage(r))
         case .health: showHealth = true
+        case .recordings: showRecordings = true
         }
     }
 
@@ -338,6 +368,7 @@ struct AssistantView: View {
         showTodos = false
         openedExtension = nil
         showHealth = false
+        showRecordings = false
         #if os(iOS)
         // A task pushed beside the sidebar (regular width, `detailPresentation`) is a page of this stack too: going
         // back to the root, or to another conversation, takes it away (else the next chat would push it again). A

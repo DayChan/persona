@@ -5,8 +5,10 @@ from pathlib import Path
 import shutil
 import subprocess
 
+import apple_launch_diagnostics
 
-LOGS = ("simulator.log", "simulator-boot.log")
+
+LOGS = ("simulator.log", "simulator-boot.log", "simulator-readiness.log")
 
 
 def collect(output, destination, runner=subprocess.run):
@@ -20,6 +22,7 @@ def collect(output, destination, runner=subprocess.run):
             shutil.copytree(bundle, destination / bundle.name, dirs_exist_ok=True,
                             ignore=lambda directory, names: [name for name in names
                                 if (Path(directory) / name).is_symlink()])
+    apple_launch_diagnostics.collect(output, destination)
     commands = [
         ("simctl-list", ["xcrun", "simctl", "list", "--json"], 120, "json"),
         ("disk-space", ["df", "-h", str(output)], 30, "txt"),

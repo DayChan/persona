@@ -34,6 +34,9 @@ struct ShellComposerBar<Attach: View, Modes: View>: View {
     /// The iPhone's 「+」 opens the composer's panel (`AttachSheet`, Telegram's attachment menu) from where the button is,
     /// in the window; nil: the menu of `attach`.
     var openAttach: ((CGRect) -> Void)? = nil
+    /// Glow While Replying (`ComposerGlow`): the band around the bar while the assistant's reply is being written. Drawn
+    /// inside the bar's animations so it follows the surface when the line grows into the card.
+    var glows = false
     var send: () -> Void
     @ViewBuilder var attach: () -> Attach
     @ViewBuilder var modes: () -> Modes
@@ -236,6 +239,7 @@ struct ShellComposerBar<Attach: View, Modes: View>: View {
         .overlay { ComposerHoldOverlay(hold: hold) }
         .coordinateSpace(.named(ComposerHold.space))
         #endif
+        .composerGlow(glows)
         .contentShape(.rect(cornerRadius: Theme.Shell.composerRadius))
         .onTapGesture { focused.wrappedValue = true }
         .shellScaled()

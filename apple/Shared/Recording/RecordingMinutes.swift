@@ -1,0 +1,111 @@
+import Foundation
+
+/// The hub's minutes of a meeting recording (docs/assistant/meeting-minutes.md「Field contract」, #2710): when and where, who
+/// was there, the points discussed, the decisions, the action items (who, what, by when) and the open questions. Each item
+/// carries `at`, seconds from the recording's start (the transcript's clock), so a tap lands on that line. Decoded from
+/// `GET /api/v1/kb/recordings/{id}`'s `detail.minutes`; sections the hub leaves out are empty here.
+nonisolated struct RecordingMinutes: Codable, Hashable, Sendable {
+    /// A point, decision, action item or open question. An action item's text is its `what`.
+    nonisolated struct Item: Codable, Hashable, Sendable {
+        var text: String
+        /// Seconds into the recording where it was said.
+        var at: Double?
+        /// Who said it (a point) or does it (an action item), only when the transcript or the calendar says so.
+        var who: String?
+        /// An action item's deadline, as said ("Friday").
+        var by: String?
+
+        init(text: String, at: Double? = nil, who: String? = nil, by: String? = nil) {
+            self.text = text; self.at = at; self.who = who; self.by = by
+        }
+
+        enum CodingKeys: String, CodingKey { case text, what, at, who, by }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            text = try c.decodeIfPresent(String.self, forKey: .text) ?? c.decodeIfPresent(String.self, forKey: .what) ?? ""
+            at = try? c.decodeIfPresent(Double.self, forKey: .at)
+            who = try c.decodeIfPresent(String.self, forKey: .who)
+            by = try c.decodeIfPresent(String.self, forKey: .by)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(text, forKey: .text)
+            try c.encodeIfPresent(at, forKey: .at)
+            try c.encodeIfPresent(who, forKey: .who)
+            try c.encodeIfPresent(by, forKey: .by)
+        }
+    }
+
+    var title: String?
+    /// "2026-11-10 14:00–15:10", as the hub writes it.
+    var when: String?
+    var place: String?
+    var attendees: [String] = []
+    var points: [Item] = []
+    var decisions: [Item] = []
+    var actions: [Item] = []
+    var openQuestions: [Item] = []
+
+    init(title: String? = nil, when: String? = nil, place: String? = nil, attendees: [String] = [], points: [Item] = [],
+         decisions: [Item] = [], actions: [Item] = [], openQuestions: [Item] = []) {
+        self.title = title; self.when = when; self.place = place; self.attendees = attendees
+        self.points = points; self.decisions = decisions; self.actions = actions; self.openQuestions = openQuestions
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case title, when, attendees, points, decisions, actions
+        case place = "where", openQuestions = "open"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        when = try c.decodeIfPresent(String.self, forKey: .when)
+        place = try c.decodeIfPresent(String.self, forKey: .place)
+        attendees = (try? c.decodeIfPresent([String].self, forKey: .attendees)) ?? []
+        points = try c.decodeIfPresent([Item].self, forKey: .points) ?? []
+        decisions = try c.decodeIfPresent([Item].self, forKey: .decisions) ?? []
+        actions = try c.decodeIfPresent([Item].self, forKey: .actions) ?? []
+        openQuestions = try c.decodeIfPresent([Item].self, forKey: .openQuestions) ?? []
+    }
+
+    var isEmpty: Bool { points.isEmpty && decisions.isEmpty && actions.isEmpty && openQuestions.isEmpty }
+
+    /// The transcript line said at `seconds`: the last one that started by then (a second's grace: a point is often
+    /// stamped as its sentence begins), else the first.
+    static func sentenceIndex(at seconds: Double, in sentences: [RecordingSentence]) -> Int? {
+        guard !sentences.isEmpty, seconds.isFinite else { return nil }
+        return sentences.lastIndex { $0.start <= seconds + 1 } ?? 0
+    }
+
+    /// An item's line under its text: who, by when.
+    static func byline(_ item: Item) -> String? {
+        let parts = [item.who, item.by].compactMap { $0?.isEmpty == false ? $0 : nil }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// What Copy and Share send: Markdown, headed by the title (the recording's name without one), then when and where.
+    func text(title fallback: String) -> String {
+        var out = ["# " + ((title?.isEmpty == false ? title : nil) ?? fallback)]
+        let line = [when, place].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · ")
+        if !line.isEmpty { out.append(line) }
+        if !attendees.isEmpty { out.append(String(localized: "Attendees: \(ListFormatter.localizedString(byJoining: attendees))")) }
+        func section(_ heading: String, _ items: [Item]) {
+            guard !items.isEmpty else { return }
+            out += ["", "## " + heading]
+            for item in items {
+                var row = "- " + item.text
+                if let byline = Self.byline(item) { row += " (" + byline + ")" }
+                if let at = item.at { row += " [" + RecordingFormat.clock(at) + "]" }
+                out.append(row)
+            }
+        }
+        section(String(localized: "Key Points"), points)
+        section(String(localized: "Decisions"), decisions)
+        section(String(localized: "Action Items"), actions)
+        section(String(localized: "Open Questions"), openQuestions)
+        return out.joined(separator: "\n")
+    }
+}

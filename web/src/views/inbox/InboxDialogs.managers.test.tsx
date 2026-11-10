@@ -14,6 +14,7 @@ import { reloadInbox, resetInboxForTests, type InboxItem } from "../../lib/inbox
 import { chooseManager, chosenManager, managerHeaderFor, resetManagerChoice, setRosterDefault } from "../../lib/manager-choice";
 import { navigate } from "../../lib/router";
 import { HandOffDialog } from "./InboxDialogs";
+import { t } from "../../i18n";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -248,7 +249,7 @@ describe("Hand to AI: an older hub or manager", () => {
     const onClose = vi.fn();
     act(() => root.render(<HandOffDialog item={item("m-1")} onClose={onClose} />));
     await send((c) => c.url === "/api/v1/assistant");
-    await vi.waitFor(() => expect(document.body.textContent).toContain("Assistant temporarily unavailable"));
+    await vi.waitFor(() => expect(document.body.textContent).toContain(t("lib-api.manager_offline")));
     expect(onClose).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
     expect(chosenManager()).toBeNull();

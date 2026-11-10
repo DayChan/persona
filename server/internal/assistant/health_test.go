@@ -322,7 +322,7 @@ func testHealthPhoneNotify(t *testing.T) {
 }
 
 // The health space's CLAUDE.md says which chart goes with which numbers (#3140): line for the last days' steps and
-// sleep, bar for each meal's calories, stacked_bar for how the day's calories are split, stat for one number, a table
+// sleep, bar for each meal's calories, ring for how the day's calories are split (#3069, not stacked_bar), stat for one number, a table
 // for the details, the conclusion in the text. Each example it gives is a card every app draws.
 func TestHealthClaudeMDTeachesCharts(t *testing.T) {
 	md := newTestService(t, healthHub()).healthClaudeMD(context.Background(), "server")
@@ -338,10 +338,13 @@ func TestHealthClaudeMDTeachesCharts(t *testing.T) {
 		}
 		kinds[c.Type] = true
 	}
-	for _, k := range []string{"line", "bar", "stacked_bar", "stat"} {
+	for _, k := range []string{"line", "bar", "ring", "stat"} {
 		if !kinds[k] {
 			t.Errorf("no %s example", k)
 		}
+	}
+	if kinds["stacked_bar"] {
+		t.Error("a stacked_bar example: one day's split is a ring")
 	}
 	for _, want := range []string{"近 7 天", "每餐", "全天", "单个", "表格", "正文", "飞书"} {
 		if !strings.Contains(md, want) {

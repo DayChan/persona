@@ -14,6 +14,7 @@ import persona.core.contracts.api.ExtensionChartSeries
 import persona.core.contracts.api.ExtensionView
 import persona.core.contracts.api.ExtensionViewItem
 import persona.core.contracts.api.ExtensionViewSection
+import persona.core.contracts.generated.ExtensionCardPart
 import persona.core.contracts.generated.ExtensionPersonaCard
 import persona.core.designsystem.ViewBlocks
 import kotlin.math.abs
@@ -52,15 +53,24 @@ object PersonaViewBlocks {
      * A ```persona-card as components, by the rules every app shares (the reference is `sdk/go/wire/personacard.go`, the
      * cases `schema/extension/examples/persona-card/`): one section titled with the card's title (a stat's goes on its
      * number), its subtitle first; `stat` a number; `stacked_bar` the total, a stacked bar of the parts (past four: three
-     * and "Other") and a row per part; `line` / `bar` the current value (if any) over a chart of the last 120 points. A card
+     * and "Other") and a row per part; `ring` a donut of the parts (with what the total leaves over them; past eight: seven
+     * and "Other"), the total in the hole, and a row per part; `line` / `bar` the current value (if any) over a chart of the last 120 points. A card
      * it cannot draw is null (and stays the code it is).
      */
     fun fromCard(card: ExtensionPersonaCard, words: CardWords = CardWords.Reference): ExtensionView? {
-        val parts = card.segments.orEmpty() + listOfNotNull(card.rest)
-        val sum = parts.sumOf { it.value }
+        var parts = card.segments.orEmpty() + listOfNotNull(card.rest)
+        var sum = parts.sumOf { it.value }
         when (card.type) {
             "stat" -> if (card.value == null) return null
             "stacked_bar" -> if (parts.isEmpty() || sum <= 0 || parts.any { it.value < 0 }) return null
+            "ring" -> {
+                val total = card.total?.value
+                if (total != null && total > sum) {
+                    parts = parts + ExtensionCardPart(words.remaining, total - sum)
+                    sum = total
+                }
+                if (parts.size < 2 || sum <= 0 || parts.any { it.value < 0 }) return null
+            }
             "line" -> if (card.points.orEmpty().size < 2) return null
             "bar" -> if (card.points.isNullOrEmpty()) return null
             else -> return null
@@ -85,6 +95,15 @@ object PersonaViewBlocks {
                 val series = shown.mapIndexed { i, part -> series(part.label, part.value, if (card.rest != null && i == parts.size - 1) "neutral" else null) } +
                     (if (parts.size > 4) listOf(series(words.other, parts.drop(3).sumOf { it.value }, "neutral")) else emptyList())
                 items += ExtensionViewItem("chart", kind = "bar", stacked = true, unit = totalUnit.orNull(), series = series)
+                parts.forEach { items += ExtensionViewItem("row", title = it.label, subtitle = it.note.orNull(), value = amount(it.value, totalUnit)) }
+            }
+            "ring" -> {
+                val total = card.total
+                val totalUnit = if (total != null) total.unit?.takeIf { it.isNotEmpty() } ?: unit else unit
+                val shown = if (parts.size > 8) parts.take(7) + ExtensionCardPart(words.other, parts.drop(7).sumOf { it.value }) else parts
+                val center = amount(total?.value ?: sum, totalUnit).takeIf { it.codePointCount(0, it.length) <= 20 }
+                items += ExtensionViewItem("chart", kind = "donut", unit = totalUnit.orNull(), detail = card.note.orNull(), center = center,
+                    series = listOf(ExtensionChartSeries(points = shown.map { ExtensionChartPoint(it.label, it.value, amount(it.value, totalUnit)) })))
                 parts.forEach { items += ExtensionViewItem("row", title = it.label, subtitle = it.note.orNull(), value = amount(it.value, totalUnit)) }
             }
             else -> {
@@ -137,7 +156,7 @@ object PersonaViewBlocks {
 }
 
 /** The words a ```persona-card's components get when the card does not give them: a stat's, a total, the rest, now. */
-data class CardWords(val value: String, val total: String, val other: String, val current: String) {
+data class CardWords(val value: String, val total: String, val other: String, val current: String, val remaining: String) {
     companion object {
         /** As every app's reference writes them (sdk/go/wire/personacard.go), which the shared cases expect. */
         val Reference = CardWords(
@@ -145,6 +164,7 @@ data class CardWords(val value: String, val total: String, val other: String, va
             "合计", // i18n-ignore: the shared reference's word (personacard.go), what the cross-app cases expect
             "其他", // i18n-ignore: the shared reference's word (personacard.go), what the cross-app cases expect
             "当前", // i18n-ignore: the shared reference's word (personacard.go), what the cross-app cases expect
+            "剩余", // i18n-ignore: the shared reference's word (personacard.go), what the cross-app cases expect
         )
     }
 }
@@ -153,6 +173,7 @@ data class CardWords(val value: String, val total: String, val other: String, va
 internal fun cardWords(): CardWords = CardWords(
     stringResource(R.string.settings_ext_card_value), stringResource(R.string.settings_ext_card_total),
     stringResource(R.string.settings_ext_card_other), stringResource(R.string.settings_ext_card_current),
+    stringResource(R.string.settings_ext_card_remaining),
 )
 
 

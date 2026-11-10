@@ -8,7 +8,8 @@ sealed interface ChatAction {
     data object Interrupt : ChatAction
     data class Rename(val title: String) : ChatAction
     data class Mute(val muted: Boolean) : ChatAction
-    data class Modes(val permissionMode: String? = null, val effort: String? = null) : ChatAction
+    /** [ultracode]: Claude Code's ultracode switch, sent on its own (docs/protocol/protocol.md "Claude Code ultracode"). */
+    data class Modes(val permissionMode: String? = null, val effort: String? = null, val ultracode: Boolean? = null) : ChatAction
     data object Close : ChatAction
     /** Join a Codex app-server thread live (POST …/attach); only for a session whose capabilities offer it. */
     data object Attach : ChatAction

@@ -122,11 +122,11 @@ func (h *Hub) managerList(ctx context.Context) ([]managerInfo, error) {
 	if s == nil {
 		return nil, errors.New("no database")
 	}
-	idents, err := s.BusIdentities(ctx)
+	idents, err := h.busIdentities(ctx, s)
 	if err != nil {
 		return nil, err
 	}
-	def := h.defaultManager(ctx)
+	def := h.defaultOwner(ctx)
 	live := map[string]busPresence{}
 	for _, p := range h.busRoster() {
 		live[p.ID] = p
@@ -375,7 +375,7 @@ func (h *Hub) managerRoutes(api *http.ServeMux) {
 			writeErr(w, http.StatusServiceUnavailable, err)
 			return
 		}
-		out := map[string]any{"managers": list, "default": h.defaultManager(r.Context())}
+		out := map[string]any{"managers": list, "default": h.defaultOwner(r.Context())}
 		if conflicts := h.managerBotConflicts(list); len(conflicts) > 0 {
 			out["bot_conflicts"] = conflicts
 		}

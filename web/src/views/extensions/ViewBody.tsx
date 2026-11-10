@@ -18,6 +18,7 @@ import {
 } from "../../lib/extension-ui";
 import { presenceStyle, usePresence, type Present } from "../../ui/motion";
 import { Rolling } from "../../ui/Rolling";
+import { scrollBehavior } from "../../ui/stream/motion";
 import { t } from "../../i18n";
 import { Button, cx, EASE, Loading, Spinner } from "../../ui/atoms";
 import { Icon, type IconName } from "../../ui/icons";
@@ -30,7 +31,8 @@ import { Badge, Carousel, DateInput, glyphOf, Grid, ImageItem, MultiChoice, Mult
 
 // UI version 4's code hosting items (CodeViews.tsx, DiffReview.tsx) are their own chunks too: only an extension's code
 // review or file browser draws them, never the assistant's cards (ui/AssistantCard.tsx), which bring this file into the
-// app's first chunk (#1794). Each is drawn under CodeItem's Suspense, so the page-level one never shows.
+// app's first chunk (#1794). They load with the first such item, not at idle (lib/lazy-page.ts), and each is drawn under
+// CodeItem's Suspense, so the page-level one never shows.
 const codeViews = () => import("./CodeViews");
 const Header = lazyPage(() => codeViews().then((m) => m.Header));
 const Breadcrumb = lazyPage(() => codeViews().then((m) => m.Breadcrumb));
@@ -45,7 +47,7 @@ function CodeItem({ children }: { children: ReactNode }) {
 }
 
 // Only chart items draw it: its own chunk, fetched by the idle preload or the first chart (lib/lazy-page.ts).
-const ExtensionChart = lazyPage(() => import("./ExtensionChart").then((m) => m.ExtensionChart));
+const ExtensionChart = lazyPage(() => import("./ExtensionChart").then((m) => m.ExtensionChart), { idle: true });
 
 const TEXT: Record<UITone, string> = { neutral: "text-ink", positive: "text-green", caution: "text-orange", danger: "text-red" };
 const BAR: Record<UITone, string> = { neutral: "bg-accent", positive: "bg-green", caution: "bg-orange", danger: "bg-red" };
@@ -102,7 +104,7 @@ export function ViewSections({ view, embedded, compact, ...handlers }: ViewHandl
 /** Scrolls the page to a file's diff (a file tree without an action, on a page of diffs). */
 function revealDiff(path: string) {
   const el = [...document.querySelectorAll<HTMLElement>("[data-diff-path]")].find((e) => e.dataset.diffPath === path);
-  el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  el?.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
 }
 
 /** The side pane's title on a narrow screen: its first section's, with how many files its tree has. */

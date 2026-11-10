@@ -33,7 +33,8 @@ func TestOutsideClaudeListedLive(t *testing.T) {
 			s.LastText != "on it" || s.ReadOnlyReason != "" {
 			t.Errorf("%s: %+v", c.entrypoint, s)
 		}
-		if cp := s.Capabilities; cp == nil || !cp.Read || !cp.Send || cp.Interrupt || cp.Approve || cp.Terminal || cp.Attach {
+		if cp := s.Capabilities; cp == nil || !cp.Read || !cp.Send || cp.Interrupt || cp.Approve || cp.Terminal || cp.Attach ||
+			cp.Modes == nil || *cp.Modes {
 			t.Errorf("%s capabilities = %+v", c.entrypoint, cp)
 		}
 	}
@@ -314,4 +315,28 @@ func TestEchoTiesAPeerSend(t *testing.T) {
 	)
 	l.match("s", items)
 	sameTags(t, l.tag("s", items), map[string]string{"p1#0": "P", "q1#0": "Q"})
+}
+
+// A mode or effort change for a Claude outside Persona's terminals is refused with a reason that says where to change
+// it (#1843): the peer inbox takes messages only and no message gives it a pane, so "send a message first" was wrong.
+// A session nothing runs keeps the not-running refusal, now with a code the hub words in the request's language.
+func TestOutsideClaudeModesRefused(t *testing.T) {
+	n, f, home := herdrNode(t)
+	noPaneEnv(t)
+	p := bgTranscript(t, home, home, sidA, "plan the release")
+	inbox := newFakeInbox(t, p)
+	f.reply("session.snapshot", snapshot(nil, nil, nil, nil))
+	for _, entrypoint := range []string{"claude-desktop", "cli"} {
+		writeOutsideClaude(t, home, sidA, entrypoint, "idle", inbox, nil)
+		for _, m := range []map[string]any{{"permission_mode": "plan"}, {"effort": "high"}, {"model": "opus"}} {
+			m["session_id"] = sidA
+			if _, err := request(t, n, "session.modes", m); !isRefusal(err, proto.CodeModesOnComputer) {
+				t.Errorf("%s %v: %v", entrypoint, m, err)
+			}
+		}
+	}
+	_ = os.Remove(filepath.Join(home, ".claude", "sessions", strconv.Itoa(os.Getpid())+".json"))
+	if _, err := request(t, n, "session.modes", map[string]any{"session_id": sidA, "permission_mode": "plan"}); !isRefusal(err, proto.CodeModesNotRunning) {
+		t.Errorf("not running: %v", err)
+	}
 }

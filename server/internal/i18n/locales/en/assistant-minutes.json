@@ -1,0 +1,13 @@
+{
+  "ready_title": "Meeting minutes are ready",
+  "ready_body": "{name} · decisions: {decisions} · suggested to-dos: {actions}",
+  "no_recording": "There is no such recording.",
+  "incomplete": "The transcript isn’t complete yet. Minutes are made once it is.",
+  "todo_forbidden": "This device can’t create to-dos.",
+  "no_actions": "Choose at least one action item.",
+  "stale": "The minutes changed. Reload them and try again.",
+  "unknown_action": "These minutes have no action item {id}.",
+  "no_minutes": "This recording has no minutes yet.",
+  "todo_notes": "From the minutes of “{meeting}” ({when}), said at {clock}.",
+  "todo_by": "Deadline as said: {by}"
+}

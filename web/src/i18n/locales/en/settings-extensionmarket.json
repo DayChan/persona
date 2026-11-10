@@ -119,6 +119,7 @@
   "op_title_uninstall": "Uninstalling",
   "op_retry": "Retry",
   "op_dismiss": "Dismiss",
+  "op_gone": "It's no longer running: its manager doesn't have it any more (it may have restarted). You can start it again.",
   "op_cancel": "Cancel",
   "op_review": "Review",
   "op_error": "Why: {error}",

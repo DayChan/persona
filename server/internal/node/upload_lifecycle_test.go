@@ -205,6 +205,10 @@ func TestUploadAbortBeforePublicationRPC(t *testing.T) {
 				if err := os.WriteFile(existing, []byte("original"), 0o640); err != nil {
 					t.Fatal(err)
 				}
+				// WriteFile applies the umask; set the mode the check below expects.
+				if err := os.Chmod(existing, 0o640); err != nil {
+					t.Fatal(err)
+				}
 			}
 			id := f.begin(t, p)
 			gate, part := f.gate(t, id, true)
@@ -229,8 +233,10 @@ func TestUploadAbortBeforePublicationRPC(t *testing.T) {
 				if b, err := os.ReadFile(existing); err != nil || string(b) != "original" {
 					t.Errorf("existing destination changed: %q %v", b, err)
 				}
-				if st, err := os.Stat(existing); err != nil || st.Mode().Perm() != 0o640 {
-					t.Errorf("existing permissions changed: %v", err)
+				if st, err := os.Stat(existing); err != nil {
+					t.Errorf("existing destination: %v", err)
+				} else if st.Mode().Perm() != 0o640 {
+					t.Errorf("existing permissions changed: %04o, want 0640", st.Mode().Perm())
 				}
 			}
 			if err != nil || len(entries) != want {

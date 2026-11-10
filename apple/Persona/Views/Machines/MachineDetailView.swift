@@ -459,8 +459,10 @@ struct MachineDetailView: View {
             return link ? String(localized: "Not connected yet: authentication failed. Pair Persona Link again on this computer, then reconnect")
                 : String(localized: "Not connected yet: authentication failed. Check that this computer's SSH key and account are still valid, then reconnect")
         case .version:
-            return m.map(NodeHealth.canDeploy) == true ? String(localized: "Not connected yet: version mismatch. Redeploy to update the node to the same version as the hub")
-                : String(localized: "Not connected yet: version mismatch. Upgrade the node on this computer so it matches the hub")
+            if m.map(NodeHealth.canDeploy) == true {
+                return String(localized: "Not connected yet: version mismatch. Reconnect first; then Redeploy updates the node to the hub's version")
+            }
+            return String(localized: "Not connected yet: version mismatch. Upgrade the node on this computer so it matches the hub")
         case .timeout:
             return String(localized: "Not connected yet: the connection timed out. The network is unstable or the computer is asleep. Wait for it to wake up or switch networks, then reconnect")
         case .unreachable:

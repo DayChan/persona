@@ -95,11 +95,15 @@ func (n *Node) waitReady(ctx context.Context, pane string, probe *startProbe) (*
 		if err != nil || a.Agent != "claude" {
 			// The tab's shell could not run the command (a launcher its rc files do not define, a claude not on its
 			// PATH): it said so right after it and is back at its prompt, and claude will not come (#1642).
-			if probe != nil && !sawClaude && !running && mayHaveShellMiss(screen) {
+			// Or it did not take the typed line at all: a startup question ate its head (#2570). The start types it again.
+			if probe != nil && !sawClaude && !running && (mayHaveShellMiss(screen) || mayBeRejected(screen)) {
 				if full, rerr := n.readPane(ctx, pane, "recent-unwrapped", 60); rerr == nil {
 					refused, other := probe.verdict(full, func() bool { return n.shellBackOrUnknown(ctx, pane) })
 					if refused != nil {
 						return nil, refused
+					}
+					if line := probe.rejectedLine(full); line != "" {
+						return nil, &startLineRejected{line: line}
 					}
 					shellSaid = other
 				}
@@ -151,10 +155,18 @@ func (n *Node) waitReady(ctx context.Context, pane string, probe *startProbe) (*
 	// A start stuck on first-run screens the screen matching does not name: say so from the onboarding flag instead
 	// of leaving only the generic timeout (claudeonboarding.go).
 	if hint := n.onboardingBlockHint(ctx); hint != "" {
-		return nil, fmt.Errorf("claude did not become ready within %s of starting: %s", readyWait, hint)
+		return nil, &claudeStalled{fmt.Errorf("claude did not become ready within %s of starting: %s", readyWait, hint)}
 	}
-	return nil, fmt.Errorf("claude did not become ready within %s of starting", readyWait)
+	return nil, &claudeStalled{fmt.Errorf("claude did not become ready within %s of starting", readyWait)}
 }
+
+// claudeStalled is the error of a start whose claude ran but never showed its input box: its own screen stopped
+// somewhere (a first-run screen, a dialog the node does not know). The start ends with agent_start_stalled and keeps
+// the tab (control.go), as a Codex start does (#2558, #2570).
+type claudeStalled struct{ err error }
+
+func (e *claudeStalled) Error() string { return e.err.Error() }
+func (e *claudeStalled) Unwrap() error { return e.err }
 
 // unrecognisedClaude is why a start in a herdr pane failed whose claude showed its input box while herdr never
 // reported it, with the programs herdr sees in front of the pane: herdr knows Claude by the program's name or by

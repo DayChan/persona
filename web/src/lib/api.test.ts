@@ -8,6 +8,46 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("readable hub errors", () => {
   it.each([
+    [503, "kb_disabled", "lib-api.knowledge_disabled"],
+    [503, "kb_unavailable", "lib-api.knowledge_unavailable"],
+    [403, "kb_read_only", "lib-api.knowledge_read_only"],
+    [503, "assistant_offline", "lib-api.manager_offline"],
+  ] as const)("keeps %s %s distinct from a hub outage", async (status, code, key) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      code, error: "Request failed", detail: "private diagnostic",
+    }), { status, headers: { "X-Request-Id": "request-1" } })));
+    const error = await api("/kb/projects", { token: "test-token" }).catch((e: unknown) => e);
+    expect(errorText(error)).toBe(t(key));
+    expect(isOfflineError(errorText(error))).toBe(false);
+    expect(errorText(error)).not.toContain("private diagnostic");
+    expect((error as ApiError).requestId).toBe("request-1");
+    expect((error as ApiError).body.detail).toBe("private diagnostic");
+  });
+
+  it.each(["/kb/projects", "/kb/chats?tag=example", "/kb-search?q=example", "/recordings/example"])(
+    "recognizes the exact older disabled response only on knowledge routes: %s", async (path) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        code: "internal", detail: "the knowledge base is off", error: "Request failed",
+      }), { status: 503 })));
+      expect(errorText(await api(path, { token: "test-token" }).catch((e: unknown) => e))).toBe(t("lib-api.knowledge_disabled"));
+    },
+  );
+
+  it.each([
+    ["/models", 503, "internal", "the knowledge base is off"],
+    ["/kb-other/projects", 503, "internal", "the knowledge base is off"],
+    ["/kb/projects", 502, "internal", "the knowledge base is off"],
+    ["/kb/projects", 503, "internal", "wrapped: the knowledge base is off"],
+    ["/kb/projects", 503, "unknown", "the knowledge base is off"],
+    ["/kb/projects", 503, undefined, "the knowledge base is off"],
+  ])("does not infer disabled from an ambiguous legacy response: %s %s %s %s", async (path, status, code, detail) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ code, detail, error: "Request failed" }), { status })));
+    const error = await api(path as string, { token: "test-token" }).catch((e: unknown) => e);
+    expect(errorText(error)).not.toBe(t("lib-api.knowledge_disabled"));
+    expect(errorText(error)).not.toContain(detail);
+  });
+
+  it.each([
     new ApiError(404, "not found", {}),
     new ApiError(404, "entry missing", {}),
     new ApiError(400, "entry missing", { code: "not_found" }),
@@ -22,10 +62,10 @@ describe("readable hub errors", () => {
     expect(errorText(new ApiError(status, "storage failed", {}))).toBe(t("lib-api.server_error", { detail: `HTTP ${status}: storage failed` }));
   });
 
-  it.each([502, 503, 504])("explains HTTP %s and still lets offline feedback fold it", (status) => {
+  it.each([502, 503, 504])("explains HTTP %s without claiming the hub is unreachable", (status) => {
     const text = errorText(new ApiError(status, "upstream unavailable", {}));
     expect(text).toBe(t("lib-api.hub_unavailable", { detail: `HTTP ${status}: upstream unavailable` }));
-    expect(isOfflineError(text)).toBe(true);
+    expect(isOfflineError(text)).toBe(false);
   });
 
   it.each(["", "HTTP 500"])("keeps a bare status only once: %s", (message) => {
@@ -102,9 +142,10 @@ describe("a computer that did not answer", () => {
   });
 
   it("leaves other gateway failures as they were", () => {
-    for (const body of [{}, { code: "internal" }, { code: "assistant_offline" }]) {
-      expect(errorText(new ApiError(503, "upstream unavailable", body))).toBe(t("lib-api.hub_unavailable", { detail: "HTTP 503: upstream unavailable" }));
-    }
+    expect(errorText(new ApiError(503, "upstream unavailable", {}))).toBe(t("lib-api.hub_unavailable", { detail: "HTTP 503: upstream unavailable" }));
+    const internal = new ApiError(503, "private internal exception", { code: "internal", detail: "private diagnostic" });
+    expect(errorText(internal)).toBe(t("lib-api.hub_unavailable", { detail: "HTTP 503" }));
+    expect(internal.message).toBe("private internal exception");
   });
 });
 
@@ -112,9 +153,9 @@ describe("error language", { timeout: 30_000 }, () => {
   afterEach(() => initI18n("zh-Hans"), 30_000);
 
   it.each([
-    ["zh-Hans", "找不到", "服务暂时出错", "hub 暂时无法响应"],
-    ["en", "Content not found", "The service ran into a problem", "The hub can't respond right now"],
-    ["ja", "内容が見つからない", "サービスで問題が発生しました", "ハブが応答できません"],
+    ["zh-Hans", "找不到", "服务暂时出错", "服务未能完成此次请求"],
+    ["en", "Content not found", "The service ran into a problem", "The service couldn't complete this request"],
+    ["ja", "内容が見つからない", "サービスで問題が発生しました", "サービスがこの要求を完了できませんでした"],
   ] as const)("uses the current %s catalog and retains diagnostics", async (lang, missing, server, gateway) => {
     await initI18n(lang);
     for (const [status, explanation] of [[404, missing], [500, server], [503, gateway]] as const) {

@@ -3,6 +3,8 @@ package assistant
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -347,6 +349,156 @@ func (s *Service) setInboxFolder(ctx context.Context, id string, folder *string)
 	out := it.listed()
 	b.mu.Unlock()
 	return out, http.StatusOK, nil
+}
+
+// ---- the assistant's tools: inbox_folders, inbox_move (prompts/mcp/inbox, #3099) ----
+
+// folderToolItems is how many items inbox_folders lists at most.
+const folderToolItems = 50
+
+// toolInboxFolders lists the folders in use (every source's) and, given a folder (that folder and below) or unfiled
+// (items in no folder), the items there, open first and then newest first, with the ids inbox_move takes.
+func (s *Service) toolInboxFolders(ctx context.Context, args json.RawMessage) (string, error) {
+	var a struct {
+		Folder  string `json:"folder"`
+		Unfiled bool   `json:"unfiled"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return "", fmt.Errorf("arguments: %v", err)
+	}
+	f := normalizeFolder(a.Folder)
+	if f == "" && strings.TrimSpace(a.Folder) != "" {
+		return "", fmt.Errorf("folder %q has no name between the slashes", a.Folder)
+	}
+	if err := s.inboxReady(ctx); err != nil {
+		return "", err
+	}
+	b := &s.inbox
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out strings.Builder
+	if b.folderCfg.Enabled {
+		out.WriteString("Automatic filing is on: the triage model files new items that have no folder.\n")
+	} else {
+		out.WriteString("Automatic filing is off: only moves by the user (or inbox_move) file items.\n")
+	}
+	folders := b.folders(true)
+	if len(folders) == 0 {
+		out.WriteString("No folders in use.\n")
+	} else {
+		out.WriteString("Folders in use (items, open):\n")
+		for _, x := range folders {
+			fmt.Fprintf(&out, "- %s (%d, %d open)\n", x.Path, x.Count, x.Open)
+		}
+	}
+	if f == "" && !a.Unfiled {
+		return out.String(), nil
+	}
+	cutoff := time.Now().Add(-inboxKeepDone)
+	var items []*InboxItem
+	for _, it := range b.items {
+		if it.DoneAt != nil && it.DoneAt.Before(cutoff) {
+			continue
+		}
+		if f != "" && (it.Folder == f || strings.HasPrefix(it.Folder, f+"/")) || f == "" && it.Folder == "" {
+			items = append(items, it)
+		}
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].open() != items[j].open() {
+			return items[i].open()
+		}
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+	where := "in no folder"
+	if f != "" {
+		where = "in " + f + " and below"
+	}
+	fmt.Fprintf(&out, "\n%s %s", countItems(len(items)), where)
+	if len(items) > folderToolItems {
+		fmt.Fprintf(&out, " (the %d most recent open ones first)", folderToolItems)
+		items = items[:folderToolItems]
+	}
+	out.WriteString(":\n")
+	for _, it := range items {
+		fmt.Fprintf(&out, "- id=%s · %s · %s", it.ID, b.sourceName(it.Source), clip(oneLine(it.Title), 80))
+		if it.Sender != "" {
+			fmt.Fprintf(&out, " · from %s", oneLine(it.Sender))
+		}
+		if it.Folder != "" && it.Folder != f {
+			fmt.Fprintf(&out, " · folder %s", it.Folder)
+		}
+		if !it.open() {
+			out.WriteString(" · done")
+		}
+		out.WriteString("\n")
+	}
+	return out.String(), nil
+}
+
+// toolInboxMove files the items given into folder ("" out of every folder), as the user's move: the triage model
+// leaves them alone afterwards. Every id is checked before anything moves.
+func (s *Service) toolInboxMove(ctx context.Context, args json.RawMessage) (string, error) {
+	var a struct {
+		Items  []string `json:"items"`
+		Folder *string  `json:"folder"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return "", fmt.Errorf("arguments: %v", err)
+	}
+	if len(a.Items) == 0 || a.Folder == nil {
+		return "", errors.New("items (ids from inbox_folders) and folder are required; folder \"\" takes the items out of every folder")
+	}
+	f := normalizeFolder(*a.Folder)
+	if f == "" && strings.TrimSpace(*a.Folder) != "" {
+		return "", fmt.Errorf("folder %q has no name between the slashes; nothing was moved", *a.Folder)
+	}
+	if err := s.inboxReady(ctx); err != nil {
+		return "", err
+	}
+	b := &s.inbox
+	ids, unknown := []string{}, []string{}
+	seen := map[string]bool{}
+	b.mu.Lock()
+	for _, id := range a.Items {
+		id = strings.TrimSpace(id)
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		if b.items[id] == nil {
+			unknown = append(unknown, id)
+		} else {
+			ids = append(ids, id)
+		}
+	}
+	b.mu.Unlock()
+	if len(unknown) > 0 {
+		return "", fmt.Errorf("no inbox item %s (ids come from inbox_folders); nothing was moved", strings.Join(unknown, ", "))
+	}
+	var failed []string
+	for _, id := range ids {
+		if _, _, err := s.setInboxFolder(ctx, id, &f); err != nil {
+			failed = append(failed, id+" ("+err.Error()+")")
+		}
+	}
+	moved := len(ids) - len(failed)
+	where := "into " + f
+	if f == "" {
+		where = "out of every folder"
+	}
+	if len(failed) > 0 {
+		return "", fmt.Errorf("moved %d of %d items %s; not moved: %s", moved, len(ids), where, strings.Join(failed, "; "))
+	}
+	return fmt.Sprintf("Moved %s %s. They stay where they are put: the triage model no longer files them.", countItems(moved), where), nil
+}
+
+// countItems is "1 item", "2 items".
+func countItems(n int) string {
+	if n == 1 {
+		return "1 item"
+	}
+	return fmt.Sprintf("%d items", n)
 }
 
 // folderState is GET /api/v1/inbox/folders' answer.

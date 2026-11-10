@@ -8,7 +8,10 @@ import { Header, spaceAgentsItem } from "./ChatView";
 import { HEADER_SLOT, HEADER_SLOT_END, HEADER_SLOT_START } from "./header";
 import { Composer } from "./Composer";
 import { PendingCards, permissionFrom } from "./Interactions";
-import { QueueStrip } from "./QueueStrip";
+import { QueueStrip, restoreQueued } from "./QueueStrip";
+import { onDraftEvent, type DraftEvent } from "../../lib/drafts";
+import { getContexts, removeContext, withContexts } from "../../lib/links";
+import { parseQueued } from "../../lib/queue";
 import { AttachmentTray } from "../../ui/AttachmentTray";
 
 // stores without a server snapshot: renderToStaticMarkup needs one
@@ -205,6 +208,24 @@ describe("PendingCards", () => {
   it("is nothing without cards", () => {
     expect(cards({ narrow: true, interactions: [] })).toBe("");
   });
+
+  // #3112: on a phone and in a side panel the open cards sit in folds; a fold that still clipped once open was the box
+  // a card's sticky buttons stuck in, so a card taller than the cards' box (a long command) had its Allow / Deny below
+  // the fold, out of sight. The layout itself is checked in a browser (scripts/test/web_card_scroll_e2e.py).
+  it("doesn't clip the open cards' folds on a narrow screen, so a tall card's buttons stick in view (#3112)", () => {
+    const long = ix("p", "permission", { tool_input: { command: "python3 -c \"" + "print(1)\n".repeat(80) + "\"" } });
+    const html = renderToStaticMarkup(<PendingCards interactions={[long, three[1]]} answered={[]} narrow keyboard={false} onDismissKeyboard={() => {}} />);
+    const box = html.slice(html.indexOf("data-chat-cards"));
+    // the first card's fold is open: its clip box is not a scroller (no overflow-hidden), the card's footer sticky
+    const first = box.match(/<div class="grid [^"]*"[^>]*><div class="([^"]*)"/);
+    expect(first?.[1]).toBeDefined();
+    expect(first![1].split(/\s+/)).not.toContain("overflow-hidden");
+    expect(box).toMatch(/data-card-actions="[^"]*" class="sticky -bottom-1 /);
+    // the folded one (2 more) still clips: it is closed
+    const folds = [...box.matchAll(/<div class="grid [^"]*"[^>]*><div class="([^"]*)"/g)].map((m) => m[1]);
+    expect(folds).toHaveLength(2);
+    expect(folds[1]).toContain("overflow-hidden");
+  });
 });
 
 describe("PendingCards, the next card waiting elsewhere (#4091)", () => {
@@ -293,6 +314,59 @@ describe("QueueStrip", () => {
     expect(codex).not.toContain("data-send-now");
     expect(codex).toContain("忙完会依次处理");
     expect(renderToStaticMarkup(<QueueStrip session={{ ...queued, agent: "claude" }} draftKey="t" canEdit={false} />)).not.toContain("data-send-now");
+  });
+
+  // made-up words and paths, in the shape Claude Code queues a message sent with photos (#3032)
+  const photo = (name: string) => `/Users/me/.persona/uploads/2026-11-10/${name}.jpg`;
+  const withPhotos = `[Image #1] [Image #2]\n\n\n把这两张截图对一下\n<attached_images>\npath: ${photo("a1")}\npath: ${photo("b2")}\n</attached_images>`;
+
+  it("shows a queued message's words and a mark per kind of attachment, never Claude's queue text (#3032)", () => {
+    const photoOnly = `[Image #3] 请看图片\n\n<attached_images>\npath: ${photo("c3")}\n</attached_images>`;
+    const html = renderToStaticMarkup(<QueueStrip session={{ ...session, queued: [withPhotos, photoOnly] } as Session} draftKey="t" canEdit />);
+    expect(html).toContain("把这两张截图对一下");
+    expect(html).not.toContain("[Image #");
+    expect(html).not.toContain("attached_images");
+    expect(html).not.toContain("path: ");
+    expect(html).not.toContain("请看图片");
+    expect(html.match(/data-queue-mark="photo"/g)).toHaveLength(2);
+    // the label says what came with it
+    expect(html).toContain('aria-label="排队的第 1 条：把这两张截图对一下 · 2 张图片"');
+    expect(html).toContain('aria-label="排队的第 2 条：1 张图片"');
+  });
+});
+
+describe("restoreQueued (#3032)", () => {
+  const photo = "/Users/me/.persona/uploads/2026-11-10/a1.jpg";
+  const gone = "/Users/me/.persona/uploads/2026-11-10/gone.jpg";
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    for (const c of getContexts("rq")) removeContext("rq", c.id);
+  });
+
+  it("puts the words in the box, the photos in the tray, the contexts on their chips and a lost photo in as its path", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal("localStorage", { getItem: () => "tok", setItem: () => {}, removeItem: () => {} });
+    vi.stubGlobal("fetch", async (url: string) => {
+      urls.push(url);
+      return url.includes(encodeURIComponent(photo)) ? new Response(new Blob([new Uint8Array([1, 2, 3])], { type: "image/jpeg" })) : new Response("", { status: 404 });
+    });
+    const events: DraftEvent[] = [];
+    const off = onDraftEvent("rq", (e) => void events.push(e));
+    try {
+      const workspace = { kind: "workspace" as const, title: "web", url: "", text: "~/code/web", attrs: { machine: "laptop", cwd: "/home/me/code/web" } };
+      const raw = `${withContexts([workspace], "Fix the header", true)} <persona-file kind="file" path="/tmp/spec.pdf" name="spec.pdf"/>\n\n<attached_images>\npath: ${photo}\npath: ${gone}\n</attached_images>`;
+      await restoreQueued("rq", session, parseQueued(raw));
+      expect(urls).toHaveLength(2);
+      expect(urls[0]).toContain("/machines/m/file/download?path=");
+      expect(events).toEqual([
+        { type: "append", text: "Fix the header /tmp/spec.pdf" },
+        { type: "image", image: { name: "a1.jpg", mime: "image/jpeg", data: "AQID" } },
+        { type: "append", text: gone },
+      ]);
+      expect(getContexts("rq").map(({ kind, title, text, attrs }) => ({ kind, title, text, attrs }))).toEqual([{ kind: "workspace", title: "web", text: "~/code/web", attrs: workspace.attrs }]);
+    } finally {
+      off();
+    }
   });
 });
 

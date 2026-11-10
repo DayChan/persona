@@ -5,6 +5,7 @@
     <string name="settings_ext_dep_disabled">先に有効化が必要</string>
     <string name="settings_ext_dep_old">バージョン不足（現在%1$s）</string>
     <string name="settings_ext_dep_unknown">状態不明。もう一度プレビューしてください</string>
+    <string name="settings_ext_dep_unknown_installed">状態不明。詳細を更新してください</string>
     <string name="settings_ext_sandbox_active">サンドボックス有効</string>
     <string name="settings_ext_sandbox_inactive">サンドボックスを要求済みですが、現在は無効です</string>
     <string name="settings_ext_sandbox_off">サンドボックス未使用</string>
@@ -130,6 +131,7 @@
     <string name="settings_ext_card_value">値</string>
     <string name="settings_ext_card_total">合計</string>
     <string name="settings_ext_card_other">その他</string>
+    <string name="settings_ext_card_remaining">残り</string>
     <string name="settings_ext_card_current">現在</string>
     <string name="settings_ext_not_chosen">未選択</string>
     <string name="settings_ext_search">検索</string>
@@ -324,6 +326,9 @@
     <string name="settings_ext_cua_ready">Cua使用可能</string>
     <string name="settings_ext_cua_installed">Cuaインストール済み</string>
     <string name="settings_ext_machine_not_found">マシンが見つかりません</string>
+    <string name="settings_ext_machine_missing">%1$s（このマシンはありません）</string>
+    <string name="settings_ext_launcher_missing">%1$s（このランチャーはありません）</string>
+    <string name="settings_ext_launchers_loading">ランチャーを読み込み中…</string>
     <string name="settings_ext_no_mac">このハブにはまだ Mac がありません。</string>
     <string name="settings_ext_no_machine">このハブにはまだマシンがありません。</string>
     <string name="settings_ext_turn_on_title">「%1$s」をオンにしますか？</string>

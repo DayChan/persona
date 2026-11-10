@@ -24,7 +24,7 @@ on=agent / external 时：
 - wait.check_minutes：过多久该去看一眼（分钟，2–240；部署、CI 一般 5–15，审核、别人回复 60 以上；回复里说了时间就按它）。
 - wait.risky：then 是推代码、部署、发消息、碰别人 MR 这类事时为 true（这时 phase 应当已经是 blocked + user）。
 
-line：不超过 30 个字，列表里显示的一行。done 写结论（「已合并 PR #123，测试全过」）；blocked 写在等什么（「等你选 D2 / D4 / D10」「等部署跑完再跑线上测试」）。不要写「Agent」「它」这类主语。
+line：不超过 30 个字，列表里显示的一行。done 写结论（「已合并 PR #123，测试全过」）；blocked 写在等什么（「等你选 D2 / D4 / D10」「等部署跑完再跑线上测试」）。不要写「Agent」「它」这类主语，也不要照抄 pane id、session id、批次号、todo_… 这类内部编号（PR、issue 编号可以写）。
 artifacts：回复里出现的产物，kind 是 pr、commit、doc（文档路径或链接）、build（构建号）、url；ref 原样抄，最多 5 个。
 
 拿不准是不是 done 就不选 done：把没做完的事当成做完（用户以为不用管了），比多问一句代价大。

@@ -88,14 +88,15 @@ func (h *Hub) listManagers(ctx context.Context) []string {
 }
 
 // retainedListManagers also asks installed offline managers, so relayTo can serve their retained GET answers.
-// Identities, never cache keys, decide who still belongs to the roster. An unreadable roster fails closed.
+// Identities, never cache keys, decide who still belongs to the roster (kept a moment, busIdentities). An
+// unreadable roster fails closed.
 func (h *Hub) retainedListManagers(ctx context.Context) ([]string, error) {
 	present := map[string]bool{}
 	if h.builtinManager(assistantwire.AssistantID) {
 		present[assistantwire.AssistantID] = true
 	}
 	if s := h.busStore(); s != nil {
-		idents, err := s.BusIdentities(ctx)
+		idents, err := h.busIdentities(ctx, s)
 		if err != nil {
 			return nil, err
 		}
@@ -110,7 +111,7 @@ func (h *Hub) retainedListManagers(ctx context.Context) ([]string, error) {
 			present[p.ID] = true
 		}
 	}
-	def, err := h.defaultManagerOrErr(ctx)
+	def, err := h.defaultOwnerOrErr(ctx)
 	if err != nil {
 		return nil, err
 	}

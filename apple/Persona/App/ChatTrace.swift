@@ -2,9 +2,9 @@ import Foundation
 
 /// What a chat last went through, in its structure only (#3783): the batches that came in (how many, which lines, what
 /// the store did with them), when the streamed text started and was cleared, and how the end of the chat was drawn
-/// after each change (its last lines by kind and line number, what waits in the wake drawer, held back or not). Never
-/// a word of a message. A reply that showed while it streamed and was gone until the chat was opened again could not
-/// be told apart afterwards — filed into the drawer, held back, or dropped; Copy Diagnostics (the assistant's menu) copies this.
+/// after each change (its last lines by kind and line number, held back or not). Never a word of a message. A reply
+/// that showed while it streamed and was gone until the chat was opened again could not be told apart afterwards —
+/// filed into a summary, held back, or dropped; Copy Diagnostics (the assistant's menu) copies this.
 /// Kept on disk (a few chats, the newest lines of each), so it outlives the app being closed.
 @MainActor
 final class ChatTrace {
@@ -75,8 +75,7 @@ final class ChatTrace {
             + " | live=\(live) streaming=\(streaming ? 1 : 0) running=\(running ? 1 : 0) frozen=\(frozen ? 1 : 0) withheld=\(withheld)"
     }
 
-    /// One line of the chat, by kind and transcript line: `a17` an answer, `u10` a message, `work(3,live)`,
-    /// `wakes(tail=2)` the background tasks' chip with what only its drawer shows.
+    /// One line of the chat, by kind and transcript line: `a17` an answer, `u10` a message, `work(3,live)`.
     static func code(_ line: ChatLine) -> String {
         switch line.content {
         case .supervision(_, let trace, let live): "supervision(\(trace.count)\(live ? ",live" : ""))"
@@ -92,7 +91,6 @@ final class ChatTrace {
             case .recap(let i): "recap\(i.seq)"
             }
         case .work(_, let items, let live, _, _): "work(\(items.count)\(live ? ",live" : ""))"
-        case .wakes(let t, let live): "wakes(tail=\(t.tail.count)\(t.answer.map { ",answer=" + seqOf($0) } ?? "")\(live ? ",live" : ""))"
         case .userImages(_, let items): "photos\(items.count)"
         case .recaps(_, let items): "recaps\(items.count)"
         case .workStep: "step"

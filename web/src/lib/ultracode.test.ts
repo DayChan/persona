@@ -38,6 +38,8 @@ describe("where the switch is offered", () => {
     expect(ultracodeOffered(claude({ agent: "agy" }), FEATURES)).toBe(false);
     expect(ultracodeOffered(claude({ status: "offline" }), FEATURES)).toBe(false);
     expect(ultracodeOffered(claude({ source_kind: "claude_bg" }), FEATURES)).toBe(false);
+    // Orca's Claude has the mode chips (capabilities.modes) but no terminal to type the switch into (#1843)
+    expect(ultracodeOffered(claude({ source_kind: "runtime", capabilities: { read: true, send: true, modes: true } }), FEATURES)).toBe(false);
     expect(ultracodeOffered(undefined, FEATURES)).toBe(false);
   });
 

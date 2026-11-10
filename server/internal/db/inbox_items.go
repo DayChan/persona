@@ -71,14 +71,26 @@ func (d *DB) PurgeInboxItems(ctx context.Context, doneBefore time.Time) (int64, 
 	return tag.RowsAffected(), err
 }
 
-// InboxItems returns the open items and those done since doneSince, newest first; older done items stay stored (as
-// history, DoneInboxItems) until PurgeInboxItems.
-func (d *DB) InboxItems(ctx context.Context, doneSince time.Time) ([][]byte, error) {
-	rows, err := d.pool.Query(ctx, `SELECT data FROM inbox_items WHERE done_at IS NULL OR done_at >= $1 ORDER BY updated_at DESC`, doneSince)
+// inboxItemsSQL has no ORDER BY: the manager keys what it loads by id, so the order was never used, and the sort cost
+// the start read a Sort node over every row.
+const inboxItemsSQL = `SELECT data FROM inbox_items WHERE done_at IS NULL OR done_at >= $1`
+
+// InboxItems hands each open item, and each one done since doneSince, to each, in no particular order; older done
+// items stay stored (as history, DoneInboxItems) until PurgeInboxItems. raw is the row's data in the driver's read
+// buffer, valid only during that call: each copies what it keeps (json.Unmarshal does), so the rows are never all
+// held as bytes at once. An error from each stops the read and is returned.
+func (d *DB) InboxItems(ctx context.Context, doneSince time.Time, each func(raw []byte) error) error {
+	rows, err := d.pool.Query(ctx, inboxItemsSQL, doneSince)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return pgx.CollectRows(rows, pgx.RowTo[[]byte])
+	defer rows.Close()
+	for rows.Next() {
+		if err := each(rows.RawValues()[0]); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
 }
 
 // DoneInboxItemsByID returns the done items stored under ids (the history, whether the manager holds them or not); an
@@ -114,6 +126,33 @@ const (
 	WHERE (done_at, id) < ($3, $4) AND ($1 OR json_typeof(data->'connector') IS DISTINCT FROM 'object')
 	ORDER BY done_at DESC, id DESC LIMIT $2`
 )
+
+// InboxDay is how many done items one calendar day has (DoneInboxDays).
+type InboxDay struct {
+	Day   string `json:"day"` // YYYY-MM-DD in the zone asked for
+	Count int    `json:"count"`
+}
+
+// doneInboxDaysSQL counts the done items kept per calendar day in the zone $1, newest day first. done_at is timestamptz,
+// so AT TIME ZONE gives the day's wall-clock time there. With the connectors' items ($2) it reads only done_at, from
+// inbox_items_open; without them, each done row's connector, as the history's pages do.
+const doneInboxDaysSQL = `SELECT to_char(done_at AT TIME ZONE $1, 'YYYY-MM-DD') AS day, count(*) FROM inbox_items
+	WHERE done_at IS NOT NULL AND ($2 OR json_typeof(data->'connector') IS DISTINCT FROM 'object')
+	GROUP BY day ORDER BY day DESC`
+
+// DoneInboxDays counts the done items kept per calendar day in zone (an IANA name the caller has checked), newest
+// day first; days with none are left out.
+func (d *DB) DoneInboxDays(ctx context.Context, zone string, connectors bool) ([]InboxDay, error) {
+	rows, err := d.pool.Query(ctx, doneInboxDaysSQL, zone, connectors)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (InboxDay, error) {
+		var day InboxDay
+		err := row.Scan(&day.Day, &day.Count)
+		return day, err
+	})
+}
 
 // DoneInboxItems returns one page of the done items kept (q), newest done first.
 func (d *DB) DoneInboxItems(ctx context.Context, q InboxDoneQuery) ([]InboxRow, error) {

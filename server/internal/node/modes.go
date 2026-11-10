@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
 	"github.com/nwverse/persona/server/internal/screen"
@@ -44,6 +45,35 @@ var permissionModes = proto.PermissionModes
 // tuiModeCycle is the order shift+tab walks through (Claude Code 2.1.x); bypassPermissions is only in the cycle
 // of sessions started with it.
 var tuiModeCycle = []string{"default", "acceptEdits", "plan", "auto", "bypassPermissions"}
+
+// processArgv reads a process' arguments without running anything (kern.procargs2, /proc/<pid>/cmdline); tests stub it.
+var processArgv = updateProcessArgv
+
+// claudeCanBypass: the claude process pid was started with a flag that puts bypassPermissions in its shift+tab cycle,
+// so tuiSetMode can reach Allow All while it runs (#1379). False when its arguments cannot be read.
+func claudeCanBypass(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	args, err := processArgv(pid)
+	return err == nil && argsCanBypass(args)
+}
+
+// argsCanBypass: --dangerously-skip-permissions, --allow-dangerously-skip-permissions or --permission-mode
+// bypassPermissions among a claude's arguments, before a "--" (what follows it is the prompt).
+func argsCanBypass(args []string) bool {
+	for i, a := range args {
+		switch {
+		case a == "--":
+			return false
+		case a == "--dangerously-skip-permissions", a == "--allow-dangerously-skip-permissions", a == "--permission-mode="+proto.ModeBypass:
+			return true
+		case a == "--permission-mode" && i+1 < len(args) && args[i+1] == proto.ModeBypass:
+			return true
+		}
+	}
+	return false
+}
 
 // sessionModes is a mode / effort the app set, with when, until the transcript catches up.
 type sessionModes struct {
@@ -241,7 +271,7 @@ func (n *Node) setModes(ctx context.Context, id, mode, effort string) error {
 	}
 	pane, err := n.paneFor(ctx, id)
 	if err != nil {
-		return fmt.Errorf("这个 Agent 没在运行：发一条消息恢复它以后再改")
+		return n.noPaneForModes(id)
 	}
 	// The /effort picker makes herdr report the agent as blocked; the hub would turn that into a "needs you" push.
 	n.mu.Lock()
@@ -269,6 +299,16 @@ func (n *Node) setModes(ctx context.Context, id, mode, effort string) error {
 	}
 	n.notifySessions()
 	return nil
+}
+
+// noPaneForModes is the refusal of a mode, effort, model or ultracode change for a session with no pane to drive. A
+// Claude running in Claude's desktop app or a terminal Persona does not drive is told to change it there: its peer
+// inbox carries messages only and a message never gives it a pane, so "send a message first" would not help (#1843).
+func (n *Node) noPaneForModes(id string) error {
+	if _, outside := n.outsideClaude(id); outside {
+		return refusal(proto.CodeModesOnComputer, i18n.T(i18n.Default, "rpc-errors.modes_on_computer"), nil)
+	}
+	return refusal(proto.CodeModesNotRunning, i18n.T(i18n.Default, "rpc-errors.modes_not_running"), nil)
 }
 
 // tuiMode reads the permission mode off the TUI's footer: the lines under the input box's bottom rule.

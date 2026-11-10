@@ -43,8 +43,9 @@ struct GitPullTests {
 
     @Test func failureIsVisibleAndCanRetry() async throws {
         let hub = FakeHub()
+        // as the hub answers a refusal (#1888): a 409 in the app's language, the node's words as the detail
         hub.on("POST", "/api/v1/machines/mac/git/pull") { _ in
-            throw APIError(status: 502, message: "工作区有未提交的改动")
+            throw APIError(status: 409, message: "工作区有未提交的改动，请先在电脑上提交或 stash，再拉取。", fields: ["code": "uncommitted_changes"])
         }
         let model = GitPullModel()
         let failed = await model.pull(machine: "mac", cwd: "/work/sample", deps: .init(api: hub.client))

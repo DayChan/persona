@@ -88,11 +88,7 @@ func listKeySized(list []proto.Session, size int) string {
 		w.str(s.SourceThreadID, '/')
 		w.str(s.SourceInstanceID, '/')
 		w.str(s.ReadOnlyReason, '/')
-		if s.Capabilities != nil {
-			fmt.Fprint(&w.b, s.Capabilities)
-		} else {
-			w.b.WriteString("<nil>")
-		}
+		w.caps(s.Capabilities)
 		w.b.WriteByte('/')
 		w.str(strconv.FormatBool(s.Attached), '/')
 		w.str(s.CodexRoute, '/')
@@ -190,6 +186,26 @@ func (w *keyWriter) quote(s string, sep byte) {
 	w.tmp = strconv.AppendQuote(w.tmp[:0], s)
 	w.b.Write(w.tmp)
 	w.b.WriteByte(sep)
+}
+
+// caps writes a session's capabilities by value, as %v would print them with Modes dereferenced ("<nil>" when absent).
+// Never through fmt: Modes is a pointer, and a fresh one each poll would print a new address and change the key every
+// second.
+func (w *keyWriter) caps(c *proto.SessionCapabilities) {
+	if c == nil {
+		w.b.WriteString("<nil>")
+		return
+	}
+	w.b.WriteString("&{")
+	for _, v := range [...]bool{c.Read, c.Send, c.Interrupt, c.Approve, c.Terminal, c.Attach} {
+		w.str(strconv.FormatBool(v), ' ')
+	}
+	if c.Modes == nil {
+		w.b.WriteString("<nil>")
+	} else {
+		w.b.WriteString(strconv.FormatBool(*c.Modes))
+	}
+	w.b.WriteByte('}')
 }
 
 // quotes writes a list of strings as %q would ([] when empty, the rare others through fmt).

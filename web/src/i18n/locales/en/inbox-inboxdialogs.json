@@ -21,5 +21,7 @@
   "target_main": "Persona (main chat)",
   "target_main_sub": "Send to your main chat with Persona",
   "target_persona": "Persona (new chat)",
-  "target_persona_sub": "Start a new chat with Persona"
+  "target_persona_sub": "Start a new chat with Persona",
+  "last_time": "Last time",
+  "last_gone": "The agent this went to last time has ended, so it goes to the main conversation."
 }

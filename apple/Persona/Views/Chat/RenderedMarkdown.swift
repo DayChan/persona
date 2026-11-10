@@ -28,16 +28,42 @@ final class MarkdownRenderer {
     static let maxWidth: CGFloat = 2048
 
     private let images = NSCache<NSString, UIImage>()
-    private var failures: [String: String] = [:]
+    /// Why a drawing failed, by key, so asking again does not draw it again. Bounded: it grew for as long as the app ran.
+    private let failures = NSCache<NSString, NSString>()
     private var web: WKWebView?
     private var loaded: Task<Void, Error>?
-    private var queue: Task<Void, Never>?
+    /// The drawings asked for and not done yet, by key: whoever asks for one already asked for waits for the same one.
+    private var jobs: [String: Job] = [:]
+    /// The keys of those not begun, oldest first: the web view draws one thing at a time.
+    private var waiting: [String] = []
+    private var drawing = false
     private let dir = URL.cachesDirectory.appending(path: "markdown-render", directoryHint: .isDirectory)
     #if os(macOS)
     private var window: NSWindow?
     #endif
 
-    private init() { images.totalCostLimit = 48 << 20 }
+    private init() {
+        images.totalCostLimit = 48 << 20
+        failures.countLimit = 256
+    }
+
+    /// A drawing asked for, and those waiting for it (each by its own id, so one can stop waiting alone).
+    private final class Job {
+        let kind: Kind
+        let source: String
+        let dark: Bool
+        let points: CGFloat
+        var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+        /// Set when it is done; nil for a waiter that stopped waiting before.
+        var result: Result<UIImage, Failure>?
+
+        init(kind: Kind, source: String, dark: Bool, points: CGFloat) {
+            self.kind = kind
+            self.source = source
+            self.dark = dark
+            self.points = points
+        }
+    }
 
     /// Part of every key: bumped when the drawing changes (the bundled scripts, the template), so old pictures go.
     nonisolated static let version = "9"
@@ -52,10 +78,13 @@ final class MarkdownRenderer {
     }
 
     /// The picture, drawn when no copy is kept; throws with KaTeX's or Mermaid's message when the source is wrong.
-    func image(_ kind: Kind, _ source: String, dark: Bool, points: CGFloat) async throws -> UIImage {
+    /// `cancellable`: when the asking task is cancelled (its view went away, or asks for another source now), it stops
+    /// waiting with `CancellationError`, and a drawing nobody waits for any more is not begun. One already begun is
+    /// finished and kept.
+    func image(_ kind: Kind, _ source: String, dark: Bool, points: CGFloat, cancellable: Bool = false) async throws -> UIImage {
         let key = Self.key(kind, source, dark: dark, points: points)
         if let image = images.object(forKey: key as NSString) { return image }
-        if let message = failures[key] { throw Failure(message: message) }
+        if let message = failures.object(forKey: key as NSString) { throw Failure(message: message as String) }
         // A Full Page strip waits for this (#1609).
         let fullPageLoad = FullPageLoads.shared.begin()
         defer { FullPageLoads.shared.end(fullPageLoad) }
@@ -65,29 +94,86 @@ final class MarkdownRenderer {
             store(image, key)
             return image
         }
-        // One at a time: the web view draws one thing.
-        let before = queue
-        let job = Task<Result<UIImage, Error>, Never> {
-            await before?.value
-            do { return .success(try await self.draw(kind, source, dark: dark, points: points)) } catch { return .failure(error) }
+        // Drawn while this read the disk.
+        if let image = images.object(forKey: key as NSString) { return image }
+        if let message = failures.object(forKey: key as NSString) { throw Failure(message: message as String) }
+        let job = jobs[key] ?? enqueue(Job(kind: kind, source: source, dark: dark, points: points), key)
+        let waiter = UUID()
+        if cancellable {
+            await withTaskCancellationHandler {
+                await wait(for: job, as: waiter)
+            } onCancel: {
+                Task { @MainActor in self.stopWaiting(waiter, for: key) }
+            }
+        } else {
+            await wait(for: job, as: waiter)
         }
-        queue = Task { _ = await job.value }
-        switch await job.value {
+        guard let result = job.result else { throw CancellationError() }
+        return try result.get()
+    }
+
+    private func wait(for job: Job, as waiter: UUID) async {
+        await withCheckedContinuation { continuation in
+            if job.result != nil { continuation.resume() } else { job.waiters[waiter] = continuation }
+        }
+    }
+
+    private func enqueue(_ job: Job, _ key: String) -> Job {
+        jobs[key] = job
+        waiting.append(key)
+        drawNext()
+        return job
+    }
+
+    /// One waiter's task was cancelled: it stops waiting, and a drawing not begun that nobody waits for is dropped (a
+    /// source a streaming reply has since grown past, a block scrolled away).
+    private func stopWaiting(_ waiter: UUID, for key: String) {
+        guard let job = jobs[key], let continuation = job.waiters.removeValue(forKey: waiter) else { return }
+        continuation.resume()
+        if job.waiters.isEmpty, let i = waiting.firstIndex(of: key) {
+            waiting.remove(at: i)
+            jobs[key] = nil
+        }
+    }
+
+    /// Draws the oldest drawing waiting, once the one before is done: the web view draws one thing.
+    private func drawNext() {
+        guard !drawing, !waiting.isEmpty else { return }
+        let key = waiting.removeFirst()
+        guard let job = jobs[key] else { return drawNext() }
+        drawing = true
+        Task {
+            let result: Result<UIImage, Failure>
+            do {
+                result = .success(try await self.draw(job.kind, job.source, dark: job.dark, points: job.points))
+            } catch {
+                result = .failure(Failure(message: (error as? Failure)?.message ?? error.localizedDescription))
+            }
+            self.finish(job, key, result)
+            self.drawing = false
+            self.drawNext()
+        }
+    }
+
+    /// Keeps what was drawn (also when nobody waits for it any more) and tells those waiting.
+    private func finish(_ job: Job, _ key: String, _ result: Result<UIImage, Failure>) {
+        jobs[key] = nil
+        job.result = result
+        switch result {
         case .success(let image):
             store(image, key)
             if let png = Self.png(image) {
-                let dir = dir
+                let dir = dir, file = dir.appending(path: key + ".png")
                 Task.detached(priority: .utility) {
                     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                     try? png.write(to: file, options: .atomic)
                 }
             }
-            return image
-        case .failure(let error):
-            let message = (error as? Failure)?.message ?? error.localizedDescription
-            failures[key] = message
-            throw Failure(message: message)
+        case .failure(let failure):
+            failures.setObject(failure.message as NSString, forKey: key as NSString)
         }
+        for continuation in job.waiters.values { continuation.resume() }
+        job.waiters = [:]
     }
 
     private func store(_ image: UIImage, _ key: String) {
@@ -340,8 +426,11 @@ struct RenderedBlock<Fallback: View>: View {
         }
         .task(id: [source, scheme == .dark ? "dark" : "light", "\(typeSize)"]) {
             do {
-                image = try await MarkdownRenderer.shared.image(kind, source, dark: scheme == .dark, points: RenderedText.points(kind))
+                image = try await MarkdownRenderer.shared.image(kind, source, dark: scheme == .dark, points: RenderedText.points(kind),
+                                                                cancellable: true)
                 error = nil
+            } catch is CancellationError {
+                // Gone, or asking for another picture now: what it shows is the next task's to say.
             } catch {
                 self.error = error.localizedDescription
             }

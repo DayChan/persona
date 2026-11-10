@@ -33,7 +33,7 @@ personad notify "title" [body] [--silent] [--error] [--strict]
 | 130 | Ctrl-C / SIGTERM; the card on the phone is withdrawn too | - |
 
 - On exit code 4 or "Hand back to computer", if stdin is a real terminal (not `/dev/null` or a pipe) and `--require-remote` is not set, it falls back to asking in the terminal: a numbered list of options (type the number or the option text),
-  or `[y/N]` without options. EOF counts as deny. A timeout or a denial is an answer, so neither falls back to the terminal.
+  or `[y/N]` without options. EOF counts as deny, and Ctrl-C / SIGTERM at that question exits 130. A timeout or a denial is an answer, so neither falls back to the terminal.
 - Without `--strict`, a failure only writes one line to stderr, `Not sent: <reason>` (localized), and the exit code stays 0, so a `set -e` script is never broken by a notification.
   A queued notification (`{"queued":true}`, a resident node in standby) writes nothing and exits 0; with `--strict` it writes `Not sent: <reason>` and exits 1, because nothing was sent yet.
 - The "confirmation" of `--strict` means it was handed to push or a capable WebSocket connection (`{"sent":true}`), not that the phone displayed it: notification delivery has no receipt anyway (see `../protocol/protocol.md` ("Notifications over the persistent connection (ws_notify)")).

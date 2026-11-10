@@ -3282,14 +3282,15 @@ data class ExtensionReview(
 )
 
 /**
- * Values of PersonaCardKind.
+ * ring: one day's total and its parts (a donut); stacked_bar: parts side by side to compare (days, people).
  */
 object ExtensionPersonaCardKind {
     const val STAT = "stat"
     const val STACKED_BAR = "stacked_bar"
     const val LINE = "line"
     const val BAR = "bar"
-    val ALL = listOf("stat", "stacked_bar", "line", "bar")
+    const val RING = "ring"
+    val ALL = listOf("stat", "stacked_bar", "line", "bar", "ring")
 }
 
 /**

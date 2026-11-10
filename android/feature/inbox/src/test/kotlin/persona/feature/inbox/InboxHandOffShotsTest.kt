@@ -117,6 +117,64 @@ class InboxHandOffShotsTest {
         assertTrue(dismissed)
     }
 
+    /** Per source (#2121): the sender's last target is preselected and marked; one that has ended falls back with a note. */
+    @Test fun aSourceStartsWhereItWentLastTime() {
+        val remembering = HandOffTestRepository(listOf(InboxMuteOption("sender", "me@example.com", "Me")))
+        remembering.handOffMemory.value = listOf(HandOffMemoryEntry("mail|sender:me@example.com", "agent:laptop/agent"))
+        rule.setContent { PersonaTheme(reduceMotion = true) { InboxHandOffSheet(remembering, remembering.record, navigator, onDismiss = { dismissed = true }) } }
+        rule.waitForIdle()
+        rule.onNode(isToggleable()).assertIsOn()
+        rule.onNodeWithText("Last time").assertExists()
+        rule.onNodeWithText("Persona").performClick()
+        rule.onNodeWithText("Send", substring = false).performClick()
+        rule.waitForIdle()
+        assertEquals(HandOffMemoryEntry("mail|sender:me@example.com", "main"), remembering.handOffMemory.value.first())
+    }
+
+    @Test fun anEndedAgentFallsBackToPersonaAndSaysSo() {
+        val remembering = HandOffTestRepository(listOf(InboxMuteOption("sender", "me@example.com", "Me")))
+        remembering.handOffMemory.value = listOf(HandOffMemoryEntry("mail|sender:me@example.com", "agent:laptop/gone"))
+        rule.setContent { PersonaTheme(reduceMotion = true) { InboxHandOffSheet(remembering, remembering.record, navigator, onDismiss = {}) } }
+        rule.waitForIdle()
+        rule.onNode(isToggleable()).assertIsOff()
+        rule.onNodeWithText("Last time").assertDoesNotExist()
+        rule.onNodeWithText("has ended", substring = true).assertExists()
+    }
+
+    @Test fun sendingToAnAgentRemembersTheSource() {
+        val remembering = HandOffTestRepository(listOf(InboxMuteOption("repo", "example/weather", "example/weather")))
+        rule.setContent { PersonaTheme(reduceMotion = true) { InboxHandOffSheet(remembering, remembering.record, navigator, onDismiss = {}) } }
+        rule.onNodeWithText("Example agent").performClick()
+        rule.onNodeWithText("Send", substring = false).performClick()
+        rule.waitForIdle()
+        assertEquals(listOf(HandOffMemoryEntry("mail|repo:example/weather", "agent:laptop/agent")), remembering.handOffMemory.value)
+    }
+
+    @Test fun lastTimeInEveryStyleAndColorMode() {
+        val remembering = HandOffTestRepository(listOf(InboxMuteOption("sender", "me@example.com", "Me")))
+        remembering.handOffMemory.value = listOf(HandOffMemoryEntry("mail|sender:me@example.com", "agent:laptop/agent"))
+        var style by mutableStateOf(AppStyle.Glass)
+        var dark by mutableStateOf(false)
+        rule.setContent {
+            PersonaTheme(darkTheme = dark, reduceMotion = true, style = style) {
+                Box(Modifier.fillMaxSize().background(PersonaTheme.palette.background)) {
+                    InboxHandOffSheet(remembering, remembering.record, navigator, onDismiss = {})
+                }
+            }
+        }
+        val dir = File(System.getProperty("persona.shots") ?: "build/inbox-handoff-shots").also { it.mkdirs() }
+        for (s in AppStyle.entries) for (d in listOf(false, true)) {
+            rule.runOnIdle { style = s; dark = d }
+            rule.waitForIdle()
+            rule.onNodeWithText("Last time").assertExists()
+            val window = listOf(isDialog(), isPopup()).first { rule.onAllNodes(it).fetchSemanticsNodes().isNotEmpty() }
+            val bitmap = rule.onAllNodes(window).onLast().captureToImage().asAndroidBitmap()
+            File(dir, "inbox-handoff-last-time-${s.key}-${if (d) "dark" else "light"}.png").outputStream().use {
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+        }
+    }
+
     @Test fun handOffSheetInEveryStyleAndColorMode() {
         var style by mutableStateOf(AppStyle.Glass)
         var dark by mutableStateOf(false)
@@ -141,8 +199,10 @@ class InboxHandOffShotsTest {
     }
 }
 
-private class HandOffTestRepository : InboxRepository {
-    val record = InboxRecord(InboxItem("mail:example", title = "Project update", preview = "Please review the plan."), source = "mail")
+private class HandOffTestRepository(mutes: List<InboxMuteOption> = emptyList()) : InboxRepository {
+    val record = InboxRecord(InboxItem("mail:example", title = "Project update", preview = "Please review the plan."), source = "mail", mutes = mutes)
+    override val handOffMemory = MutableStateFlow(emptyList<HandOffMemoryEntry>())
+    override suspend fun saveHandOffMemory(value: List<HandOffMemoryEntry>) { handOffMemory.value = value }
     override val entries = MutableStateFlow(emptyList<InboxEntry>())
     override val snapshot = MutableStateFlow(InboxSnapshot(records = listOf(record), sessions = listOf(
         AgentSession(Session(machineId = "laptop", sessionId = "agent", title = "Example agent", status = "idle")),

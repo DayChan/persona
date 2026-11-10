@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -167,5 +168,60 @@ func TestConfiguredTargetRefusesInside(t *testing.T) {
 	}
 	if !strings.Contains(errNotForSettings.Error(), "metadata") {
 		t.Fatal(errNotForSettings)
+	}
+}
+
+// Through the hub's upstream proxy, a configured name is reached at the address checked: the CONNECT names that
+// address, never the name, which the proxy could resolve again to this machine or the metadata service (#3121).
+// One refused answer still refuses the name, and the proxy is not asked at all.
+func TestConfiguredDialPinsUpstreamCONNECT(t *testing.T) {
+	var mu sync.Mutex
+	var targets []string
+	answers := map[string][]net.IP{
+		"api.example.com":   {net.ParseIP("192.0.2.1")},
+		"mixed.example.com": {net.ParseIP("192.0.2.1"), net.IPv4(169, 254, 169, 254)},
+	}
+	p := &Proxy{
+		Resolve:  func(_ context.Context, host string) ([]net.IP, error) { return answers[host], nil },
+		Upstream: func(*url.URL) (*url.URL, error) { return url.Parse("http://proxy.example.com:3128") },
+		Dial: func(_ context.Context, _, addr string) (net.Conn, error) {
+			if addr != "proxy.example.com:3128" {
+				t.Errorf("dialled %s, not the proxy", addr)
+			}
+			near, far := net.Pipe()
+			go func() {
+				defer far.Close()
+				r, err := http.ReadRequest(bufio.NewReader(far))
+				if err != nil {
+					return
+				}
+				mu.Lock()
+				targets = append(targets, r.Method+" "+r.Host)
+				mu.Unlock()
+				_, _ = io.WriteString(far, "HTTP/1.1 200 Connection established\r\n\r\n")
+				_, _ = io.Copy(io.Discard, far)
+			}()
+			return near, nil
+		},
+	}
+	ctx := context.Background()
+	c, err := p.dialConfigured(ctx, "api.example.com", "443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	mu.Lock()
+	got := append([]string(nil), targets...)
+	mu.Unlock()
+	if len(got) != 1 || got[0] != "CONNECT 192.0.2.1:443" {
+		t.Fatalf("upstream asked %v, want [CONNECT 192.0.2.1:443]", got)
+	}
+	if _, err := p.dialConfigured(ctx, "mixed.example.com", "443"); !errors.Is(err, errNotForSettings) {
+		t.Fatalf("mixed answer: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(targets) != 1 {
+		t.Fatalf("upstream asked %v after a refused name", targets)
 	}
 }

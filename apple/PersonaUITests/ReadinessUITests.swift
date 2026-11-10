@@ -5,13 +5,13 @@ import XCTest
 /// screenshots). A new conversation shows the card for the missing step; with something typed, send says what to do
 /// first, goes there, and the draft stays. PERSONA_SHOTS=<dir> writes the screenshots.
 final class ReadinessUITests: XCTestCase {
-    @MainActor private func launch() throws -> XCUIApplication {
+    @MainActor private func launch(fresh: Bool = false, tab: String = "assistant") throws -> XCUIApplication {
         guard let hub = ProcessInfo.processInfo.environment["PERSONA_MOCK_HUB"] else {
             throw XCTSkip("needs scripts/mock/mock_hub.py with MOCK_READINESS (PERSONA_MOCK_HUB)")
         }
         let app = XCUIApplication()
         let pair = "persona://pair?url=" + hub.addingPercentEncoding(withAllowedCharacters: .alphanumerics)! + "&token=mock"
-        app.launchArguments = ["-pairURL", pair, "-tab", "assistant"]
+        app.launchArguments = ["-pairURL", pair, "-tab", tab] + (fresh ? ["-openChatsFresh", "YES"] : [])
         app.launchPinned()
         return app
     }
@@ -71,6 +71,44 @@ final class ReadinessUITests: XCTestCase {
         gate.tap()
         sleep(2)
         shot(app, "readiness-\(scenario)-gate-opened")
+    }
+
+    /// A probe that outlasts the old 30 s client timeout still gets the hub's result; an HTTP failure stays beside the
+    /// checklist button that started it. Run slow / error with MOCK_READINESS=not_logged_in, or model_error with bad_key.
+    /// PERSONA_PROBE_EXPECT=slow|error|model_error.
+    @MainActor func testTryMessageWaitsForAnAnswerOrShowsFailure() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let expected = env["PERSONA_PROBE_EXPECT"], ["slow", "error", "model_error"].contains(expected) else {
+            throw XCTSkip("needs PERSONA_PROBE_EXPECT=slow|error|model_error and the matching mock probe delay / error")
+        }
+        let app = try launch(fresh: true, tab: "settings")
+        let entry = app.descendants(matching: .any)["settings.checklist"].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 20), "no checklist in Settings:\n\(app.debugDescription)")
+        entry.tap()
+        let rowID = expected == "model_error" ? "model" : "first_message"
+        let row = app.descendants(matching: .any)["checklist.\(rowID)"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "no Try a message row:\n\(app.debugDescription)")
+        let tryButton = row.buttons["试一句"].firstMatch
+        XCTAssertTrue(tryButton.waitForExistence(timeout: 5), "no Try a message:\n\(app.debugDescription)")
+        let began = Date.now
+        tryButton.tap()
+
+        let result = row.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "试了一句，没成功")).firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: expected == "slow" ? 50 : 15),
+                      "the probe ended without its \(expected) outcome beside the button that started it:\n\(app.debugDescription)")
+        let reason = expected == "slow" ? "Not logged in" : "mock 探针没有回答"
+        XCTAssertTrue(row.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", reason)).firstMatch.exists,
+                      "the probe's failure reason is missing from \(rowID)")
+        if expected == "model_error" {
+            let first = app.descendants(matching: .any)["checklist.first_message"].firstMatch
+            XCTAssertFalse(first.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", reason)).firstMatch.exists,
+                           "another row must not claim the model row's failure")
+        }
+        if expected == "slow" {
+            XCTAssertGreaterThan(Date.now.timeIntervalSince(began), 30, "the mock really outlasted the old client timeout")
+        }
+        XCTAssertTrue(tryButton.isEnabled, "a finished probe leaves Try a message available for another attempt")
+        shot(app, "readiness-probe-\(expected)")
     }
 
     /// MOCK_START_ERROR=<code> on a ready hub: the refused start is a card with the hub's words, not a red line.

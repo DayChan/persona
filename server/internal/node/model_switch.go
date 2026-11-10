@@ -124,7 +124,7 @@ func (n *Node) setModel(ctx context.Context, id, model string) error {
 	defer n.typing.lock(id)()
 	pane, err := n.paneFor(ctx, id)
 	if err != nil {
-		return fmt.Errorf("这个 Agent 没在运行：发一条消息恢复它以后再改")
+		return n.noPaneForModes(id)
 	}
 	if a, ok := n.agent(id); ok {
 		if a.Agent != "" && a.Agent != "claude" {

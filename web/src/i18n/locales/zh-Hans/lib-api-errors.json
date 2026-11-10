@@ -10,5 +10,6 @@
   "failed": "模型请求失败",
   "not_logged_in": "Claude Code 还没登录",
   "bad_key": "模型的 Key 不对或过期了",
-  "bad_model": "这个模型现在用不了"
+  "bad_model": "这个模型现在用不了",
+  "safeguards": "模型的安全检查拦截了这条消息"
 }

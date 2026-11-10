@@ -90,8 +90,18 @@ func (h *Hub) relayHTTP(w http.ResponseWriter, r *http.Request, id string, send,
 		ctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
 		defer cancel()
 	}
+	// What may change the manager's inbox: a merged list fetched while it is under way is not kept, and one kept from
+	// before it answered is not given again (inbox_answers.go).
+	changes := r.Method != http.MethodGet && r.Method != http.MethodHead
+	if changes {
+		h.inboxAnswers.changed(id)
+	}
 	var res assistantwire.HTTPResponse
-	if err := h.callBus(ctx, id, assistantwire.MethodHTTP, req, &res); err != nil {
+	err = h.callBus(ctx, id, assistantwire.MethodHTTP, req, &res)
+	if changes {
+		h.inboxAnswers.changed(id)
+	}
+	if err != nil {
 		var coded *rpc.Error
 		switch {
 		case send && (errors.Is(err, errBusDropped) || errors.Is(err, context.DeadlineExceeded)):

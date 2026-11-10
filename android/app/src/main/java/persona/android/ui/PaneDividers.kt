@@ -70,16 +70,17 @@ internal class PaneSplitStore(context: Context) {
  * One tab's divider between its list and the detail beside it: where the panes meet at rest (the window, its folds, the
  * share the user left, a closed list), a drag in progress and how it settles. Every change is written straight to the
  * scaffold's [PaneExpansionState] (its first pane's width), so a drag re-lays out the panes without recomposing them.
+ * [tab] keeps the share the user left in [store]; null (the settings sheet) keeps it only while the panes are shown.
  */
 @Stable
-internal class PaneSplitter(private val tab: AppTab, private val store: PaneSplitStore?, collapsible: Boolean) {
+internal class PaneSplitter(private val tab: AppTab?, private val store: PaneSplitStore?, collapsible: Boolean) {
     var collapseEnabled by mutableStateOf(collapsible)
     /** The panes' area, in dp, and the vertical folds across it (dp from its left edge). */
     var width by mutableFloatStateOf(0f)
     var hinges by mutableStateOf(emptyList<PaneHinge>())
     /** Something is open beside the list: only then may the list be closed. */
     var detailOpen by mutableStateOf(false)
-    var share by mutableStateOf(store?.share(tab))
+    var share by mutableStateOf(tab?.let { store?.share(it) })
         private set
     /** The user dragged the list closed; it shows again whenever nothing is open beside it. */
     var collapsed by mutableStateOf(false)
@@ -175,7 +176,7 @@ internal class PaneSplitter(private val tab: AppTab, private val store: PaneSpli
     private fun keep(left: Float) {
         val kept = shareOf(left, width)
         share = kept
-        store?.save(tab, kept)
+        tab?.let { store?.save(it, kept) }
     }
 
     /** TalkBack: the list a step wider or narrower. */
@@ -207,11 +208,11 @@ internal class PaneSplitter(private val tab: AppTab, private val store: PaneSpli
  * The list-detail scene of one tab with its divider: dragged by the finger (the list follows), settling on a flat fold
  * nearby, kept per tab as a share of the width, and (where [collapsible], with something open beside it) dragged far
  * left to close the list; a separating fold fixes the split there and shows no handle. [width] is the panes' area and
- * [hinges] the vertical folds across it, both in dp.
+ * [hinges] the vertical folds across it, both in dp. [tab] null: the settings sheet's, whose divider is not kept.
  */
 @Composable
 internal fun rememberShellListDetail(
-    tab: AppTab,
+    tab: AppTab?,
     directive: PaneScaffoldDirective,
     width: Dp,
     hinges: List<PaneHinge>,

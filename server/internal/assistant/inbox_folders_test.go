@@ -145,6 +145,73 @@ func TestFileFoldersModelFails(t *testing.T) {
 	}
 }
 
+// The assistant's inbox_folders and inbox_move (#3099): the user's move, checked before anything moves.
+func TestInboxFolderTools(t *testing.T) {
+	ctx := context.Background()
+	h := folderHub(t, 3)
+	h.inbox.folderCfg.Enabled = false
+	run := func(name, args string) (string, error) { return h.runTool(ctx, "", "", name, json.RawMessage(args)) }
+
+	if _, err := run("inbox_move", `{"items":["f1","nope"],"folder":"work"}`); err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("unknown id: %v", err)
+	}
+	if _, err := run("inbox_move", `{"items":["f1"],"folder":"/../"}`); err == nil {
+		t.Fatal("a path of nothing was taken")
+	}
+	if _, err := run("inbox_move", `{"items":["f1"]}`); err == nil {
+		t.Fatal("no folder was taken")
+	}
+	if it := h.inbox.items["f1"]; it.Folder != "" || it.FolderBy != "" {
+		t.Fatalf("a refused move moved f1: %q by %q", it.Folder, it.FolderBy)
+	}
+
+	out, err := run("inbox_move", `{"items":["f1","f2","f1"],"folder":" work//alerts "}`)
+	if err != nil || !strings.Contains(out, "Moved 2 items into work/alerts") {
+		t.Fatalf("move: %q %v", out, err)
+	}
+	for _, id := range []string{"f1", "f2"} {
+		if it := h.inbox.items[id]; it.Folder != "work/alerts" || it.FolderBy != FolderByUser {
+			t.Errorf("%s: %q by %q", id, it.Folder, it.FolderBy)
+		}
+	}
+	if _, err := run("inbox_move", `{"items":["f2"],"folder":"work/alerts/ci"}`); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err = run("inbox_folders", `{}`)
+	if err != nil || !strings.Contains(out, "Automatic filing is off") || !strings.Contains(out, "- work/alerts (1, 1 open)") ||
+		!strings.Contains(out, "- work/alerts/ci (1, 1 open)") || strings.Contains(out, "id=") {
+		t.Fatalf("folders: %q %v", out, err)
+	}
+	out, _ = run("inbox_folders", `{"folder":"work/alerts"}`)
+	if !strings.Contains(out, "2 items in work/alerts and below") || !strings.Contains(out, "id=f1 ") ||
+		!strings.Contains(out, "id=f2 ") || !strings.Contains(out, "folder work/alerts/ci") || strings.Contains(out, "id=f3") {
+		t.Errorf("items in a folder: %q", out)
+	}
+	out, _ = run("inbox_folders", `{"unfiled":true}`)
+	if !strings.Contains(out, "1 item in no folder") || !strings.Contains(out, "id=f3 ") || strings.Contains(out, "id=f1") {
+		t.Errorf("unfiled items: %q", out)
+	}
+
+	// "" takes them out of every folder, and the model leaves them alone
+	if _, err := run("inbox_move", `{"items":["f1"],"folder":""}`); err != nil {
+		t.Fatal(err)
+	}
+	if it := h.inbox.items["f1"]; it.Folder != "" || it.FolderBy != FolderByUser || it.unfiled() {
+		t.Errorf("out of every folder: %q by %q", it.Folder, it.FolderBy)
+	}
+
+	// a failed write is said, and the item stays where it was
+	h.st.writeFails(true)
+	if _, err := run("inbox_move", `{"items":["f2"],"folder":"elsewhere"}`); err == nil || !strings.Contains(err.Error(), "not moved: f2") {
+		t.Errorf("failed write: %v", err)
+	}
+	h.st.writeFails(false)
+	if it := h.inbox.items["f2"]; it.Folder != "work/alerts/ci" {
+		t.Errorf("after a failed write: %q", it.Folder)
+	}
+}
+
 func TestInboxFolderRoutes(t *testing.T) {
 	h := folderHub(t, 2)
 	h.inbox.folderCfg.Enabled = false

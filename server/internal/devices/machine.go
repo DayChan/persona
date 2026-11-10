@@ -111,6 +111,7 @@ type Machine struct {
 	timings                    tailcatTimings
 	deployRetry                time.Duration // how long a node update waits before asking a busy node again (tests: shorter)
 	reconnectGrace             time.Duration // shown as it was this long after its node disconnected (warm.go; tests: shorter)
+	storeWait                  time.Duration // how long a node event waits on the store (nodeStoreWait; tests: shorter)
 	engineMu                   sync.Mutex
 	link                       *mgrLink      // kind link: the link Persona Link keeps open, nil while there is none
 	linkDown                   error         // why the last link went away
@@ -161,7 +162,7 @@ type Machine struct {
 func newMachine(d *Devices, cfg MachineConfig) *Machine {
 	m := &Machine{cfg: cfg, d: d, watched: map[string]bool{}, lastSeq: map[string]int{}, kick: make(chan struct{}, 1),
 		timings: defaultTailcatTimings, deployRetry: 2 * time.Second, reconnectGrace: reconnectGrace,
-		linkUp: make(chan struct{}, 1), first: make(chan struct{}), attWake: make(chan struct{}, 1)}
+		linkUp: make(chan struct{}, 1), first: make(chan struct{}), attWake: make(chan struct{}, 1), storeWait: nodeStoreWait}
 	m.setName(cfg.Name)
 	if dial := d.opts.DialNode; dial != nil {
 		m.dialNode = dial(cfg.ID)
@@ -508,6 +509,9 @@ func (m *Machine) call(ctx context.Context, method string, params any, out any) 
 		return fmt.Errorf("%s: %w", m.name(), errOffline)
 	default:
 	}
+	if method == "node.configure" {
+		params = m.withClaudeDirs(ctx, params)
+	}
 	return p.Call(ctx, method, params, out)
 }
 
@@ -574,8 +578,17 @@ func (m *Machine) noteWatch(method string, params json.RawMessage) {
 		m.watched[p.SessionID] = true
 	} else {
 		delete(m.watched, p.SessionID)
+		m.forgetSeqLocked(p.SessionID)
 	}
 	m.mu.Unlock()
+}
+
+// forgetSeqLocked drops a session's last item seq once neither the hub nor the manager watches it: the seq is only
+// read to watch it again, and a later watch catches up from the node's own to_seq. m.mu is held.
+func (m *Machine) forgetSeqLocked(id string) {
+	if !m.watched[id] && !m.followed[id] {
+		delete(m.lastSeq, id)
+	}
 }
 
 // setSessions keeps the node's session list (the hub gets it as the node sent it, devices.event).
@@ -675,7 +688,8 @@ func (m *Machine) onEvent(event string, params json.RawMessage) {
 				last = max(last, *p.ToSeq)
 			}
 			m.mu.Lock()
-			if last > m.lastSeq[p.SessionID] {
+			// Only a watched session's seq is kept: a late batch after its unwatch must not bring it back.
+			if (m.watched[p.SessionID] || m.followed[p.SessionID]) && last > m.lastSeq[p.SessionID] {
 				m.lastSeq[p.SessionID] = last
 			}
 			m.mu.Unlock()
@@ -686,9 +700,13 @@ func (m *Machine) onEvent(event string, params json.RawMessage) {
 			State     db.NodeSession `json:"state"`
 		}
 		if s, ok := m.d.opts.Store.(nodeStateStore); ok && json.Unmarshal(params, &p) == nil && p.SessionID != "" {
-			if err := s.PutNodeSession(context.Background(), m.cfg.ID, p.SessionID, p.State); err != nil {
+			// Written here, in order (the latest put of a session wins), but bounded: a store that does not answer must
+			// not hold the node's read loop, and with it every reply and event of the node (nodeStoreWait).
+			ctx, cancel := m.storeCtx()
+			if err := s.PutNodeSession(ctx, m.cfg.ID, p.SessionID, p.State); err != nil {
 				m.d.logf("[%s] save session state: %v", m.cfg.ID, err)
 			}
+			cancel()
 		}
 		return // the manager's alone
 	case "claude.dirs":
@@ -710,6 +728,22 @@ func (m *Machine) onEvent(event string, params json.RawMessage) {
 		return
 	}
 	m.d.forward(m.cfg.ID, event, params)
+}
+
+// nodeStoreWait bounds a store call a node's event makes on its connection's read loop (state.put, claude.dirs):
+// while Postgres does not answer, the loop would read nothing else of the node, replies to the manager's calls
+// included. A write given up is mended by the node, which keeps its own copy and puts the session's state again when
+// it next changes. Each machine copies it (Machine.storeWait), so a test shortens it on its own machine.
+const nodeStoreWait = 10 * time.Second
+
+// storeCtx is the context of a store call a node event makes: not the machine's (the last put of a machine being let
+// go is still kept), only bounded. A Machine not made by newMachine waits nodeStoreWait.
+func (m *Machine) storeCtx() (context.Context, context.CancelFunc) {
+	wait := m.storeWait
+	if wait <= 0 {
+		wait = nodeStoreWait
+	}
+	return context.WithTimeout(context.Background(), wait)
 }
 
 // forgetIfStopped closes the window between onEvent's stopped check and its write: a machine is stopped before it

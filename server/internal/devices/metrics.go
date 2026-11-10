@@ -90,11 +90,14 @@ func (b *metricsBook) now(machine string, at time.Time) *proto.MetricSample {
 
 // MachineResources returns the retained machine snapshot and latest sample, including stale samples so callers can report their age.
 // A nil result means the machine is no longer managed here. It does not query the node or the metrics history.
+// An entry absorbed by another one (the same computer) answers with that machine's snapshot and sample: samples are
+// kept under the id of the machine whose connection sent them.
 func (d *Devices) MachineResources(id string) (*proto.Machine, *proto.MetricSample, *bool) {
 	m := d.machineByID(id)
 	if m == nil {
 		return nil, nil, nil
 	}
+	id = m.cfg.ID
 	machine := m.snapshot()
 	m.mu.Lock()
 	info, online := m.info, m.online

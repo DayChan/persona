@@ -423,7 +423,7 @@ onHubEvent("task_plan", (m) => {
 /** The fields of a plan's task "Edit" lets the user change before it starts (iOS PlanEditSheet), ultracode included (#12). */
 export type PlanTaskEdit = Pick<PlanTask, "title" | "machine" | "cwd" | "model" | "permission" | "prompt"> & { ultracode: boolean };
 
-export const PLAN_PERMISSIONS = ["default", "acceptEdits", "plan", "bypassPermissions"] as const;
+export const PLAN_PERMISSIONS = ["default", "acceptEdits", "plan", "auto", "bypassPermissions"] as const;
 
 /** A plan's tasks as "Edit" starts them: every editable field filled in (an unset permission is "Ask every step").
  *  `ultracode`: the card's own choice per task, where it has one; else the assistant's. */

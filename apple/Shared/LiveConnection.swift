@@ -68,6 +68,9 @@ nonisolated enum ServerEvent: Sendable {
     case todos
     /// The personas the hub offers changed, e.g. a tiered look moved to another tier (docs/apple/persona.md): list them again.
     case personas
+    /// The avatar chosen on the hub changed (another device chose one, or the hub went back to the default when its
+    /// package or extension went; docs/apple/persona.md): `effective` is the one to show, `id` the one chosen.
+    case look(id: String?, effective: String?)
     /// The hub's roster of managers changed (docs/assistant/managers.md): Settings › Managers reads it again. Sent only to a
     /// socket that asked for feature `managers` (`queryItems`).
     case managers
@@ -154,6 +157,8 @@ nonisolated enum ServerEvent: Sendable {
         var key: String?
         var conversation: String?
         var plan: TaskPlan?
+        /// look's: the avatar to show (`id` is the one chosen).
+        var effective: String?
         var plugin: String?
         /// extension_ui's (plugin_ui says `plugin`).
         var extensionID: String?
@@ -176,6 +181,7 @@ nonisolated enum ServerEvent: Sendable {
             case type, machines, sessions, upsert, remove, revision, items, backlog, text, status, interaction, id, name, args, event, message, error, revs, fleet, history
             case features, epoch, seq, full, cols, rows, data, unsupported, state, desktops, mesh, channel, build, update, item, view, action, key, conversation, plan
             case plugin, badge, invalidate, cwd, dirs, git, operation, auth, source, conversations, account, reason, answers, resolution, manager
+            case effective
             case answeredBy = "answered_by"
             case extensionID = "extension"
             case hubID = "hub_id", hubName = "hub_name", protocolVersion = "protocol", minAppBuild = "min_app_build", publicURL = "public_url"
@@ -259,6 +265,9 @@ nonisolated enum ServerEvent: Sendable {
         case "inbox": return .inbox
         case "todos": return .todos
         case "personas": return .personas
+        case "look":
+            guard (e.effective ?? e.id).map({ !$0.isEmpty }) == true else { return nil }
+            return .look(id: e.id, effective: e.effective)
         case "managers": return .managers
         case "assistant_feed": return e.item.map { .assistantFeed($0) }
         case "assistant_view":
@@ -321,7 +330,7 @@ nonisolated extension ServerEvent {
         case .sessionsDelta(let machine, let upsert, let remove):
             return .sessionsDelta(machineID: machine, upsert: upsert.map { var s = $0; s.group = group; return s }, remove: remove)
         case .sessionsList, .hello, .interactionResolved, .interactionReanswered, .toolCall, .revs, .lark, .messaging, .agents, .inbox, .fleet, .hubUpdate, .desktops, .todos,
-             .personas, .managers, .assistantFeed, .assistantView, .assistantViewAction, .assistantViewBlock, .taskPlan, .pluginBadge,
+             .personas, .look, .managers, .assistantFeed, .assistantView, .assistantViewAction, .assistantViewBlock, .taskPlan, .pluginBadge,
              .extensionInvalidate, .fsChanged, .extensionOperation, .extensionAuth: return self
         }
     }

@@ -1136,7 +1136,7 @@ func TestInboxItems(t *testing.T) {
 	if err := d.PutInboxItem(ctx, "old", []byte(`{"id":"old"}`), old, &old); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := d.InboxItems(ctx, now.Add(-8*24*time.Hour))
+	rows, err := inboxData(d, now.Add(-8*24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1154,7 +1154,7 @@ func TestInboxItems(t *testing.T) {
 	if gone, err := d.DeleteInboxSource(ctx, "imessage", nil); err != nil || len(gone) != 1 || gone[0] != "imessage:1" {
 		t.Fatalf("delete the source: %v %v", gone, err)
 	}
-	if rows, _ := d.InboxItems(ctx, now.Add(-8*24*time.Hour)); len(rows) != 1 {
+	if rows, _ := inboxData(d, now.Add(-8*24*time.Hour)); len(rows) != 1 {
 		t.Fatalf("rows after delete = %d", len(rows))
 	}
 }

@@ -227,14 +227,11 @@ struct TurnTests {
         #expect(a.tail.isEmpty) // nothing after the newest words
         #expect(a.ordered.last?.id == "6#0")
         #expect(a.process.contains { $0.id == "3#0" }) // the summary: in the work line
-        #expect(a.afterWake.first?.id == wake.id && a.afterWake.count == 3) // the drawer: every run from the wake on
-
-        // Woken, at work, no words yet: the words before stay the answer until new ones come; the new work is in the
-        // drawer (its chip runs).
+        // Woken, at work, no new words yet: the pending continuation stays in the ordinary execution summary.
         blocks = ChatBlock.build(ChatStore.buildRows(Array(items.prefix(5))))
         guard case .turn(let w) = blocks[0] else { Issue.record("turn"); return }
         if case .assistant(let i) = w.answer { #expect(i.text == summary) } else { Issue.record("answer") }
-        #expect(w.tail.count == 2) // the wake and the tool
+        #expect(w.hasPendingWake)
 
         // "Waiting for it", then the summary after the wake: the summary is the answer, and every tool before it
         // (the wake included) is one stretch of work.
@@ -486,7 +483,6 @@ struct TurnTests {
         guard case .turn(let t) = blocks.last else { Issue.record("no turn"); return }
         #expect(t.ordered.contains { if case .image(let i) = $0 { i.id == "m#1" } else { false } })
         #expect(!t.tail.contains { if case .image = $0 { true } else { false } })
-        #expect(!t.afterWake.contains { if case .image = $0 { true } else { false } })
     }
 
     @Test func contextTagRoundTrips() {

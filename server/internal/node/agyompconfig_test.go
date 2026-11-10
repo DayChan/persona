@@ -1,10 +1,46 @@
 package node
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
+
+func TestAgyLegacyPermissionModeWritesNativeAuto(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ANTIGRAVITY_CLI_CONFIG_DIR", home)
+	path := filepath.Join(home, "settings.json")
+	initial := `{"agentMode":"bypassPermissions","toolPermission":"always-proceed","custom":{"keep":true}}`
+	if err := os.WriteFile(path, []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	n := &Node{home: home}
+	if err := n.setAgySetting("agentMode", "bypassPermissions"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["agentMode"] != "auto" || got["toolPermission"] != "always-proceed" || got["custom"].(map[string]any)["keep"] != true {
+		t.Fatalf("unexpected native settings: %s", data)
+	}
+	settings, err := n.getAgySettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, setting := range settings {
+		if setting.Key == "agentMode" && (slices.Contains(setting.Options, "bypassPermissions") || setting.Value != "auto") {
+			t.Fatalf("unsupported native mode offered: %+v", setting)
+		}
+	}
+}
 
 func TestAgySettingsReadWrite(t *testing.T) {
 	home := t.TempDir()

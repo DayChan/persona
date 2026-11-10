@@ -18,6 +18,7 @@ import type { MenuAt, MenuItem } from "../../ui/menu-model";
 import { Pill, Switch } from "../settings/SettingsParts";
 import { ImageViewer } from "../chat/ImageViewer";
 import { Slider } from "../../ui/Slider";
+import { scrollBehavior } from "../../ui/stream/motion";
 import { NEW_ICON_GLYPH } from "./icon-map";
 
 /** What UI version 6's components are drawn with, besides a view's handlers. */
@@ -348,10 +349,18 @@ export function Carousel({ item, compact, ...h }: TileHandlers & { item: UIItem;
   const tiles = (item.tiles ?? []).slice(0, compact ? 6 : 20);
   const box = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ start: true, end: true });
+  const shown = useRef(edges);
+  // measure runs on every scroll event (each frame of a snap or a smooth page) and every resize report: it sets state only
+  // when an edge changes, so the carousel and its tiles draw again only then. An updater that returns the same state is
+  // not enough: React can still render to find that out, and the change after it then renders twice.
   const measure = () => {
     const el = box.current;
     if (!el) return;
-    setEdges({ start: el.scrollLeft <= 2, end: el.scrollLeft + el.clientWidth >= el.scrollWidth - 2 });
+    const start = el.scrollLeft <= 2;
+    const end = el.scrollLeft + el.clientWidth >= el.scrollWidth - 2;
+    if (start === shown.current.start && end === shown.current.end) return;
+    shown.current = { start, end };
+    setEdges(shown.current);
   };
   useLayoutEffect(() => {
     measure();
@@ -361,7 +370,7 @@ export function Carousel({ item, compact, ...h }: TileHandlers & { item: UIItem;
     ro.observe(el);
     return () => ro.disconnect();
   }, [tiles.length]);
-  const page = (dir: 1 | -1) => box.current?.scrollBy({ left: dir * box.current.clientWidth * 0.8, behavior: "smooth" });
+  const page = (dir: 1 | -1) => box.current?.scrollBy({ left: dir * box.current.clientWidth * 0.8, behavior: scrollBehavior() });
   const arrow = "absolute top-1/2 z-[1] hidden size-8 -translate-y-1/2 items-center justify-center rounded-full bg-surface text-ink-2 shadow-raised transition-opacity [@media(hover:hover)]:flex opacity-0 group-hover/carousel:opacity-100 focus-visible:opacity-100";
   return (
     <div className={cx(compact ? "py-2" : "")}>

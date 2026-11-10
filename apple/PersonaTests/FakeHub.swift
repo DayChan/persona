@@ -11,6 +11,12 @@ final class FakeHub: @unchecked Sendable {
     private let lock = NSLock()
     private var routes: [String: Route] = [:]
     private(set) var requests: [LocalRequest] = []
+    /// The address its client says it is at: two hubs (two groups) are told apart by it.
+    let url: URL
+
+    init(url: String = "https://fake.invalid") {
+        self.url = URL(string: url)!
+    }
 
     /// Answers `method path` with `json` (an object or array literal, as the hub would send it).
     func on(_ method: String, _ path: String, json: String) {
@@ -23,7 +29,7 @@ final class FakeHub: @unchecked Sendable {
     }
 
     var client: APIClient {
-        var c = APIClient(config: ServerConfig(url: URL(string: "https://fake.invalid")!, token: "t"))
+        var c = APIClient(config: ServerConfig(url: url, token: "t"))
         c.transport = { [self] req in try await self.answer(req) }
         return c
     }

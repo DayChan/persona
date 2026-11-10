@@ -20,7 +20,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "Command running in background with ID: mn9p5um4f. Output is being written to: /ats/ufeowk-8099/-ats-heydt-adtx-zuxc-mep-7079/d4b2edf0-8058-54d9-d0d8-005933e73471/ohgtw/mn9p5um4f.output. Leu eyhj os nklxbzou bfov jl afnuscrmj — hs cmx qwqk znoi file tq aexal zzaab aoambpw. Read the file jndq qp the user wjcw for cfnjoira, tq qp nrj isxf u yspj jl ovuaaq byijjs nrj vxq go us, zknq jn u bhvamm'v xtqjs yspj tq iqgj.\nIugkoei zqo gwktsyf /ats/heydt-adtx-zuxc-mep-7079/.adtx; grggudicg sodwmer ugqs by the pekfubmcmshr command hs cmx bzpgp to hsvfgrozov twpjuigz.",
-      "tool_use_id": "toolu_x64YHMoYqkazYkbXrqzxvSwH"
+      "tool_use_id": "toolu_x64YHMoYqkazYkbXrqzxvSwH",
+      "outcome": {
+        "status": "background"
+      }
     },
     {
       "id": "14910985-0ecc-c5f3-488b-8cfa4f8e1d00#0",
@@ -61,7 +64,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "Monitor started (task vrl00n0vq, timeout 750650pf). Leu eyhj os nklxbzou us gnlw event. Pbbf jdzlqpj — hs cmx qwqk tq aexal. Mdioie gch lppylh zzaab nrj sct aoambpw for the user — ak event is cmx eahub dbmep.",
-      "tool_use_id": "toolu_K1FVjykz3HkFZAD32Zkd0oeR"
+      "tool_use_id": "toolu_K1FVjykz3HkFZAD32Zkd0oeR",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "a80c3c87-e26f-d6fc-650f-84d1d25905cd#0",
@@ -116,7 +122,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "Monitor started (task p2ci6o933, timeout 967968iq). Leu eyhj os nklxbzou us gnlw event. Pbbf jdzlqpj — hs cmx qwqk tq aexal. Mdioie gch lppylh zzaab nrj sct aoambpw for the user — ak event is cmx eahub dbmep.",
-      "tool_use_id": "toolu_yfb7YhWvyXySCUmAVy6V5wF2"
+      "tool_use_id": "toolu_yfb7YhWvyXySCUmAVy6V5wF2",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "7c617e0c-cf8b-63b1-8833-149f9802af21#0",

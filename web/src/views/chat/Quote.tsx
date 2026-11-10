@@ -114,7 +114,7 @@ export function QuoteBlock({ text: whole }: { text: string }) {
           </span>
         )}
         {!text ? null : open ? (
-          <div className="max-h-[320px] w-full overflow-y-auto text-ink-2 [overflow-wrap:anywhere]">
+          <div className="max-h-[320px] w-full overflow-y-auto text-ink-2 [overflow-wrap:anywhere]" data-scroll-box>
             <Markdown text={text} small compact />
           </div>
         ) : (

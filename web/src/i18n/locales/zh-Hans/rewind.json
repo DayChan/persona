@@ -10,5 +10,6 @@
   "done_code_and_conversation": "已回退代码和对话",
   "done_no_code_changes": "已回退对话（这条之后没有代码改动）",
   "no_text": "这条消息没有文字，没法回退到它",
-  "input_kept": "已回退，但电脑上 Claude 的输入框里还留着这条消息"
+  "input_kept": "已回退，但电脑上 Claude 的输入框里还留着这条消息",
+  "edit_last": "编辑上一条消息"
 }

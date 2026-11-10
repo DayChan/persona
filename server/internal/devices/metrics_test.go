@@ -277,6 +277,29 @@ func TestUsageAndMetricsForgetARemovedMachine(t *testing.T) {
 	}
 }
 
+// An entry absorbed by another one (the same computer) answers with that computer's latest sample: samples are kept
+// under the id of the machine whose connection sent them, not the id the caller asked by.
+func TestMachineResourcesOfAnAbsorbedEntry(t *testing.T) {
+	d := newTestDevices(t)
+	owner := newMachine(d, MachineConfig{ID: "box", Name: "box", Kind: "ssh"})
+	link := newMachine(d, MachineConfig{ID: "box-link", Name: "box-link", Kind: kindLink})
+	d.addEntry(owner)
+	d.addEntry(link)
+	f := &d.fleet
+	f.mu.Lock()
+	f.init()
+	f.absorbed[link] = owner
+	f.mu.Unlock()
+	d.onMetrics("box", []byte(`{"sample":{"t":7}}`))
+
+	for _, id := range []string{"box", "box-link"} {
+		machine, latest, _ := d.MachineResources(id)
+		if machine == nil || machine.ID != "box" || latest == nil || latest.T != 7 {
+			t.Fatalf("MachineResources(%q): machine=%+v latest=%+v", id, machine, latest)
+		}
+	}
+}
+
 // newCancelledOnCleanup is newTestDevices whose machines are stopped and waited for when the test ends.
 func newCancelledOnCleanup(t *testing.T) *Devices {
 	d := newTestDevices(t)

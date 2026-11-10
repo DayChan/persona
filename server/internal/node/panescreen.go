@@ -23,6 +23,10 @@ func (n *Node) screen(ctx context.Context, id string, lines int, source string, 
 	}
 	a, ok := n.agent(id)
 	if !ok {
+		// A claude the user started in tmux has no host agent: its own record names the pane (#2562).
+		if pane := n.outsidePaneOf(id); pane != "" {
+			return n.readOutsideScreen(ctx, id, pane, source, lines, ansi)
+		}
 		pane, err := n.terminalPane(ctx, id) // also a "pane:" address (panes.go)
 		if err != nil {
 			return "", proto.StatusOffline, nil
@@ -48,6 +52,34 @@ func (n *Node) screen(ctx context.Context, id string, lines int, source string, 
 	}
 	text, err := n.readPane(ctx, a.PaneID, source, lines)
 	return text, a.AgentStatus, err
+}
+
+// readOutsideScreen reads the pane of a claude no host lists as an agent (a Claude Code the user started in tmux,
+// #2562): the same reads a host agent's pane gets, with the status its own record gives it.
+func (n *Node) readOutsideScreen(ctx context.Context, id, pane, source string, lines int, ansi bool) (string, string, error) {
+	status := proto.StatusUnknown
+	if c, ok := n.outsideClaude(id); ok {
+		if s, ok := claudeBgStatus[c.Status]; ok {
+			status = s
+		}
+	}
+	if ansi && n.plainScreen(pane) {
+		text, err := n.readPane(ctx, pane, source, lines)
+		if err == nil && text != "" {
+			text = strings.ReplaceAll(strings.TrimRight(text, "\n"), "\n", "\r\n") + "\r\n"
+		}
+		return text, status, err
+	}
+	if ansi {
+		text, err := n.readPaneANSI(ctx, pane, source, lines)
+		return text, status, err
+	}
+	if lines == screen.DialogLines && source == "visible" { // a screen card's read: what the answer will read too
+		text, err := n.dialogScreen(ctx, pane)
+		return text, status, err
+	}
+	text, err := n.readPane(ctx, pane, source, lines)
+	return text, status, err
 }
 
 // herdr keeps about 1000 lines per pane readable (pane read caps there whatever --lines asks); older output is only

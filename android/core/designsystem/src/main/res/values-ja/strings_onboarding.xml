@@ -7,7 +7,7 @@
     <string name="designsystem_feedback_launcher_missing">そのパソコンでこのモデルが見つかりません。削除された可能性があります。</string>
     <string name="designsystem_feedback_not_logged_in">そのパソコンの Claude Code にまだログインしていません。</string>
     <string name="designsystem_feedback_auth_failed">モデルのキーが正しくないか、期限切れです。</string>
-    <string name="designsystem_feedback_assistant_restarting">アシスタントを再起動しています。数秒で戻ります。</string>
+    <string name="designsystem_feedback_assistant_restarting">マネージャーはオフラインか再起動中です。しばらくしてから再試行してください。</string>
     <string name="designsystem_readiness_one_more_step">あと一歩</string>
     <string name="designsystem_readiness_action_add_computer">パソコンを追加</string>
     <string name="designsystem_readiness_action_confirm_computer">自分のパソコンと確認</string>

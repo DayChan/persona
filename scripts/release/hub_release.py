@@ -155,6 +155,9 @@ def main():
             context = ('manager-release/validation' if publish_managers and args.validate_only else
                        'manager-release/worker' if publish_managers else
                        'hub-release/validation' if args.validate_only else 'hub-release/worker')
+            if cfg.get('report_commit_status') is not True:
+                print(f'GitHub commit status disabled: {context} {value}', flush=True)
+                return
             run(['gh', 'api', f'repos/{cfg["repository"]}/statuses/{sha}',
                  '-f', f'state={value}', '-f', f'context={context}',
                  '-f', f'description={description}'], checkout, stdout=subprocess.DEVNULL)
@@ -217,6 +220,7 @@ def main():
                   'update_url': cfg['update_url'],
                   'sha': sha, 'build': build, 'result': 'pending', 'evidence': str(attempt),
                   'publish_nodes': publish_nodes, 'scope': args.scope,
+                  'report_commit_status': cfg.get('report_commit_status') is True,
                   'run_id': uuid.uuid4().hex,
                   'manifest_source': sha}
         if publish_managers:

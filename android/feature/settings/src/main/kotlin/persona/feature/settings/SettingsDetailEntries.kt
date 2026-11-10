@@ -41,6 +41,7 @@ fun EntryProviderScope<NavKey>.settingsDetailEntries(navigator: Navigator, servi
             manager = manager,
             onPage = { page -> navigator.navigate(ExtensionUiRoute(page.extension.ifBlank { route.extensionId }, page.id, page.title.ifBlank { page.id }, manager = manager)) },
             onChannel = { navigator.navigate(ChannelRoute(it)) }, machines = services.sessions.machines,
+            launchers = services.providers.takeUnless { demo }?.let { p -> { p.launchers() } },
             onUpgrade = { market, id -> navigator.navigate(ExtensionCatalogRoute(market, id, manager = manager)) },
             connectors = services.connectors.takeUnless { demo }, onConnector = { navigator.navigate(ConnectorRoute(it, manager)) })
     }

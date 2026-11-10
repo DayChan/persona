@@ -1,6 +1,60 @@
 import Foundation
 import Observation
 
+/// Entry availability is independent of the personal list's search, unread filters and removed rows.
+@MainActor @Observable final class PersonalAgentEntryModel {
+    nonisolated struct Connection: Hashable, Sendable {
+        var configuration: ServerConfig
+        var group: String
+
+        init(_ api: APIClient) { configuration = api.config; group = api.group }
+    }
+
+    private var connection: Connection?
+    private var available = false
+    private var revision = UUID()
+
+    func isAvailable(for api: APIClient?) -> Bool {
+        guard let api, connection == Connection(api) else { return false }
+        return available
+    }
+
+    /// Subscribe before loading so an account/session created during the first request is not missed.
+    func watch(_ api: APIClient?) async {
+        guard let api else { connection = nil; available = false; return }
+        let changes = PersonalAgentSync.shared.changes()
+        await refresh(api)
+        for await _ in changes {
+            guard !Task.isCancelled else { return }
+            await refresh(api)
+        }
+    }
+
+    func refresh(_ api: APIClient) async {
+        let key = Connection(api)
+        if connection != key { connection = key; available = false }
+        let request = UUID()
+        revision = request
+        do {
+            let sources = try await api.personalAgentSources()
+            let configured = Set(sources.filter {
+                $0.enabled && !["missing", "disabled", "no_accounts"].contains($0.setup ?? "")
+                    && !($0.accounts ?? []).isEmpty
+            }.map(\.source))
+            var found = false
+            if !configured.isEmpty {
+                let page = try await api.personalAgentListPage(SessionListQuery())
+                found = page.sessions.contains { configured.contains($0.source) }
+            }
+            guard !Task.isCancelled, connection == key, revision == request else { return }
+            available = found
+        } catch {
+            guard !Task.isCancelled, connection == key, revision == request else { return }
+            available = false
+        }
+    }
+}
+
 @MainActor @Observable final class PersonalAgentListModel {
     private(set) var page: SessionListModel<PersonalAgentSession>?
     /// Removed here and not re-pulled yet: their rows leave at once, and come back if the hub refuses.

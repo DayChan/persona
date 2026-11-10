@@ -271,7 +271,9 @@ class ComposeTests(unittest.TestCase):
         end = lines.index("      - postgres-entrypoint")
         return "\n".join(line[8:] for line in lines[start:end]).replace("$$", "$") + "\n"
 
-    def run_postgres_wrapper(self, password, existing=None, database=False):
+    def run_postgres_wrapper(self, password, existing=None, database=False, args=None, server=None):
+        """With args (the container's command): returns what reaches docker-entrypoint.sh. server: what the stub
+        `postgres -V` and `pg_config --configure` print (None: no pg_config); None: neither is there."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             pgdata = root / "pgdata"
@@ -285,15 +287,22 @@ class ComposeTests(unittest.TestCase):
             bin_dir = root / "bin"
             bin_dir.mkdir()
             write_stubs(bin_dir, {"docker-entrypoint.sh": '#!/bin/sh\nprintf "%s\\n" "$POSTGRES_PASSWORD" "$@"\n'})
-            for name in ("tr", "head", "mv", "cat"):
+            if server is not None:
+                version, configure = server
+                write_stubs(bin_dir, {"postgres": "#!/bin/sh\necho '" + version + "'\n"})
+                if configure is not None:
+                    write_stubs(bin_dir, {"pg_config": "#!/bin/sh\necho \"" + configure + "\"\n"})
+            for name in ("tr", "head", "mv", "cat", "sed", "grep"):
                 os.symlink(shutil.which(name), bin_dir / name)
             script = self.postgres_script().replace("/run/persona", str(secrets))
-            result = subprocess.run(["/bin/sh", "-c", script, "postgres-entrypoint", "postgres"],
+            result = subprocess.run(["/bin/sh", "-c", script, "postgres-entrypoint", *(args or ["postgres"])],
                                     env={"PATH": str(bin_dir), "POSTGRES_PASSWORD": password, "PGDATA": str(pgdata)},
                                     capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
-            got, *args = result.stdout.splitlines()
-            self.assertEqual(args, ["postgres"])
+            got, *passed = result.stdout.splitlines()
+            if args:
+                return passed
+            self.assertEqual(passed, ["postgres"])
             stored = secrets / "db-password"
             return got, (stored.read_text() if stored.exists() else None), \
                 (stored.stat().st_mode & 0o777 if stored.exists() else None), result.stderr
@@ -318,6 +327,22 @@ class ComposeTests(unittest.TestCase):
         # The kept password still goes in (postgres ignores it once the database exists).
         got, stored, _, logs = self.run_postgres_wrapper("", existing="abc123", database=True)
         self.assertEqual((got, stored, logs), ("abc123", "abc123", ""))
+
+    def test_wal_compression_auto_is_lz4_only_where_postgres_takes_it(self):
+        # PostgreSQL 14 and older reject lz4, and so does a build without it: postgres would not start.
+        lz4 = "'--prefix=/usr/local' '--with-lz4' '--with-zstd'"
+        for name, version, configure, given, want in (
+            ("18 with lz4", "18.6", lz4, "auto", "lz4"),
+            ("14", "14.19", lz4, "auto", "off"),
+            ("built without lz4", "16.10", "'--prefix=/usr/local' '--with-zstd'", "auto", "off"),
+            ("no pg_config", "18.6", None, "auto", "off"),
+            ("explicit value", "14.19", lz4, "pglz", "pglz"),
+        ):
+            with self.subTest(name):
+                command = ["postgres", "-c", "synchronous_commit=on", "-c", "wal_compression=" + given, "-c", "x=has space"]
+                passed = self.run_postgres_wrapper("pw", args=command, server=("postgres (PostgreSQL) " + version, configure))
+                command[4] = "wal_compression=" + want
+                self.assertEqual(passed, command)
 
     def test_compose_needs_only_the_image(self):
         text = COMPOSE.read_text()
@@ -356,15 +381,15 @@ class ComposeTests(unittest.TestCase):
         "PERSONA_LOG_MAX_SIZE": "10m",
         "PERSONA_LOG_MAX_FILE": "3",
         "PERSONA_POSTGRES_SYNCHRONOUS_COMMIT": "on",
-        "PERSONA_POSTGRES_WAL_COMPRESSION": "off",
-        "PERSONA_POSTGRES_CHECKPOINT_TIMEOUT": "5min",
+        "PERSONA_POSTGRES_WAL_COMPRESSION": "auto",
+        "PERSONA_POSTGRES_CHECKPOINT_TIMEOUT": "15min",
         "PERSONA_POSTGRES_WAL_WRITER_DELAY": "200ms",
         "PERSONA_POSTGRES_HEALTHCHECK_INTERVAL": "5s",
         "PERSONA_POSTGRES_HEALTHCHECK_TIMEOUT": "5s",
         "PERSONA_POSTGRES_HEALTHCHECK_RETRIES": "30",
     }
 
-    def test_compose_disk_write_settings_default_to_the_old_timings_and_postgres_defaults(self):
+    def test_compose_disk_write_defaults_match_the_env_example_and_docs(self):
         text = COMPOSE.read_text()
         names = "|".join(self.DISK_WRITE_DEFAULTS)
         self.assertEqual(dict(re.findall(r"\$\{(" + names + r"):-([^}]*)\}", text)), self.DISK_WRITE_DEFAULTS)

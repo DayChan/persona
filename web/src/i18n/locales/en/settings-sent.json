@@ -79,5 +79,20 @@
   "rule_reason_command": "This record cannot identify a supported chat gate. Choose a newer send from an updated node.",
   "rule_reason_unknown": "This connector does not offer a rule for this chat.",
   "rules_refresh": "Refresh rules",
-  "rule_read_error": "Chat rules could not be loaded. Check the connection and refresh to retry."
+  "rule_read_error": "Chat rules could not be loaded. Check the connection and refresh to retry.",
+  "recall": "Recall…",
+  "recall_do": "Recall message",
+  "recall_confirm": "Take back this message through {connector}? It is removed for everyone who can see it, and this can't be undone.",
+  "recalled": "Recalled",
+  "recalled_at": "Recalled {when}.",
+  "recall_forbidden": "Only one of your own devices with full access can recall a message.",
+  "recall_unsupported": "This hub's version can't recall messages. Update the hub and try again.",
+  "recall_not_found": "This record is no longer on the hub.",
+  "recall_not_recallable": "This message can't be recalled.",
+  "recall_too_old": "This message is too old to recall now.",
+  "recall_already": "This message was already recalled.",
+  "recall_unavailable": "The connector is off, signed out or offline. Turn it on or sign in, then try again.",
+  "recall_no_database": "This hub runs without a database, so it can't recall messages.",
+  "recall_unknown": "It isn't known whether the message was removed. Try again to check.",
+  "recall_refused": "The message was not recalled: {detail}"
 }

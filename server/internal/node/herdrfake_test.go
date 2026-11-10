@@ -466,6 +466,18 @@ type hubPush struct {
 	Params json.RawMessage `json:"params"`
 }
 
+// pollRepo keeps optional Git decoration stable before a poll test changes its transcript or workflow. Otherwise
+// a cold Git lookup can produce an unrelated sessions.changed on the next tick.
+func pollRepo(t *testing.T) string {
+	t.Helper()
+	cwd := t.TempDir()
+	writeGitFile(t, filepath.Join(cwd, ".git", "HEAD"), "ref: refs/heads/main\n")
+	if got := awaitGitPlace(t, gitPlaces, cwd); got != (gitPlace{cwd, cwd, "main"}) {
+		t.Fatalf("poll repository: %+v", got)
+	}
+	return cwd
+}
+
 // pollNode runs the node's herdr poll loop (no event stream: a snapshot every tick) with a hub connection, and
 // returns what it pushes; stop ends the loop and waits until it has returned.
 func pollNode(t *testing.T, n *Node) (pushes <-chan hubPush, stop func()) {

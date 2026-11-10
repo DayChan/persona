@@ -102,3 +102,17 @@ export function taskMeter(todo?: Todo, lead?: Session): { value: number; total: 
   if (!counts || typeof counts.value !== "number" || !Number.isFinite(counts.value) || !Number.isFinite(counts.total) || counts.total <= 0 || counts.value < 0 || counts.value > counts.total) return undefined;
   return { value: counts.value, total: counts.total };
 }
+
+/** Whether a Progress row is still open: its task not closed (done, accepted, cancelled, or failed to start; a task the
+ *  hub no longer sends counts as closed), or, before any task exists, its plan still waiting for the user's Start. Open
+ *  rows are what the Progress tray lists and counts, every one of them — working, waiting, finished but unseen, stopped
+ *  between rounds — not only the ones with a running agent. */
+export function openTaskCard(card: TaskCardMetadata, todo: Todo | undefined, plans: Record<string, TaskPlan>): boolean {
+  if (card.todo_id) return !!todo && !todo.done_at && !todo.start_error;
+  return !!card.plan_id && plans[card.plan_id]?.state === "open";
+}
+
+/** How many tasks of a conversation's plans wait for the user's Start (the plans still open). */
+export function tasksToStart(conversation: string, plans: Record<string, TaskPlan>): number {
+  return Object.values(plans).reduce((n, plan) => n + (plan.conversation === conversation && plan.state === "open" ? plan.tasks.length : 0), 0);
+}

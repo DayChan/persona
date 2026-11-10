@@ -24,6 +24,8 @@ internal class LoopbackHub(
     private val endpoints: () -> String = { "[]" },
     /** The hub id health and hello report. */
     val hubId: String = "test-hub",
+    /** Health's `version`; a hub leaves it out for a client it counts as the internet. */
+    private val version: String? = null,
 ) : AutoCloseable {
     @Volatile var healthy = healthy
     /** Credentials this hub refuses with 401 (everything but health). */
@@ -51,7 +53,8 @@ internal class LoopbackHub(
                     log?.add(url)
                     // Not the constructor parameter of the same name: the property, which tests change.
                     if (!this@LoopbackHub.healthy) MockResponse().setResponseCode(503)
-                    else MockResponse().setBody("""{"ok":true,"hub_id":"$hubId"}""").setHeadersDelay(answerMillis, TimeUnit.MILLISECONDS)
+                    else MockResponse().setBody("""{"ok":true,"hub_id":"$hubId"${version?.let { ""","version":"$it"""" }.orEmpty()}}""")
+                        .setHeadersDelay(answerMillis, TimeUnit.MILLISECONDS)
                 }
                 "/api/v1/ws" -> {
                     sockets.incrementAndGet()

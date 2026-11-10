@@ -19,6 +19,12 @@ var secretRE = []*lazyre.Regexp{
 	// git over https: Password for 'https://me@host':
 	lazyre.New(`(?i)^password for (?:'[^']+'|[^\s:']+):$`),
 	lazyre.New(`(?i)^\S+@\S+ password:$`),
+	// mysql -p, passwd, ssh-keygen, ansible-vault, openssl (Verifying - ...), keytool: Enter password:,
+	// Retype new password:, Enter same passphrase again:, Vault password:, Enter PEM pass phrase:, Password (again):
+	lazyre.New(`(?i)^(?:verifying - )?(?:(?:enter|retype|re-enter|confirm|repeat|verify)\s+)?(?:(?:new|current|old|same|your)\s+)?` +
+		`(?:(?:pem|keystore|key|vault|unix|ldap|database|import|export)\s+)?(?:password|passphrase|pass phrase)(?:\s*\([^)]*\))?(?:\s+again)?:$`),
+	// psql: Password for user postgres:
+	lazyre.New(`(?i)^password for user [^\s:]+:$`),
 }
 
 // SecretPrompt: the screen ends in a password prompt, where what is typed must not be kept or logged.

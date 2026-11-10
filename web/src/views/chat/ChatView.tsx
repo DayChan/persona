@@ -29,7 +29,7 @@ import { conversationKey, pickedLauncher, pickedModel } from "../../lib/assistan
 import { unlinkAgentFromTodo } from "../../lib/todos";
 import { LinkTodoDialog } from "../LinkTodoDialog";
 import { t as tr } from "../../i18n";
-import { rewindBlock, rewindDone, rewindSession, rewindTarget, type RewindRestore } from "../../lib/rewind";
+import { lastEditablePrompt, rewindBlock, rewindDone, rewindSession, rewindTarget, type RewindRestore } from "../../lib/rewind";
 import { sendDraft } from "../../lib/drafts";
 import { chatLines, freshWords, openRecap, parseUserText, segments, type ChatLine, type UserMessage } from "../../lib/turns";
 import type { Item, Session, Subagent } from "../../lib/types";
@@ -64,7 +64,7 @@ import { ChatContext, LiveClockContext, type ChatContextValue } from "./chat-con
 import { addFreshWords, resetFreshWords } from "./fresh-words";
 import { backgroundLine, backgroundWaitLine, waitingOnWorkflow, workflowCalls, workflowCallsKey } from "../../lib/workflows";
 import { seekCall } from "./jump";
-import { navRailTicks, type NavRailSource } from "../../lib/nav-rail";
+import { navRailTicks, type NavRailSource, type NavRailTick } from "../../lib/nav-rail";
 import { containsInput, indexedNavTicks, userInputRevision } from "../../lib/user-input-index";
 import { useUserInputs } from "./useUserInputs";
 import { NavRail } from "./NavRail";
@@ -113,6 +113,8 @@ const NO_FEED: FeedItem[] = [];
 const NO_PANES: Session[] = [];
 // the assistant has no subagents: one array, so the chat context does not change with every render
 const NO_SUBAGENTS: Subagent[] = [];
+// no fine pointer: the rail draws nothing, so its ticks are not read
+const NO_RAIL_TICKS: NavRailTick[] = [];
 /** Going to a search hit: how long the rows that hold it get to open before the line it is on stands in, when to give
  *  up, and how long it stays lit (Android: 3 s). */
 const FIND_MS = 400;
@@ -354,6 +356,25 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   const [rewindLive] = useState(() => liveValue(rewindOff));
   useLayoutEffect(() => rewindLive.set(rewindOff), [rewindLive, rewindOff]);
   const canRewind = canCompose && !readOnly && !assistant;
+  const [editingLast, setEditingLast] = useState(false);
+  const editLastBusy = useRef(false);
+  const editLastMessage = useCallback(async () => {
+    if (editLastBusy.current || !canRewind || rewindLive.get() || noRow || tr.loading || tr.error) return;
+    const last = lastEditablePrompt(items.current);
+    if (!last) return;
+    editLastBusy.current = true;
+    setEditingLast(true);
+    try {
+      await rewindTo(mid, sid, draftKey, items.current, last.id, last.raw, "conversation");
+    } catch (e) {
+      toast(errorText(e), "error");
+    } finally {
+      editLastBusy.current = false;
+      setEditingLast(false);
+    }
+  }, [canRewind, rewindLive, noRow, tr.loading, tr.error, mid, sid, draftKey]);
+  const editableLast = useMemo(() => lastEditablePrompt(tr.items), [tr.items]);
+  const onEditLastMessage = canRewind && !rewindOff && !noRow && !tr.loading && !tr.error && !editingLast && editableLast ? editLastMessage : undefined;
   const actions = useMemo<ChatActions>(
     () => ({
       draftKey,
@@ -892,7 +913,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
   const tasks = useMemo(() => stableValue(lastTasks.current, buildTaskIndex(tr.items)), [tr.items]);
   lastTasks.current = tasks;
   // Only lightweight positions are fetched for navigation; older transcript bodies wait for a selection.
-  const loadedRailTicks = useMemo(() => navRailTicks(lines), [lines]);
+  const loadedRailTicks = useMemo(() => (fine ? navRailTicks(lines) : NO_RAIL_TICKS), [fine, lines]);
   const inputRevision = useMemo(() => userInputRevision(tr.items), [tr.items]);
   const inputIndex = useUserInputs(mid, sid, tr.history, inputRevision, fine && !tr.loading, tr.reload);
   const railTicks = useMemo(() => inputIndex ? indexedNavTicks(inputIndex, lines, tr.items) : loadedRailTicks, [inputIndex, lines, tr.items, loadedRailTicks]);
@@ -1228,7 +1249,9 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
       answered={answered}
       delegated={delegated}
       offerNext={inPage && !readOnly && !assistant ? { mid, sid } : undefined}
-      narrow={compactDock}
+      // in the assistant's Pending tray (AssistantActionBar) the tray is the box that scrolls: a second scroll box of
+      // their own left the card's sticky answer row at its bottom, out of sight below the tray's fold
+      narrow={compactDock && (!assistant || voiceState === "live")}
       short={short}
       keyboard={keyboard}
       onDismissKeyboard={() => composerBox.current?.querySelector("textarea")?.blur()}
@@ -1322,6 +1345,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
                         streaming={(d.line.kind === "segment" || d.line.kind === "supervision") && d.line.live ? tr.streaming || undefined : undefined}
                         expandFold={tr.expandFold}
                         onRetry={canRetry && d.line.id === lines.at(-1)?.id ? retry : undefined}
+                        onEditLastMessage={d.line.id === lines.at(-1)?.id ? onEditLastMessage : undefined}
                         fix={d.line.id === lines.at(-1)?.id ? turnFix : undefined}
                         limit={d.line.kind === "apiError" && d.line.id === limitOn ? limitLine : undefined}
                         assistant={assistant}
@@ -1341,6 +1365,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
                   streaming={(line.kind === "segment" || line.kind === "supervision") && line.live ? tr.streaming || undefined : undefined}
                   expandFold={tr.expandFold}
                   onRetry={canRetry && i === lines.length - 1 ? retry : undefined}
+                  onEditLastMessage={i === lines.length - 1 ? onEditLastMessage : undefined}
                   limit={line.kind === "apiError" && line.id === limitOn ? limitLine : undefined}
                   assistant={assistant}
                   offscreen={offscreen(line)}
@@ -1388,7 +1413,7 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
         {/* everything over the composer: it shrinks and scrolls before the composer does (the composer grew, and its
             cards, task questions and notes stood taller than the dock, drawn up over the chat or pushing it to nothing);
             the box clips what is in it, so its children keep a little room for their shadows (p-1; -m-1 gives it back) */}
-        <div data-chat-dock-above className="-m-1 flex min-h-0 shrink flex-col gap-2 overflow-y-auto overscroll-contain p-1 empty:hidden">
+        <div data-chat-dock-above data-scroll-box className="-m-1 flex min-h-0 shrink flex-col gap-2 overflow-y-auto overscroll-contain p-1 empty:hidden">
         {short ? (
           // a phone on its side: the plan's pill, the run's status and the queue share one line
           (pills || running || queue) && (
@@ -1450,6 +1475,8 @@ export function ChatView({ mid, sid, assistant, starting: launching, onToggleSid
           needsYou={state === "needs_you"}
           onSend={send}
           disabled={Boolean(offlineLine) || (!noRow && !sessionCan(session, "send"))}
+          onEditLastMessage={onEditLastMessage}
+          loadingDraft={editingLast}
           // Persona's conversations too, the main one included (#1467): the node stops their turn like an agent's
           onStop={sessionCan(session, "interrupt") ? interrupt : undefined}
           stopping={stopping}

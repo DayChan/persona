@@ -34,7 +34,7 @@ import { t } from "../../i18n";
 import type { VoiceOffer } from "./voice/VoiceParts";
 
 // Drawn only while an attached image is edited: its own chunk, fetched by the idle preload or the first edit (lib/lazy-page.ts).
-const ImageEditor = lazyPage(() => import("./ImageEditor").then((m) => m.ImageEditor));
+const ImageEditor = lazyPage(() => import("./ImageEditor").then((m) => m.ImageEditor), { idle: true });
 /** How long "Not sent yet" stays under the box after Enter was pressed while blocked. */
 const NUDGE_MS = 4000;
 
@@ -90,6 +90,8 @@ export const Composer = memo(function Composer({
   commands = AGENT_COMMANDS,
   onSend,
   onStop,
+  onEditLastMessage,
+  loadingDraft,
   stopping,
   autoFocus,
   footer,
@@ -113,6 +115,10 @@ export const Composer = memo(function Composer({
    *  back into the box. */
   onSend: (m: Outgoing) => Promise<boolean>;
   onStop?: () => void;
+  /** Rewind the last Claude prompt into this empty composer, for explicit editing and resending. */
+  onEditLastMessage?: () => void;
+  /** A rewind is fetching the draft: keep receiving draft events but prevent typing or sending until it finishes. */
+  loadingDraft?: boolean;
   /** A stop is on its way: the button shows it and takes no more presses. */
   stopping?: boolean;
   autoFocus?: boolean;
@@ -157,6 +163,8 @@ export const Composer = memo(function Composer({
     return () => clearTimeout(timer);
   }, [nudge]);
   const input = useRef<HTMLTextAreaElement>(null);
+  const lastEscape = useRef<number | null>(null);
+  useEffect(() => { lastEscape.current = null; }, [draftKey, working, disabled, onEditLastMessage]);
   const box = useRef<HTMLDivElement>(null);
   // Phones (#5688): the box grows to a line limit from the visible height, then scrolls and offers Expand, the draft
   // full screen. `grow` is what the last measure found: the limit, a line's height, the padding, and whether it is past it.
@@ -171,7 +179,7 @@ export const Composer = memo(function Composer({
   // text picked in the link panel waits here (lib/links.ts), and "AI edit" sends through this composer
   const contexts = useContexts(draftKey);
   const sendNow = useRef<(text: string) => Promise<boolean>>(async () => false);
-  sendNow.current = async (text) => (disabled || blocked ? false : onSend({ text, images: [] }));
+  sendNow.current = async (text) => (disabled || blocked || loadingDraft ? false : onSend({ text, images: [] }));
   const canTake = useRef(!disabled);
   canTake.current = !disabled && !blocked;
   const handle = useMemo<ComposerHandle>(() => ({ key: draftKey, send: (text) => sendNow.current(text), focus: () => input.current?.focus({ preventScroll: true }), ready: () => canTake.current }), [draftKey]);
@@ -521,7 +529,7 @@ export const Composer = memo(function Composer({
     }
   };
 
-  const canSend = (draft.trim().length > 0 || atts.length > 0 || contexts.length > 0 || quote) && !disabled;
+  const canSend = (draft.trim().length > 0 || atts.length > 0 || contexts.length > 0 || quote) && !disabled && !loadingDraft;
   // Claude's suggested next message (iOS SuggestionPill): while the box is empty and the agent waits for a message
   // (not working, not on a card); a tap fills it
   // in, "Send now" sends it as it is (the node drops it once the agent works again)
@@ -544,7 +552,7 @@ export const Composer = memo(function Composer({
   const submit = async (text = draft) => {
     const refs = getContexts(draftKey);
     const q = getQuotes(draftKey).list;
-    if (disabled || blocked || (!text.trim() && !atts.length && !refs.length && !q.length)) return;
+    if (disabled || blocked || loadingDraft || (!text.trim() && !atts.length && !refs.length && !q.length)) return;
     // The message shows in the chat at once (a sending bubble), so the box empties at once too: waiting for the hub to
     // hand it to the agent (seconds when it starts up) left the same words in both places. A send that never went
     // (onSend false) puts them back; one that failed stays in the chat as a failed bubble.
@@ -593,6 +601,7 @@ export const Composer = memo(function Composer({
     <div
       ref={box}
       className="relative"
+      inert={loadingDraft || undefined}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("Files") || dragHasEntry(e.dataTransfer)) {
           e.preventDefault();
@@ -677,12 +686,15 @@ export const Composer = memo(function Composer({
           rows={1}
           value={draft}
           disabled={disabled}
+          readOnly={loadingDraft}
+          aria-busy={loadingDraft || undefined}
           onFocus={() => {
             activateComposer(handle);
             setFocused(true);
             onFocusChange?.(true);
           }}
           onBlur={() => {
+            lastEscape.current = null;
             setFocused(false);
             onFocusChange?.(false);
           }}
@@ -701,6 +713,13 @@ export const Composer = memo(function Composer({
             }
           }}
           onKeyDown={(e) => {
+            const previousEscape = lastEscape.current;
+            lastEscape.current = null;
+            if (loadingDraft) {
+              e.preventDefault();
+              e.stopPropagation();
+              return;
+            }
             if (e.nativeEvent.isComposing || e.keyCode === 229) {
               // the IME's own Escape (cancelling a candidate) must not reach ChatView's interrupt on the window
               if (e.key === "Escape") e.stopPropagation();
@@ -749,6 +768,17 @@ export const Composer = memo(function Composer({
                 setDismissed(true);
                 return;
               }
+            }
+            if (e.key === "Escape" && !e.repeat && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey &&
+                onEditLastMessage && !working && !needsYou && !disabled && !blocked && !loadingDraft && !draft &&
+                !atts.length && !uploading && !reading.current && !contexts.length && !quotes.length &&
+                !document.querySelector("[role=dialog],[role=menu]")) {
+              e.preventDefault();
+              e.stopPropagation();
+              const now = performance.now();
+              if (previousEscape !== null && now - previousEscape <= 500) onEditLastMessage();
+              else lastEscape.current = now;
+              return;
             }
             if (e.key === "Tab" && pill) {
               e.preventDefault();

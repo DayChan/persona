@@ -31,7 +31,7 @@ func (c *conversation) readApp() {
 			}
 			c.mu.Unlock()
 			if !held && ready && len(b) > 0 {
-				_ = writeJSON(c.ctx, up, w.audio(b))
+				_ = c.writeUp(up, w.audio(b)) // a stuck session: its reader sees the close and lost runs
 			}
 			continue
 		}

@@ -72,29 +72,66 @@ func writeStartScript(dir, cmd string) (string, error) {
 	return f.Name(), nil
 }
 
-// runAgentCommand types cmd, built with agentCommand for shells, into the new pane created: through a start file in
-// the node's directory, for a herdr or herdr-core pane whose shells source one (takesAssign), with anchor on the typed
-// line (startLine); else as it is. When the pane does not take it, the tab is closed (closeNewTab) and pane_send_failed
-// comes back as terminalNotReady. done removes the file if the shell has not read it yet; call it once the start is
-// over.
+// runAgentCommand types cmd, built with agentCommand for shells, into the new pane created (typeStart). done removes
+// the start file if the shell has not read it yet; call it once the start is over.
 func (n *Node) runAgentCommand(ctx context.Context, launch host.Launcher, created *host.Created, ws, anchor, cmd string, shells ...string) (done func(), err error) {
-	done = func() {}
-	line := cmd
+	t, err := n.typeStart(ctx, launch, created, ws, anchor, cmd, shells...)
+	if err != nil {
+		return func() {}, err
+	}
+	return t.done, nil
+}
+
+// typedStart is a start's line typed into its new pane (typeStart): the line, and the start file it sources ("" when
+// the command was typed out).
+type typedStart struct {
+	launch  host.Launcher
+	created *host.Created
+	line    string
+	path    string
+}
+
+// done removes the start file, if the shell has not read it yet.
+func (t *typedStart) done() {
+	if t.path != "" {
+		_ = os.Remove(t.path)
+	}
+}
+
+// again types the same line once more, for a shell that did not take it (startLineRejected): its start file is still
+// there, so nothing of it ran. A file the shell has read (and removed) is not typed again.
+func (t *typedStart) again(ctx context.Context) error {
+	if t.path != "" {
+		if _, err := os.Stat(t.path); err != nil {
+			return fmt.Errorf("the start file is gone (the shell ran it): %w", err)
+		}
+	}
+	if err := t.launch.Run(ctx, t.created.Pane, t.line); err != nil {
+		return startRunError(err)
+	}
+	return nil
+}
+
+// typeStart types cmd, built with agentCommand for shells, into the new pane created: through a start file in the
+// node's directory, for a herdr or herdr-core pane whose shells source one (takesAssign), with anchor on the typed
+// line (startLine); else as it is. When the pane does not take it, the tab is closed (closeNewTab) and
+// pane_send_failed comes back as terminalNotReady.
+func (n *Node) typeStart(ctx context.Context, launch host.Launcher, created *host.Created, ws, anchor, cmd string, shells ...string) (*typedStart, error) {
+	t := &typedStart{launch: launch, created: created, line: cmd}
 	if n.typesStartFile(launch, shells...) {
 		path, err := writeStartScript(n.dir, cmd)
 		if err != nil {
 			n.closeNewTab(ctx, launch, created, ws)
-			return done, err
+			return nil, err
 		}
-		done = func() { _ = os.Remove(path) }
-		line = startLine(path, anchor, shells...)
+		t.path, t.line = path, startLine(path, anchor, shells...)
 	}
-	if err := launch.Run(ctx, created.Pane, line); err != nil {
-		done()
+	if err := launch.Run(ctx, created.Pane, t.line); err != nil {
+		t.done()
 		n.closeNewTab(ctx, launch, created, ws)
-		return func() {}, startRunError(err)
+		return nil, startRunError(err)
 	}
-	return done, nil
+	return t, nil
 }
 
 // typesStartFile: runAgentCommand types `. <file>` into launch's pane whose shells are shells, not the command itself.

@@ -1,5 +1,7 @@
 {
   "effort_title": "Thinking effort",
   "effort_detail": "Higher thinks more carefully and takes longer. auto uses the model default. To use max for every new Agent, set it in Model configuration › Agents › Reasoning effort. For a single session, use the session effort control or /effort max.",
-  "effort_max_ignored": "Saved max is not applied: Claude Code ignores it in settings.json and uses the model default. To use max for every new Agent, set it in Model configuration › Agents › Reasoning effort. For a single session, use the session effort control or /effort max."
+  "effort_max_ignored": "Saved max is not applied: Claude Code ignores it in settings.json and uses the model default. To use max for every new Agent, set it in Model configuration › Agents › Reasoning effort. For a single session, use the session effort control or /effort max.",
+  "default_mode_title": "Default permission mode",
+  "default_mode_detail": "The mode a new Claude Code session starts in when nothing else picks one, including the Agents the assistant starts from the main chat. A mode picked when starting an Agent, or the assistant's default permission mode, still comes first."
 }

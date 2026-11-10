@@ -59,6 +59,8 @@ data class SettingsServices(
     val feishuBot: persona.core.contracts.api.FeishuBotSettings? = null,
     /** The phone's hub groups (settings › hub); null where there is no real pairing (demo mode). */
     val hubs: HubGroups? = null,
+    /** Settings › hub › SSH Tunnel and Local Proxy of each paired hub; null in demo mode. */
+    val tunnels: HubTunnelSettings? = null,
     /** Pairs one more hub instead of replacing the pairing (settings › hub › "Add hub"). */
     val addHub: PairingService? = null,
     /** Settings › Connectors on the paired hub; null in demo mode. */

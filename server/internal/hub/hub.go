@@ -74,7 +74,8 @@ type Hub struct {
 	todoOwnersMu sync.RWMutex
 	todoOwners   map[string]string // todo id -> manager id
 
-	inboxForms inboxForms // the inbox lists' items as localized lately (inbox_forms.go)
+	inboxForms   inboxForms   // the inbox lists' items as localized lately (inbox_forms.go)
+	inboxAnswers inboxAnswers // the merged inbox answer, reused while no manager's inbox moved (inbox_answers.go)
 
 	// sessionsSent: each machine's last session list sent to the apps, as encoded (broadcastSessions).
 	sessionsMu   sync.Mutex

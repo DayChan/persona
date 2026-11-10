@@ -249,14 +249,11 @@ func (h *Manager) adminExtensionRoutes(mux *http.ServeMux) {
 		if !readAdminJSON(w, r, &in) {
 			return
 		}
-		if !in.Enabled && !h.takeDependents(w, r, p.Record.ID, in.Cascade) {
+		warnings, ok := h.switchExtension(w, r, p, in.Enabled, in.Cascade, adminActor)
+		if !ok {
 			return
 		}
-		if err := ps.reg.SetEnabled(r.Context(), p.Record.ID, in.Enabled, adminActor); err != nil {
-			writeExtensionChangeError(w, r, http.StatusConflict, "read_only", err)
-			return
-		}
-		writeJSON(w, detailOut(r, ps.detail(r.Context(), ps.reg.Get(p.Record.ID))))
+		writeJSON(w, detailOut(r, ps.switched(r.Context(), p.Record.ID, warnings)))
 	}))
 	mux.HandleFunc("PUT /api/v1/admin/extensions/{id}/sandbox", func(w http.ResponseWriter, r *http.Request) {
 		h.putSandbox(w, r, adminActor) // the admin session's checks are the mux's (extension_sandbox.go)

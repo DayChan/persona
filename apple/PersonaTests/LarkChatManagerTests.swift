@@ -152,8 +152,8 @@ struct LarkChatManagerTests {
         let path = "/api/v1/lark/media/video_1"
         #expect(LarkMedia.streamURL(path, hub: hub, manager: "m-2").absoluteString == "https://hub.example.com/api/v1/lark/media/video_1?manager=m-2")
         #expect(LarkMedia.streamURL(path, hub: hub, manager: "m 2&x").absoluteString == "https://hub.example.com/api/v1/lark/media/video_1?manager=m%202%26x")
-        #expect(LarkMedia.streamURL(path, hub: hub, manager: nil) == hub.appending(path: path), "the default's: as before")
-        #expect(LarkMedia.streamURL(path, hub: hub, manager: "") == hub.appending(path: path))
+        #expect(LarkMedia.streamURL(path, hub: hub, manager: nil).absoluteString == "https://hub.example.com/api/v1/lark/media/video_1", "the default's: none named")
+        #expect(LarkMedia.streamURL(path, hub: hub, manager: "").absoluteString == "https://hub.example.com/api/v1/lark/media/video_1")
         #expect(LarkMedia.streamURL("https://cdn.example.com/v.mp4", hub: hub, manager: "m-2").absoluteString == "https://cdn.example.com/v.mp4", "a CDN's: as it is")
     }
 
@@ -164,10 +164,12 @@ struct LarkChatManagerTests {
                 == "https://hub.example.com/api/v1/messaging/chat/media/video_1?account=2&manager=m-2", "the account still named")
         #expect(LarkMedia.streamURL("/api/v1/lark/media/video_1?manager=m-3", hub: hub, manager: "m-2").absoluteString
                 == "https://hub.example.com/api/v1/lark/media/video_1?manager=m-3", "one that names a manager already: named once")
-        let under = try #require(URL(string: "https://hub.example.com/persona/"))
+        // A host no other suite routes through a tunnel: streamURL reads HubTransport's routes, which suites share.
+        let under = try #require(URL(string: "https://player-query.example.com/persona/"))
         #expect(LarkMedia.streamURL(path, hub: under, manager: "m-2").absoluteString
-                == "https://hub.example.com/persona/api/v1/messaging/chat/media/video_1?account=2&manager=m-2", "a hub under a path")
-        #expect(LarkMedia.streamURL(path, hub: hub, manager: nil) == hub.appending(path: path), "the default's: as before")
+                == "https://player-query.example.com/persona/api/v1/messaging/chat/media/video_1?account=2&manager=m-2", "a hub under a path")
+        #expect(LarkMedia.streamURL(path, hub: hub, manager: nil).absoluteString
+                == "https://hub.example.com/api/v1/messaging/chat/media/video_1?account=2", "the default's: its query a query, not %3F in the path")
         #expect(!LarkMedia.streamURL("//cdn.example.com/v.mp4", hub: hub, manager: "m-2").absoluteString.contains("manager="),
                 "another host's: url(_:manager:) leaves it alone")
     }
@@ -239,6 +241,23 @@ struct LarkChatManagerTests {
         await named.readMessagingSource(features: ["messaging"])
         #expect(asked == 2, "asked again")
         #expect(named.messagingSource == "work")
+    }
+
+    @Test func thePlayerStreamsThroughTheHubsTunnel() throws {
+        let hub = try #require(URL(string: "https://player-tunnel.example.com/persona/"))
+        let tunnel = try #require(URL(string: "http://127.0.0.1:52101"))
+        HubTransport.route(hub, via: tunnel)
+        defer { HubTransport.route(hub, via: nil) }
+        let path = "/api/v1/messaging/chat/media/video_1?account=2"
+        #expect(LarkMedia.streamURL(path, hub: hub, manager: nil).absoluteString
+                == "http://127.0.0.1:52101/persona/api/v1/messaging/chat/media/video_1?account=2", "the default's")
+        #expect(LarkMedia.streamURL(path, hub: hub, manager: nil).absoluteString
+                == APIClient(config: ServerConfig(url: hub, token: "t")).url("/api/v1/messaging/chat/media/video_1", query: ["account": "2"]).absoluteString,
+                "where APIClient's requests to that hub go")
+        #expect(LarkMedia.streamURL(path, hub: hub, manager: "m-2").absoluteString
+                == "http://127.0.0.1:52101/persona/api/v1/messaging/chat/media/video_1?account=2&manager=m-2", "a named manager's")
+        #expect(LarkMedia.streamURL("https://cdn.example.com/v.mp4", hub: hub, manager: nil).absoluteString == "https://cdn.example.com/v.mp4",
+                "a CDN's: straight to it")
     }
 
     #if os(iOS)

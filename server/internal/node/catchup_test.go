@@ -77,7 +77,10 @@ func testNode(t testing.TB) (*Node, string) {
 	t.Helper()
 	home := t.TempDir()
 	n := &Node{home: home, paths: map[string]string{}, files: map[string]*transcript.File{}, procs: map[string]*assistantProc{},
-		agents: map[string]host.Agent{}, watches: map[string]*watch{}, state: &stateFile{Sessions: map[string]sessionState{}}}
+		agents: map[string]host.Agent{}, watches: map[string]*watch{}, state: &stateFile{Sessions: map[string]sessionState{}},
+		// A start pauses 300 ms before typing, as before #2570, instead of watching the shell: tests of the settle
+		// wait turn it on (shellsettle_test.go watchShell).
+		shellPause: 300 * time.Millisecond}
 	return n, home
 }
 

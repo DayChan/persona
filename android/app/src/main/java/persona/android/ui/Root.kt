@@ -244,6 +244,8 @@ private fun PersonaShell(session: ShellSession, openNavigation: MutableState<((R
     val sidebarOperations = rememberCoroutineScope()
     val sidebarState = rememberSaveableStateHolder()
     var settingsOpened by rememberSaveable { mutableStateOf(false) }
+    // The sidebar's column beside the Assistant page in a regular window; its avatar hides it and shows it again.
+    val sidebarColumnShown = rememberSaveable { mutableStateOf(true) }
     val settingsSheetStack = rememberNavBackStack(SettingsRoute)
     fun showAssistantHome() {
         while (assistantStack.size > 1) assistantStack.removeAt(assistantStack.lastIndex)
@@ -472,11 +474,15 @@ private fun PersonaShell(session: ShellSession, openNavigation: MutableState<((R
         val windowLayout = WindowLayout(expanded = expanded, tabletop = adaptive.windowPosture.isTabletop && hinge != null,
             hingeTop = hinge?.bounds?.top ?: 0f, hingeBottom = hinge?.bounds?.bottom ?: 0f)
         val windowWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
-        // Lists sit beside their details when expanded, and on medium widths with room for both (a tablet in portrait).
+        val windowHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
+        // A regular window (an open foldable, a tablet) is laid out as an open iPhone Duo or an iPad: the shared sidebar
+        // is a column beside the Assistant page, and Settings shows its list beside the page it opens (RegularWindow.kt).
+        val regular = isRegularWindow(windowWidth.value, windowHeight.value)
+        // Lists sit beside their details in a regular window and when expanded; also on a wide phone on its side.
         // Panes share the window's one background; between them only a little space, no second surface or rule.
         // The scaffold must not move focus into the pane it shows (its default): focus entered the list pane's first
         // focusable, the search field, and with a hardware keyboard Agents and Inbox opened with the input method up.
-        val directive = (if (!expanded && windowWidth >= 760.dp) calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth(adaptive)
+        val directive = (if (!expanded && listsBesideDetails(windowWidth.value, windowHeight.value)) calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth(adaptive)
             else calculatePaneScaffoldDirective(adaptive)).let {
                 PaneScaffoldDirective(
                     maxHorizontalPartitions = it.maxHorizontalPartitions,
@@ -502,6 +508,52 @@ private fun PersonaShell(session: ShellSession, openNavigation: MutableState<((R
             PaneHinge((hinge.bounds.left - paneAreaLeft) / paneDensity, (hinge.bounds.right - paneAreaLeft) / paneDensity, hinge.isSeparating)
         }
         val rootKeys: Set<Any> = remember { listOf<NavKey>(AssistantRoute, AgentsRoute).map { NavEntry(it) {}.contentKey }.toSet() }
+        val assistantRootKey: Any = remember { NavEntry<NavKey>(AssistantRoute) {}.contentKey }
+        // The one shared sidebar, as the drawer or as the column beside the Assistant page. The two never share a key:
+        // on Agents in a regular window the drawer opens while the Assistant page (kept composed) still holds its column.
+        val sharedSidebar: @Composable (String) -> Unit = { stateKey ->
+            sidebarState.SaveableStateProvider(stateKey) {
+                AssistantSidebarContent(assistant, session.assistant, pins, sidebar.active, sidebarOperations, session.demo != null,
+                    onOpen = { key ->
+                        sidebar.opened.value = false
+                        selected = openResolved(ResolvedRoute(AppTab.Persona, ChatRoute(key.machineId, key.sessionId, ConversationKind.Assistant)))
+                    },
+                    onAction = { action -> sidebar.opened.value = false; showAssistantHome(); sidebar.action = action },
+                    onSettings = {
+                        sidebar.opened.value = false
+                        settingsSheetStack.clear()
+                        settingsSheetStack.add(SettingsRoute)
+                        settingsOpened = true
+                    },
+                    onInbox = { sidebarDestination(InboxRoute) },
+                    onKnowledge = { sidebarDestination(KnowledgeRoute) },
+                    onTodos = { sidebarDestination(TodosRoute) }, todoCount = uncompletedTodosCount, showTodos = todosSupported,
+                    inboxCount = inboxNeeds, settingsCount = slotBadge.count, settingsDot = slotBadge.dot, settingsBadge = demoBadge,
+                    pages = sidebarPages,
+                    onPage = { key ->
+                        if (key == "machines") sidebarDestination(MachinesRoute)
+                        else extensionPages.firstOrNull { extensionRailKey(it.extension, it.id) == key }?.let { page ->
+                            sidebarDestination(ExtensionUiRoute(page.extension, page.id, page.title.ifBlank { page.id }))
+                        }
+                    },
+                    onTogglePin = { key -> session.preferences.togglePin(key.path) },
+                    onRetired = { key -> sidebar.retired = sidebar.retired + key })
+            }
+        }
+        // What the decorator below reads: it is remembered across compositions, these change with the window.
+        val currentSidebar = rememberUpdatedState(sharedSidebar)
+        val currentRegular = rememberUpdatedState(regular)
+        val currentHinges = rememberUpdatedState(paneHinges)
+        // A regular window shows the sidebar as a column beside the Assistant page (inside its root page, so the pages
+        // opened over it, Inbox's list and detail among them, still have the whole width): the avatar hides and shows
+        // it, as the open iPhone Duo's sidebar button does. Folded, it is the drawer again; the page stays as it was.
+        val besideAssistant: @Composable (@Composable () -> Unit) -> Unit = { page ->
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val split = sidebarSplit(maxWidth.value, currentHinges.value)
+                JSidebarColumn(if (currentRegular.value) ({ currentSidebar.value("shared-sidebar-column") }) else null,
+                    width = split.sidebar.dp, pageStart = split.page.dp, shown = sidebarColumnShown.value) { page() }
+            }
+        }
         // Only primary roots carry the shared top switcher. Secondary pages keep their own Back control.
         val chrome = remember(style, items, selected) {
             NavEntryDecorator<NavKey> { entry ->
@@ -509,17 +561,22 @@ private fun PersonaShell(session: ShellSession, openNavigation: MutableState<((R
                 val webSheets = remember { mutableIntStateOf(0) }
                 val level = LocalGlassLevel.current
                 val primary = entry.contentKey in rootKeys
-                CompositionLocalProvider(LocalGlassSource provides glass, LocalWebSheets provides webSheets,
-                    LocalGlassLevel provides if (webSheets.intValue > 0) GlassLevel.Solid else level,
-                    LocalRootLeading provides null, LocalRootBack provides if (primary) null else navigator::back,
-                    LocalHomeChrome provides if (primary) HomeChrome(items, selected.name,
-                        onSelect = { navigator.selectTab(AppTab.valueOf(it)) }, leading = {
-                            JPersonaButton(sidebar.personaState, stringResource(R.string.app_sidebar), {
-                                sidebar.opened.value = true
-                            })
-                        }) else null) {
-                    entry.Content()
+                val assistantRoot = entry.contentKey == assistantRootKey
+                val page: @Composable () -> Unit = {
+                    CompositionLocalProvider(LocalGlassSource provides glass, LocalWebSheets provides webSheets,
+                        LocalGlassLevel provides if (webSheets.intValue > 0) GlassLevel.Solid else level,
+                        LocalRootLeading provides null, LocalRootBack provides if (primary) null else navigator::back,
+                        LocalHomeChrome provides if (primary) HomeChrome(items, selected.name,
+                            onSelect = { navigator.selectTab(AppTab.valueOf(it)) }, leading = {
+                                JPersonaButton(sidebar.personaState, stringResource(R.string.app_sidebar), {
+                                    if (assistantRoot && currentRegular.value) sidebarColumnShown.value = !sidebarColumnShown.value
+                                    else sidebar.opened.value = true
+                                })
+                            }) else null) {
+                        entry.Content()
+                    }
                 }
+                if (assistantRoot) besideAssistant(page) else page()
             }
         }
         val provider = entryProvider<NavKey> {
@@ -607,35 +664,7 @@ private fun PersonaShell(session: ShellSession, openNavigation: MutableState<((R
             sides.getRight(LocalDensity.current, LocalLayoutDirection.current) > 0
         CompositionLocalProvider(LocalAmbience provides ambience, LocalWindowLayout provides windowLayout, LocalInboxItemPages provides inboxItemPages,
             LocalInboxTriageSetup provides triageSetup, LocalAssistantSidebarHost provides sidebar) {
-          JShellDrawer(sidebar.opened.value, onDismiss = { sidebar.opened.value = false }, drawer = {
-                sidebarState.SaveableStateProvider("shared-sidebar") {
-                    AssistantSidebarContent(assistant, session.assistant, pins, sidebar.active, sidebarOperations, session.demo != null,
-                        onOpen = { key ->
-                            sidebar.opened.value = false
-                            selected = openResolved(ResolvedRoute(AppTab.Persona, ChatRoute(key.machineId, key.sessionId, ConversationKind.Assistant)))
-                        },
-                        onAction = { action -> sidebar.opened.value = false; showAssistantHome(); sidebar.action = action },
-                        onSettings = {
-                            sidebar.opened.value = false
-                            settingsSheetStack.clear()
-                            settingsSheetStack.add(SettingsRoute)
-                            settingsOpened = true
-                        },
-                        onInbox = { sidebarDestination(InboxRoute) },
-                        onKnowledge = { sidebarDestination(KnowledgeRoute) },
-                        onTodos = { sidebarDestination(TodosRoute) }, todoCount = uncompletedTodosCount, showTodos = todosSupported,
-                        inboxCount = inboxNeeds, settingsCount = slotBadge.count, settingsDot = slotBadge.dot, settingsBadge = demoBadge,
-                        pages = sidebarPages,
-                        onPage = { key ->
-                            if (key == "machines") sidebarDestination(MachinesRoute)
-                            else extensionPages.firstOrNull { extensionRailKey(it.extension, it.id) == key }?.let { page ->
-                                sidebarDestination(ExtensionUiRoute(page.extension, page.id, page.title.ifBlank { page.id }))
-                            }
-                        },
-                        onTogglePin = { key -> session.preferences.togglePin(key.path) },
-                        onRetired = { key -> sidebar.retired = sidebar.retired + key })
-                }
-          }) {
+          JShellDrawer(sidebar.opened.value, onDismiss = { sidebar.opened.value = false }, drawer = { sharedSidebar("shared-sidebar") }) {
           Box(Modifier.fillMaxSize().background(PersonaTheme.palette.background)) {
             // One background for the window. Pages paint the same light at the same place (PageBackdrop), so in wide
             // windows the rail, the panes and the room between them read as one surface; cards are what separate them.
@@ -677,6 +706,13 @@ private fun PersonaShell(session: ShellSession, openNavigation: MutableState<((R
           }
           }
           BackHandler(sidebar.opened.value) { sidebar.opened.value = false }
+          // Unfolded with the drawer open over the Assistant page: the sidebar it showed becomes the column beside it.
+          LaunchedEffect(regular) {
+              if (regular && selected == AppTab.Persona && sidebar.opened.value) {
+                  sidebar.opened.value = false
+                  sidebarColumnShown.value = true
+              }
+          }
           if (settingsOpened) {
               val settingsNavigator = remember(navigator, settingsSheetStack) {
                   SettingsSheetNavigator(settingsSheetStack, close = { settingsOpened = false }, outside = navigator)
@@ -694,9 +730,26 @@ private fun PersonaShell(session: ShellSession, openNavigation: MutableState<((R
                       assistantEntries(settingsNavigator)
                       settingsDetailEntries(settingsNavigator, services)
                   }
-                  NavDisplay(backStack = settingsSheetStack, onBack = settingsNavigator::back,
-                      entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
-                      entryProvider = settingsEntries)
+                  // In a regular window the list of settings stays beside the page it opens, as on an open iPhone Duo
+                  // (its divider is not kept: the sheet starts from the usual split each time). Elsewhere one page.
+                  var sheetLeft by remember { mutableFloatStateOf(0f) }
+                  BoxWithConstraints(Modifier.fillMaxSize().onGloballyPositioned { sheetLeft = it.positionInWindow().x }) {
+                      val sheetHinges = adaptive.windowPosture.hingeList.filter { it.isVertical }.map { hinge ->
+                          PaneHinge((hinge.bounds.left - sheetLeft) / paneDensity, (hinge.bounds.right - sheetLeft) / paneDensity, hinge.isSeparating)
+                      }
+                      val settingsDetail = detailOf(settingsSheetStack)
+                      val settingsListDetail = rememberShellListDetail(null, if (regular) directive else directive.onePane(),
+                          maxWidth, sheetHinges, detailOpen = settingsDetail != null, store = null, collapsible = false)
+                      CompositionLocalProvider(LocalDetailKey provides settingsDetail) {
+                          NavDisplay(backStack = settingsSheetStack, onBack = settingsNavigator::back,
+                              entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
+                              sceneStrategies = listOf(settingsListDetail),
+                              entryProvider = { key ->
+                                  val entry = settingsEntries(key)
+                                  NavEntry(key, entry.contentKey, entry.metadata + paneMetadata(key)) { entry.Content() }
+                              })
+                      }
+                  }
               }
           }
         }
@@ -732,6 +785,19 @@ private fun paneMetadata(key: NavKey): Map<String, Any> = when (key) {
     })
     else -> if (isDetailDestination(key)) ListDetailSceneStrategy.detailPane() else emptyMap()
 }
+
+/** The same directive with one pane across (a copy would lose that the scaffold never moves focus). */
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
+private fun PaneScaffoldDirective.onePane() = PaneScaffoldDirective(
+    maxHorizontalPartitions = 1,
+    horizontalPartitionSpacerSize = horizontalPartitionSpacerSize,
+    maxVerticalPartitions = maxVerticalPartitions,
+    verticalPartitionSpacerSize = verticalPartitionSpacerSize,
+    defaultPanePreferredWidth = defaultPanePreferredWidth,
+    defaultPanePreferredHeight = defaultPanePreferredHeight,
+    excludedBounds = excludedBounds,
+    shouldAutoFocusCurrentDestination = shouldAutoFocusCurrentDestination,
+)
 
 /** The rail's key for an extension's page: never one of the tabs' names. */
 private fun extensionRailKey(extension: String, ui: String) = "extension:$extension/$ui"

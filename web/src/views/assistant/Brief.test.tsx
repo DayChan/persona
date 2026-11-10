@@ -5,11 +5,15 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../lib/api";
-import type { FeedItem } from "../../lib/feed";
+import type { BriefRow, FeedItem } from "../../lib/feed";
 
 const api = vi.hoisted(() => vi.fn());
 vi.mock("../../lib/api", async (orig) => ({ ...(await orig<typeof import("../../lib/api")>()), api }));
+const toast = vi.hoisted(() => vi.fn());
+vi.mock("../../ui/atoms", async (orig) => ({ ...(await orig<typeof import("../../ui/atoms")>()), toast }));
 import { FeedLineView } from "./Tasks";
+import { AcceptRow } from "./Brief";
+import { getState } from "../../lib/store";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -17,6 +21,7 @@ let root: Root;
 let host: HTMLDivElement;
 beforeEach(() => {
   api.mockReset();
+  toast.mockReset();
   api.mockResolvedValue({});
   host = document.createElement("div");
   document.body.append(host);
@@ -48,6 +53,9 @@ const item = (b: Record<string, unknown> = body()): FeedItem => ({ id: "f1", con
 
 function draw(it: FeedItem) {
   act(() => root.render(<FeedLineView item={it} />));
+}
+function drawDecision(row: BriefRow) {
+  act(() => root.render(<AcceptRow row={row} stacked />));
 }
 const rows = (kind: string) => [...host.querySelectorAll(`[data-brief-row=${kind}]`)];
 
@@ -186,7 +194,67 @@ describe("a brief item", () => {
     expect(api).toHaveBeenCalledWith("/todos/todo_d1/accept", { method: "POST", json: { asked_at: ASKED } });
     expect(decide.querySelector("[data-brief-accepted=accepted]")?.textContent).toBe("已按推荐来");
     expect(none.textContent).toContain("用哪个库");
-    expect([...none.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["打开"]); // nothing to take
+    expect([...none.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["打开"]); // a historical snapshot cannot finish a newer run
+    expect(host.textContent).not.toContain("直接完成");
+  });
+
+  it("offers direct completion in live Pending even without a recommendation", () => {
+    drawDecision({ id: "todo_no_recommendation", title: "Synthetic decision", outcome: "decide", waited_s: 60, asked_at: ASKED });
+    expect([...rows("accept")[0].querySelectorAll("button")].map((b) => b.textContent)).toEqual(["打开", "直接完成"]);
+  });
+
+  it("finishes a decision using PATCH only, then clears its ask and shows the completion receipt", async () => {
+    const ask = { outcome: "decide" as const, verdict: "Choose the rollout", recommend: "Use a staged rollout", asked_at: ASKED };
+    const todo = { id: "todo_finish", title: "Demo rollout", created_at: ASKED, updated_at: ASKED, ask };
+    const before = getState().todos;
+    getState().todos = [todo];
+    const finished = { ...todo, done_at: ASKED, ask: undefined };
+    // JSON omits cleared optional fields, as the hub does.
+    api.mockImplementation(async (path, opts) => opts?.method === "PATCH" ? { todo: JSON.parse(JSON.stringify(finished)) } : path === "/todos" ? { todos: [finished] } : {});
+    try {
+      drawDecision({ ...todo, ...ask, waited_s: 60 });
+      const buttons = [...rows("accept")[0].querySelectorAll("button")];
+      expect(buttons.map((b) => b.textContent)).toEqual(["打开", "直接完成", "按推荐来"]);
+      expect(buttons[1].classList).toContain("shadow-btn");
+      expect(buttons[2].classList).toContain("bg-ink");
+      await act(async () => buttons[1].click());
+      expect(api.mock.calls.filter(([, opts]) => opts?.method && opts.method !== "GET")).toEqual([["/todos/todo_finish", { method: "PATCH", json: { done: true } }]]);
+      expect(getState().todos[0].done_at).toBe(ASKED);
+      expect(getState().todos[0].ask).toBeUndefined();
+      expect(host.querySelector("[data-brief-accepted=finished]")?.textContent).toBe("已完成，不再交给 Agent");
+      expect(toast).toHaveBeenCalledWith("已完成，不再交给 Agent", "ok");
+      expect([...rows("accept")[0].querySelectorAll("button")].map((b) => b.textContent)).toEqual(["打开"]);
+    } finally {
+      getState().todos = before;
+    }
+  });
+
+  it("keeps both decision actions disabled during completion, rejects a mixed double-click, and lets a failure retry", async () => {
+    drawDecision({ id: "todo_finish", title: "Demo rollout", outcome: "decide", recommend: "Stage it", waited_s: 60, asked_at: ASKED });
+    let reject!: (e: unknown) => void;
+    api.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+    const buttons = [...rows("accept")[0].querySelectorAll("button")];
+    act(() => { buttons[1].click(); buttons[2].click(); buttons[1].click(); });
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(buttons[1].disabled).toBe(true);
+    expect(buttons[2].disabled).toBe(true);
+    await act(async () => reject(new ApiError(500, "Synthetic save failure", {})));
+    expect(host.querySelector("[data-brief-accepted]")).toBeNull();
+    expect(buttons[1].disabled).toBe(false);
+    expect(buttons[2].disabled).toBe(false);
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("Synthetic save failure"), "error");
+    api.mockRejectedValueOnce(new ApiError(500, "Synthetic retry failure", {}));
+    await act(async () => buttons[1].click());
+    expect(api).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not finish while recommendation delivery is in flight", async () => {
+    drawDecision({ id: "todo_finish", title: "Demo rollout", outcome: "decide", recommend: "Stage it", waited_s: 60, asked_at: ASKED });
+    api.mockImplementationOnce(() => new Promise(() => {}));
+    const buttons = [...rows("accept")[0].querySelectorAll("button")];
+    act(() => { buttons[2].click(); buttons[1].click(); });
+    expect(api.mock.calls).toEqual([["/todos/todo_finish/accept", { method: "POST", json: { asked_at: ASKED } }]]);
+    expect(buttons[1].disabled).toBe(true);
   });
 
   it("has no Accept button for a task that has no round to name", () => {

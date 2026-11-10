@@ -165,7 +165,10 @@ class ParityInboxShotsTest {
             rule.waitForIdle()
             when (next) {
                 Shot.RowMenu -> {
+                    // A long-press starts a selection (#2576); with the one row picked, the bar's More holds its menu.
                     rule.onNodeWithText("example-org/example-repo#12").performTouchInput { longClick() }
+                    rule.waitForIdle()
+                    rule.onNodeWithContentDescription("更多").performClick()
                     rule.waitForIdle()
                     rule.assertText("静音这个仓库 · example-repo"); rule.assertText("静音这个发件人 · octo-example")
                     rule.assertText("为这个仓库设规则 · example-repo"); rule.assertText("为这个发件人设规则 · octo-example")

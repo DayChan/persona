@@ -38,15 +38,54 @@ export function light(item) {
   return { ...item, text: text + note.replace('%d', String(buf.length)), full_size: buf.length }
 }
 
-/** A tool input object with very long string fields clipped (a Write's content…). */
+const minInputShare = 256 // shorter strings, keys and other values stay whole
+const clipNoteRoom = 48 // room for clipTo's note, as JSON
+
+// Count what this runtime sends. Unlike Go's json.Marshal, JSON.stringify does not escape < > & or U+2028/U+2029,
+// so the budget and the decision to cut must use its own encoded UTF-8 size.
+function jsonLen(value) {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8')
+}
+
+// Copy a JSON value, visiting strings in objects and arrays without changing keys or the input itself.
+function mapStrings(value, f) {
+  if (typeof value === 'string') return f(value)
+  if (Array.isArray(value)) return value.map((v) => mapStrings(v, f))
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, mapStrings(v, f)]))
+  }
+  return value
+}
+
+function clipIfShorter(s, n) {
+  const size = Buffer.byteLength(s, 'utf8')
+  if (size <= n) return s
+  const clipped = clipTo(s, n)
+  return size > n + clipNoteRoom || jsonLen(clipped) < jsonLen(s) ? clipped : s
+}
+
+/** Clip long strings anywhere in a tool input object, with the same two passes as transcript.clipJSON. */
 export function clipInput(input) {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) return input
-  if (Buffer.byteLength(JSON.stringify(input), 'utf8') <= MAX_INPUT) return input
-  const out = {}
-  for (const [k, v] of Object.entries(input)) {
-    out[k] = typeof v === 'string' && Buffer.byteLength(v, 'utf8') > MAX_INPUT / 2 ? clipTo(v, MAX_INPUT / 2) : v
-  }
-  return out
+  if (jsonLen(input) <= MAX_INPUT) return input
+  const out = mapStrings(input, (s) => clipTo(s, MAX_INPUT / 2))
+  const size = jsonLen(out)
+  if (size <= MAX_INPUT) return out
+  let long = 0
+  let kept = 0
+  const rest = jsonLen(mapStrings(input, (s) => {
+    const bytes = Buffer.byteLength(s, 'utf8')
+    if (bytes <= minInputShare) return s
+    long++
+    kept += Math.min(bytes, MAX_INPUT / 2)
+    return ''
+  }))
+  if (long === 0) return out
+  // Share the remaining budget, accounting for JSON escapes and the note. The floor means many short values (or
+  // enough long ones) can still exceed MAX_INPUT; dropping values needs a separate policy.
+  let share = Math.trunc((MAX_INPUT - rest) * kept / (size - rest) / long)
+  share = Math.min(Math.max(share - clipNoteRoom, minInputShare), MAX_INPUT / 2)
+  return mapStrings(input, (s) => clipIfShorter(s, share))
 }
 
 /** One line, at most 200 characters (a list row's last_text, a card's summary). */

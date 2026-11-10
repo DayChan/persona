@@ -73,5 +73,22 @@
   "choose": "選択",
   "bind_directory_hint": "フォルダーを追加するだけで、エージェントは起動しません。ハブがパスを検証して正規化します。",
   "bind_directory": "フォルダーを追加",
-  "touch_hint": "カードのメニューからこの列に移動"
+  "touch_hint": "カードのメニューからこの列に移動",
+  "view_label": "ボード表示",
+  "view_manual": "手動",
+  "view_auto": "自動",
+  "auto_lanes_label": "エージェントの状態で自動レーン",
+  "auto_lane_review": "レビュー待ち",
+  "auto_lane_idle": "待機",
+  "auto_empty_needs_you": "対応が必要なものはありません。",
+  "auto_empty_working": "実行中のエージェントはありません。",
+  "auto_empty_review": "レビュー待ちはありません。",
+  "auto_empty_idle": "待機中のワークスペースはありません。",
+  "auto_open_session": "セッションを開く",
+  "auto_promo": "ここではカードは手動移動のみです。自動モードに切り替えると、エージェントの状態で自動的に流れます →",
+  "auto_hint": "エージェントの状態に合わせて自動でレーンが変わります。アーカイブでレビュー完了。手動列はそのままです。",
+  "auto_lane_planned": "予定",
+  "auto_empty_planned": "予定はありません。",
+  "work_todo": "To-do",
+  "work_open_todo": "To-doを開く"
 }

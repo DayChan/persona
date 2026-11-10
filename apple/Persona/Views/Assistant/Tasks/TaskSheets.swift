@@ -226,32 +226,39 @@ struct TaskBoardSheet: View {
         if !rows.isEmpty || !agents.isEmpty {
             Section {
                 ForEach(rows, id: \.todo.id) { row in
-                    Button {
-                        store.openAfterBoard = row.todo.id // opened once the board is down (one sheet at a time)
-                        store.showBoard = false
-                    } label: {
-                        HStack(spacing: Theme.Space.m) {
-                            TaskMark(state: row.state).scaledFrame(width: Theme.Size.markM)
-                            VStack(alignment: .leading, spacing: Theme.Space.xxs) {
-                                Text(row.todo.title).font(Theme.Font.body).lineLimit(1)
-                                Text(subtitle(row.todo)).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
+                    if let ask = row.todo.openAsk {
+                        BriefAcceptRow(row: ask.row(for: row.todo), group: AppModel.shared.hub?.group ?? "", open: {
+                            store.openAfterBoard = row.todo.id
+                            store.showBoard = false
+                        })
+                    } else {
+                        Button {
+                            store.openAfterBoard = row.todo.id // opened once the board is down (one sheet at a time)
+                            store.showBoard = false
+                        } label: {
+                            HStack(spacing: Theme.Space.m) {
+                                TaskMark(state: row.state).scaledFrame(width: Theme.Size.markM)
+                                VStack(alignment: .leading, spacing: Theme.Space.xxs) {
+                                    Text(row.todo.title).font(Theme.Font.body).lineLimit(1)
+                                    Text(subtitle(row.todo)).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                Spacer(minLength: Theme.Space.s)
+                                ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
                             }
-                            Spacer(minLength: Theme.Space.s)
-                            ThemedIcon(Theme.Icon.disclosure).font(Theme.Font.labelStrong).foregroundStyle(.tertiary)
+                            .contentShape(.rect)
                         }
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                    // The Agents page's Close, for a task: swiped from the trailing edge, only when nothing of it runs.
-                    .swipeActions(edge: .trailing) {
-                        if row.state.isRemovable {
-                            Button { store.askRemove(row.todo, pending: $removing) } label: {
-                                Label("Remove [Task Sheets 6135d4]", systemImage: Theme.Icon.delete)
+                        .buttonStyle(.plain)
+                        // The Agents page's Close, for a task: swiped from the trailing edge, only when nothing of it runs.
+                        .swipeActions(edge: .trailing) {
+                            if row.state.isRemovable {
+                                Button { store.askRemove(row.todo, pending: $removing) } label: {
+                                    Label("Remove [Task Sheets 6135d4]", systemImage: Theme.Icon.delete)
+                                }
+                                .tint(Theme.danger)
                             }
-                            .tint(Theme.danger)
                         }
+                        .contextMenu { TaskRemoveMenuItem(todo: row.todo, state: row.state, pending: $removing) }
                     }
-                    .contextMenu { TaskRemoveMenuItem(todo: row.todo, state: row.state, pending: $removing) }
                 }
                 ForEach(agents) { agent in agentRow(agent) }
             } header: {

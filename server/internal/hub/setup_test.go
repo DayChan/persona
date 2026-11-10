@@ -309,7 +309,7 @@ func TestSetupNewInstall(t *testing.T) {
 		}
 	}
 	if !strings.Contains(run, "--name persona-postgres") || !strings.Contains(run, "-v persona-pgdata:/var/lib/postgresql") ||
-		!strings.Contains(run, "-p 127.0.0.1:18661:5432") || !strings.HasSuffix(run, "postgres:18-alpine") || strings.Contains(run, "POSTGRES_PASSWORD=") {
+		!strings.Contains(run, "-p 127.0.0.1:18661:5432") || !strings.HasSuffix(run, "postgres:18-alpine postgres -c wal_compression=lz4 -c checkpoint_timeout=15min") || strings.Contains(run, "POSTGRES_PASSWORD=") {
 		t.Fatalf("docker run: %q", run)
 	}
 	if len(cmds.envs) != 3 || !strings.HasPrefix(cmds.envs[0], "POSTGRES_PASSWORD=") {

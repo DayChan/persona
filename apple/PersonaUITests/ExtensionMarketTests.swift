@@ -142,6 +142,56 @@ final class ExtensionMarketTests: XCTestCase {
         shot(app, "auto-upgrade-confirm")
     }
 
+    /// Review on a newer version that asks for more (#2988): the Update sheet rises over the extension's page in Settings
+    /// and stays until the user answers it. TestFlight 220 closed Settings, sheet and all, half a second after the sheet
+    /// rose, so Update could never be tapped. Cancel goes back to the page; Review opens it again, and Update installs it
+    /// with Settings still open. The mock is put back after (`/mock/reset`), for the tests that expect 1.0.0.
+    @MainActor func testReviewedUpdateStaysOpen() throws { try reviewUpdate(longPage: false) }
+
+    /// The same where the page is longer than the screen (the largest text), as an extension with a long form is: its
+    /// first rows are off screen when Review is tapped at the bottom, and nothing on the page may depend on them.
+    @MainActor func testReviewedUpdateStaysOpenOnALongPage() throws { try reviewUpdate(longPage: true) }
+
+    @MainActor private func reviewUpdate(longPage: Bool) throws {
+        let reset = { if let hub = self.env["PERSONA_EXTENSIONS_HUB"] { _ = try? Data(contentsOf: URL(string: hub + "/mock/reset")!) } }
+        reset()
+        defer { reset() }
+        let large = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        let app = try launch(["-openExtension", "example-gateway"] + (longPage ? large : []))
+        let review = app.buttons["plugin-upgrade"].firstMatch
+        let enabled = app.switches["plugin-enabled"].firstMatch
+        XCTAssertTrue(enabled.waitForExistence(timeout: 15), "no extension page:\n\(app.debugDescription)")
+        for _ in 0..<(longPage ? 30 : 8) where !(review.exists && review.isHittable) { app.swipeUp() }
+        XCTAssertTrue(review.isHittable, "no Review button:\n\(app.debugDescription)")
+        if longPage { XCTAssertFalse(enabled.exists && enabled.isHittable, "the page's first section is still on screen") }
+        let update = app.buttons["market-confirm"]
+        for round in 1...2 {
+            review.tap()
+            XCTAssertTrue(update.waitForExistence(timeout: 10), "round \(round): the Update sheet did not rise:\n\(app.debugDescription)")
+            // What closed it came within a second of the sheet rising: it must still be there three seconds on.
+            let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: update)
+            XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 3), .timedOut,
+                           "round \(round): the Update sheet closed by itself:\n\(app.debugDescription)")
+            XCTAssertTrue(update.isHittable && update.isEnabled, "round \(round): Update cannot be tapped:\n\(app.debugDescription)")
+            XCTAssertTrue(app.staticTexts["新版本多要的"].exists, "round \(round): what it asks for more is not shown")
+            if round == 1 {
+                shot(app, longPage ? "update-sheet-long" : "update-sheet")
+                app.navigationBars.buttons["取消"].firstMatch.tap()
+                XCTAssertTrue(update.waitForNonExistence(timeout: 5), "Cancel did not close the sheet")
+                XCTAssertTrue(review.waitForExistence(timeout: 5) && review.isHittable,
+                              "not back on the extension's page in Settings:\n\(app.debugDescription)")
+            } else {
+                update.tap()
+                XCTAssertTrue(update.waitForNonExistence(timeout: 15), "the sheet stayed after Update:\n\(app.debugDescription)")
+                XCTAssertTrue(review.waitForNonExistence(timeout: 10), "still offered after it went in:\n\(app.debugDescription)")
+                XCTAssertFalse(app.staticTexts["有新版本 1.1.0"].exists, "1.1.0 is still the newer version")
+                XCTAssertTrue(app.switches["plugin-auto-upgrade"].firstMatch.exists,
+                              "Settings closed after the update:\n\(app.debugDescription)")
+                shot(app, longPage ? "updated-long" : "updated")
+            }
+        }
+    }
+
     @MainActor func testAutoUpgradeForAll() throws {
         let app = try launch(["-openExtensionMarkets", "YES"])
         let all = app.switches["market-auto-upgrade"].firstMatch

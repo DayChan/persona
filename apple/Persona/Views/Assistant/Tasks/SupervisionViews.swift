@@ -193,7 +193,7 @@ struct ReportFeedLine: View {
             }
             .buttonStyle(.plain)
             .disabled(item.ref.flatMap { store.todos[$0] } == nil)
-            Text(ReviewText.reportLine(kind: kind, text: item.text ?? "", step: item.step, steps: item.steps))
+            Text(ExchangeText.linked(ReviewText.reportLine(kind: kind, text: ExchangeText.withoutHeadingMarks(item.text ?? ""), step: item.step, steps: item.steps)))
                 .font(Theme.Font.body)
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)

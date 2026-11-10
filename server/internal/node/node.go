@@ -43,6 +43,8 @@ type Node struct {
 
 	// decided: calls another PermissionRequest hook answered (hookdecided.go).
 	decided decisions
+	// questions: AskUserQuestion calls shared by the terminal and the phone (questioncalls.go).
+	questions questionCalls
 
 	// bootAt: when this node started. A session whose record says it was started in a pane before this ran in the
 	// previous herdr server, so the restart is what ended it (interrupted.go).
@@ -55,6 +57,13 @@ type Node struct {
 	// claudeStart, claudeReady: when set, how long a start waits for the shell to run claude, then for claude's
 	// input box, in place of claudeStartWait and claudeReadyWait (tests; claudeready.go).
 	claudeStart, claudeReady time.Duration
+	// shellSettle, shellQuiet, shellAsk: when set, how long a start waits at most for a new tab's shell to settle, how
+	// long its screen must stay the same, and how long a startup question may stay on screen, in place of
+	// shellSettleWait, shellQuietFor and shellQuestionWait (tests; shellsettle.go).
+	shellSettle, shellQuiet, shellAsk time.Duration
+	// shellPause: when set, a start pauses this long instead of watching the new tab's shell, the fixed pause before
+	// #2570 (tests whose herdr call traces have no room for the settle wait's reads; shellsettle.go).
+	shellPause time.Duration
 
 	// doctorAt replaces the places node.doctor looks at (tests; doctor_rpc.go).
 	doctorAt func() DoctorOptions
@@ -181,6 +190,8 @@ type Node struct {
 	codexStarting map[string]bool
 	// codexAbandoned: failed starts whose pane could not be closed; a retry must close it before opening another.
 	codexAbandoned map[string][]codexAbandonedStart
+	// keptStarts: the tabs of failed starts kept open for a while, by pane (shellsettle.go keepStartTab); n.mu.
+	keptStarts map[string]keptStart
 
 	expectedTokensMu sync.Mutex
 	expectedTokens   map[string]map[string]string
@@ -535,6 +546,7 @@ func (n *Node) handle(ctx context.Context, method string, params json.RawMessage
 		ThroughSeq       int           `json:"through_seq"`
 		Name             string        `json:"name"`
 		Pane             string        `json:"pane"`      // panes.*: a pane the host lists
+		InPane           string        `json:"in_pane"`   // session.start: a failed start's kept tab to start in (startremedy.go)
 		Direction        string        `json:"direction"` // panes.split: right or down
 		TabID            string        `json:"tab_id"`    // tabs.*
 		Label            string        `json:"label"`     // tabs.rename
@@ -851,7 +863,7 @@ func (n *Node) handle(ctx context.Context, method string, params json.RawMessage
 		if err := n.checkStartHost(p.Host); err != nil {
 			return nil, err
 		}
-		ctx := withStartHost(ctx, p.Host)
+		ctx := n.reusingKeptTab(withStartHost(ctx, p.Host), p.InPane)
 		if _, ok := engineRuntimes[n.startKind(ctx)]; ok { // the start's host is a runtime (Paseo): it is its (runtimecontrol.go)
 			s, err := n.startOnEngineRuntime(ctx, rp)
 			return map[string]any{"session": s}, err
@@ -922,6 +934,11 @@ func (n *Node) handle(ctx context.Context, method string, params json.RawMessage
 			return nil, err
 		}
 		n.restoreEchoes(a.Echoes)
+		return ok(nil)
+	case "start.keys": // into a failed start's kept tab (startremedy.go, #2570)
+		if err := n.startKeys(ctx, p.Pane, p.Text, p.Keys); err != nil {
+			return nil, err
+		}
 		return ok(nil)
 	case "session.keys":
 		if a, ok := n.agent(p.SessionID); ok {

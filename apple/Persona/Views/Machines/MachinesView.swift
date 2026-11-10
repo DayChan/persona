@@ -610,6 +610,7 @@ struct DeployRow: View {
 
     var body: some View {
         let busy = machine.deploying == true || starting
+        let canDeploy = NodeHealth.canDeploy(machine)
         HStack(spacing: Theme.Space.m) {
             Label(text(busy), systemImage: busy ? Theme.Icon.retry : Theme.Icon.errorFilled)
                 .font(Theme.Font.label)
@@ -623,13 +624,17 @@ struct DeployRow: View {
                 }
             }
             .themedButton()
-            .disabled(busy)
+            .disabled(busy || !canDeploy)
             .accessibilityLabel(busy ? String(localized: "Deploying") : String(localized: "Redeploy"))
         }
     }
 
     private func text(_ busy: Bool) -> String {
-        if busy { return String(localized: "Installing the hub's Persona build on this computer…") }
+        if busy {
+            if machine.deploying == true, let phase = MachineDeployPhase.of(machine) { return phase.message }
+            return String(localized: "Installing the hub's Persona build on this computer…")
+        }
+        if !NodeHealth.canDeploy(machine), let reason = NodeHealth.deployReason(machine) { return reason }
         if let e = machine.deployError, !e.isEmpty { return String(localized: "Last deploy failed: \(e)") }
         return String(localized: "Persona on this computer isn't from the same deploy as the hub")
     }

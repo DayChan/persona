@@ -215,6 +215,7 @@ func (m *Meta) workflowEnded(id, status string, ts time.Time) {
 		}
 		switch status {
 		case proto.WorkflowFailed, proto.WorkflowKilled:
+			status = strings.Clone(status) // a piece of the notification, which it would keep whole
 		case "stopped":
 			status = proto.WorkflowKilled
 		default:

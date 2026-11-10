@@ -57,6 +57,10 @@ func TestTaskReceiptReview(t *testing.T) {
 			session := proto.Session{SessionID: "s1", MachineID: "box", Cwd: "/code/app", Agent: "claude",
 				Status: proto.StatusDone, State: proto.StateUnread, LastText: "Work checked.", UpdatedAt: time.Now()}
 			wantState, wantJudgments := "done", 1
+			if c.verdict == "" {
+				fastJudgeRetry(t)
+				wantJudgments = 2 // a failed judgment is asked once more (#3111)
+			}
 			if c.interrupted || c.silent {
 				wantState, wantJudgments = "interrupted", 0
 				if c.interrupted {

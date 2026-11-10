@@ -105,6 +105,8 @@ describe("agent settings", () => {
     expect(settingDetail(recap)).toContain("离开 5 分钟");
     expect(optionText("effortLevel", "xhigh")).toBe("很高");
     expect(optionText("autoUpdatesChannel", "latest")).toBe("最新版");
+    expect(optionText("permissions.defaultMode", "auto")).toBe("自动");
+    expect(optionText("permissions.defaultMode", "default")).toBe("手动确认");
     // An option or key the web does not know stays as the node wrote it.
     expect(optionText("effortLevel", "ultra")).toBe("ultra");
     expect(optionText("approval_policy", "later")).toBe("later");

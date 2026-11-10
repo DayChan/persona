@@ -1,10 +1,10 @@
 // Settings › Sent as you's words and rules (#5278): where a send went, how the gate let it through, who asked, the
 // ledger's paging and refreshing, the connector chips, and the hub's refusals in plain words. The UI runs in zh-Hans here.
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, errorText } from "./api";
 import {
-  allowedBy, connectorChoices, connectorName, fieldText, mergeSent, originInfo, previewLines, refreshed, ruleText, seenConnectors, SENT_TEXT_MOST,
-  sentPage, sentPath, sentProblem, targetFields, targetText, textCut, type SentItem,
+  allowedBy, connectorChoices, connectorName, fieldText, mergeSent, originInfo, previewLines, recallProblem, recallSent, refreshed, ruleText,
+  seenConnectors, SENT_TEXT_MOST, sentPage, sentPath, sentProblem, targetFields, targetText, textCut, type SentItem,
 } from "./sent";
 
 const item = (over: Partial<SentItem> = {}): SentItem => ({
@@ -24,7 +24,7 @@ describe("reading the ledger", () => {
     const page = sentPage({ items: [{ id: 7, at: "x", connector: "github", target: null, let_through: [], origin: "no" }, { connector: "mail" }, null], next: null });
     expect(page.next).toBeNull();
     expect(page.items).toEqual([
-      { id: 7, at: "x", connector: "github", action: "", target: {}, text: "", summary: "", origin: {}, let_through: {}, message_ref: undefined, recalled_at: undefined },
+      { id: 7, at: "x", connector: "github", action: "", target: {}, text: "", summary: "", origin: {}, let_through: {}, message_ref: undefined, recalled_at: undefined, can_recall: false },
     ]);
     expect(sentPage({ items: [{ id: 3 }], next: 3 }).next).toBe(3);
     expect(sentPage({})).toEqual({ items: [], next: null });
@@ -254,5 +254,38 @@ describe("the hub's refusals", () => {
     expect(sentProblem(new ApiError(500, "boom", { error: "boom", code: "internal" })).kind).toBe("error");
     expect(sentProblem(new TypeError("Failed to fetch"))).toMatchObject({ kind: "error", text: expect.stringContaining("hub") });
     expect(sentProblem(new Error("plain"))).toEqual({ kind: "error", text: "plain" });
+  });
+});
+
+describe("recall", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("posts confirm: true to the row's route and takes the row the hub answers with", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, item: { id: 9, connector: "github", recalled_at: "2026-11-05T12:01:00Z", can_recall: false } })));
+    vi.stubGlobal("fetch", fetcher);
+    vi.stubGlobal("localStorage", { getItem: () => "t", setItem: () => {}, removeItem: () => {} });
+    const it = await recallSent(9);
+    const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/api\/v1\/connectors\/sent\/9\/recall$/);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ confirm: true });
+    expect(it).toMatchObject({ id: 9, recalled_at: "2026-11-05T12:01:00Z", can_recall: false });
+  });
+
+  it("reads can_recall only as a true boolean", () => {
+    expect(sentPage({ items: [{ id: 1, can_recall: true }, { id: 2, can_recall: "yes" }, { id: 3 }] }).items.map((i) => i.can_recall)).toEqual([true, false, false]);
+  });
+
+  it("says the hub's refusals in plain words, and the hub's own reason when it refused or the code is new", () => {
+    const err = (status: number, code?: string, error = "x") => new ApiError(status, error, code ? { error, code } : { error });
+    expect(recallProblem(err(409, "too_old"))).toContain("太久");
+    expect(recallProblem(err(409, "already_recalled"))).toContain("已经撤回");
+    expect(recallProblem(err(409, "not_recallable"))).toContain("不能撤回");
+    expect(recallProblem(err(503, "connector_unavailable"))).toContain("连接器");
+    expect(recallProblem(err(504, "recall_unknown"))).toContain("不确定");
+    expect(recallProblem(err(403, "own_device_only"))).toContain("完整权限");
+    expect(recallProblem(err(404))).toContain("更新 Hub");
+    expect(recallProblem(err(502, "recall_refused", "GitHub said no"))).toContain("GitHub said no");
+    expect(recallProblem(err(409, "something_new", "a new reason"))).toBe("a new reason");
   });
 });

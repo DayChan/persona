@@ -123,6 +123,13 @@ function unescapeAttr(s: string) {
   return s.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 }
 
+/** A tag's `name="value"` attributes, unescaped. */
+export function tagAttrs(attrs: string): Record<string, string> {
+  const a: Record<string, string> = {};
+  for (const m of attrs.matchAll(ATTR_RE)) a[m[1]] = unescapeAttr(m[2]);
+  return a;
+}
+
 
 
 const VIDEO = ["mp4", "m4v", "mov", "webm", "mkv"];
@@ -163,14 +170,12 @@ export function parseUserText(raw: string): { text: string; contexts: Context[];
   const files: AttachedFile[] = [];
   const photos: string[] = [];
   let text = raw.replace(CONTEXT_RE, (_, attrs: string, body: string) => {
-    const a: Record<string, string> = {};
-    for (const m of attrs.matchAll(ATTR_RE)) a[m[1]] = unescapeAttr(m[2]);
+    const a = tagAttrs(attrs);
     contexts.push({ kind: a.kind ?? "context", title: a.title, url: a.url, text: body.trim() });
     return "";
   });
   text = text.replace(FILE_RE, (_, attrs: string) => {
-    const a: Record<string, string> = {};
-    for (const m of attrs.matchAll(ATTR_RE)) a[m[1]] = unescapeAttr(m[2]);
+    const a = tagAttrs(attrs);
     if (!a.path) return "";
     const num = (v: string | undefined) => (v !== undefined && Number.isFinite(Number(v)) ? Number(v) : undefined);
     files.push({ kind: a.kind || "file", path: a.path, name: a.name || a.path.split("/").pop() || a.path, size: num(a.size), duration: num(a.duration) });

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/nodeupdate"
+	"github.com/nwverse/persona/server/internal/osproc"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
 )
@@ -65,6 +66,9 @@ func main() {
 	if os.Getenv("FIXTURE_CRASH") == version {
 		os.Exit(7)
 	}
+	// As the resident node does before runResident: after an in-place exec the update watchdog the previous image
+	// started is this one's child.
+	osproc.ReapInherited()
 	restart := make(chan struct{})
 	// `--supervised` among the arguments stands for a supervisor other than systemd or launchd, as the real node's
 	// `node --attach --supervised` does.

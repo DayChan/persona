@@ -317,7 +317,9 @@ struct SentModelTests {
     }
 
     @Test func anythingElseIsTheUsualErrorTextAndNoNetworkSaysItCannotReachTheHub() {
-        #expect(SentText.problem(APIError(status: 500, message: "boom", fields: ["code": "internal"])) == SentProblem(kind: .error, text: "boom"))
+        let internalFailure = SentText.problem(APIError(status: 500, message: "boom", fields: ["code": "internal"]))
+        #expect(internalFailure.kind == .error && internalFailure.text.contains("HTTP 500") && !internalFailure.text.contains("boom"))
+        #expect(SentText.problem(URLError(.timedOut)).text != String(localized: "Can't reach the hub"))
         #expect(SentText.problem(URLError(.notConnectedToInternet)) == SentProblem(kind: .error, text: "连不上 hub"))
     }
 

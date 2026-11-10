@@ -102,6 +102,12 @@ class AssistantLinesTest {
         assertEquals("interrupted", (receiptState(receipt("""{"state":"done","summary":"$cut"}"""))).zhAny())
         assertEquals("done", (receiptState(receipt("""{"state":"done","summary":"修好了 API Error: Connection lost 时的崩溃"}"""))).zhAny())
         assertEquals("failed", (receiptState(receipt("""{"state":"failed","summary":"没开起来：x"}"""))).zhAny())
+        // The task's name as it is now (#3036), else as the receipt was written.
+        val named = receipt("""{"state":"done","title":"Example task"}""")
+        assertEquals("Renamed task", receiptTitle(named, Todo("t", title = "Renamed task")))
+        assertEquals("Example task", receiptTitle(named, null))
+        assertEquals("Example task", receiptTitle(named, Todo("t", title = "  ")))
+        assertNull(receiptTitle(receipt("""{"state":"done"}"""), null))
     }
 
     @Test fun dayLabels() {

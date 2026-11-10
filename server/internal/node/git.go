@@ -134,7 +134,7 @@ func gitCapped(ctx context.Context, dir string, limit int, args ...string) (out 
 // gitFailed is the error for a git command that failed: timed out or canceled, or what git said on stderr.
 func gitFailed(ctx context.Context, args []string, stderr string, err error) error {
 	if ctx.Err() != nil {
-		return fmt.Errorf("Git 操作超时或已取消：%w", ctx.Err())
+		return fmt.Errorf("git timed out or was canceled: %w", ctx.Err())
 	}
 	msg := strings.TrimSpace(stderr)
 	if msg == "" {
@@ -266,26 +266,32 @@ func (n *Node) gitPull(ctx context.Context, cwd string) (*GitPullResult, error) 
 	if err != nil {
 		return nil, err
 	}
+	// Refusals are coded (#1888): the hub says the known ones in the client's language (rpc-errors), and git's own
+	// words stay in the message.
 	if !before.IsRepo {
-		return nil, fmt.Errorf("不是 Git 仓库")
+		return nil, refusal(gitOpNotRepo, "the folder is not in a Git repository", nil)
 	}
 	if before.Branch == "" {
-		return nil, fmt.Errorf("当前是分离的 HEAD，请先切换到分支")
+		return nil, refusal(gitOpDetached, "HEAD is detached: switch to a branch first", nil)
 	}
 	if before.Upstream == "" {
-		return nil, fmt.Errorf("没有上游分支，请先在电脑上设置上游")
+		return nil, refusal(gitOpNoUpstream, before.Branch+" has no upstream branch", nil)
 	}
 	if len(before.Files) > 0 {
-		return nil, fmt.Errorf("工作区有未提交的改动，请先在电脑上提交或 stash 后再拉取")
+		return nil, refusal(gitOpUncommitted, "the working tree has uncommitted changes: commit or stash them first", nil)
 	}
 	if _, err := gitTimed(ctx, before.Root, 60*time.Second,
 		"-c", "pull.rebase=false", "-c", "merge.autoStash=false", "-c", "rebase.autoStash=false",
 		"pull", "--ff-only", "--no-rebase", "--no-autostash", "--no-recurse-submodules"); err != nil {
-		return nil, fmt.Errorf("拉取失败（不会自动合并、变基或覆盖本地改动）：%w", err)
+		code := gitOpPullFailed
+		if low := strings.ToLower(err.Error()); strings.Contains(low, "fast-forward") || strings.Contains(low, "diverg") {
+			code = gitOpNotFastForward
+		}
+		return nil, refusal(code, err.Error()+" (nothing was merged, rebased or overwritten)", nil)
 	}
 	after, err := n.gitStatus(ctx, before.Root)
 	if err != nil {
-		return nil, fmt.Errorf("拉取已执行，但刷新状态失败：%w", err)
+		return nil, fmt.Errorf("pulled, but reading the status again failed: %w", err)
 	}
 	updated := before.Head != nil && after.Head != nil && before.Head.Hash != after.Head.Hash
 	return &GitPullResult{Status: after, Updated: updated}, nil

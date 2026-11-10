@@ -74,7 +74,7 @@ func PeerCommand(ctx context.Context, args []string, stdin io.Reader, out io.Wri
 		if err := cfg.adminCall(ctx, http.MethodPost, "/api/v1/admin/cli/peers", map[string]string{"code": code}, &p); err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "已和「%s」（%s）互联：%s\n", p.Name, p.HubID, peerStateText(p))
+		fmt.Fprintf(out, "已和「%s」（%s）互联：%s\n", clitext.Inert(p.Name), clitext.Inert(p.HubID), peerStateText(p))
 		return nil
 	case "list":
 		var res struct {
@@ -103,18 +103,20 @@ func PeerCommand(ctx context.Context, args []string, stdin io.Reader, out io.Wri
 				if !mesh.Center.Online {
 					state = "连不上"
 				}
-				fmt.Fprintf(out, "这台是成员，中心是「%s」（%s，%s，任期 %d）。\n", mesh.Center.Name, mesh.Center.HubID, state, mesh.Term)
+				fmt.Fprintf(out, "这台是成员，中心是「%s」（%s，%s，任期 %d）。\n", clitext.Inert(mesh.Center.Name), clitext.Inert(mesh.Center.HubID), state, mesh.Term)
 			}
 		}
 		if len(res.Peers) == 0 {
 			fmt.Fprintln(out, "还没有互联的 hub。")
 		}
+		// Names, ids and addresses are other hubs' text (a discovered one's is any LAN host's mDNS advert): inert, one
+		// line per hub.
 		for _, p := range res.Peers {
 			role := map[string]string{"center": "中心", "member": "成员"}[p.Role]
-			fmt.Fprintf(out, "%s  %s  %s  %s  %d 台电脑\n", p.HubID, p.Name, role, peerStateText(p), p.Machines)
+			fmt.Fprintf(out, "%s  %s  %s  %s  %d 台电脑\n", clitext.Inert(p.HubID), clitext.Inert(p.Name), role, peerStateText(p), p.Machines)
 		}
 		for _, d := range res.Discovered {
-			fmt.Fprintf(out, "局域网里发现：%s  %s  %s\n", d.HubID, d.Name, strings.Join(d.Addresses, " "))
+			fmt.Fprintf(out, "局域网里发现：%s  %s  %s\n", clitext.Inert(d.HubID), clitext.Inert(d.Name), clitext.Inert(strings.Join(d.Addresses, " ")))
 		}
 		return nil
 	case "remove":
@@ -154,7 +156,7 @@ func PeerCommand(ctx context.Context, args []string, stdin io.Reader, out io.Wri
 			}
 			return err
 		}
-		fmt.Fprintf(out, "中心现在是「%s」（任期 %d）。\n", res.Center.Name, res.Term)
+		fmt.Fprintf(out, "中心现在是「%s」（任期 %d）。\n", clitext.Inert(res.Center.Name), res.Term)
 		return nil
 	}
 	return fmt.Errorf("unknown peer command %q", args[0]) // checkPeerArgs let through a command this switch lacks
@@ -243,7 +245,7 @@ func peerStateText(p peerItem) string {
 		s += fmt.Sprintf("（%d ms）", *p.RTTMS)
 	}
 	if p.Error != "" {
-		s += "：" + p.Error
+		s += "：" + clitext.Inert(p.Error)
 	}
 	return s
 }

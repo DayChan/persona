@@ -1,6 +1,6 @@
 // The assistant's cards drawn with the extensions' components (docs/extensions/extensions.md "Declarative UI", #1850): a ```persona-view
 // block is a View (or one component) as an extension would send it; the older ```persona-card block (#886: stat, bar,
-// line, stacked_bar) is turned into a View first, by the rules of sdk/go/wire/personacard.go (the reference; the cases in
+// line, stacked_bar, ring) is turned into a View first, by the rules of sdk/go/wire/personacard.go (the reference; the cases in
 // schema/extension/examples/persona-card/ hold every app to the same), so both look the same here as on every other app.
 // In the assistant nothing acts: buttons, fields and segmented are left out, the search box and "Load more" never show; links
 // still open.
@@ -94,7 +94,7 @@ export function cardView(raw: unknown): UIView | null {
   const points = parts(raw.points);
   if (!segments || !rest || !points) return null;
   const all = [...segments, ...rest];
-  const sum = all.reduce((s, p) => s + p.value, 0);
+  let sum = all.reduce((s, p) => s + p.value, 0);
   const value = num(raw.value);
   const title = str(raw.title);
   const unit = str(raw.unit);
@@ -106,6 +106,16 @@ export function cardView(raw: unknown): UIView | null {
     case "stacked_bar":
       if (!all.length || sum <= 0 || all.some((p) => p.value < 0)) return null;
       break;
+    case "ring": {
+      // what the total leaves over the parts is a part of its own, last
+      const total = isObject(raw.total) ? num(raw.total.value) : undefined;
+      if (total !== undefined && total > sum) {
+        all.push({ label: t("lib-assistant-view.remaining"), value: total - sum, note: "" });
+        sum = total;
+      }
+      if (all.length < 2 || sum <= 0 || all.some((p) => p.value < 0)) return null;
+      break;
+    }
     case "line":
       if (points.length < 2) return null;
       break;
@@ -139,6 +149,19 @@ export function cardView(raw: unknown): UIView | null {
         series.push({ name: t("lib-assistant-view.other"), tone: "neutral", points: [{ label, value: other, display: amount(other, u) }] });
       }
       s.items.push({ type: "chart", kind: "bar", series, ...(u ? { unit: u } : {}), stacked: true });
+      for (const p of all) s.items.push({ type: "row", value: amount(p.value, u), title: p.label, ...(p.note ? { subtitle: p.note } : {}) });
+      break;
+    }
+    case "ring": {
+      const total = isObject(raw.total) ? num(raw.total.value) : undefined;
+      const u = isObject(raw.total) ? str(raw.total.unit) || unit : unit;
+      const shown = all.length > 8 ? [...all.slice(0, 7), { label: t("lib-assistant-view.other"), value: all.slice(7).reduce((x, p) => x + p.value, 0), note: "" }] : all;
+      const center = amount(total ?? sum, u);
+      const item: UIItem = { type: "chart", kind: "donut", series: [{ points: shown.map((p) => ({ label: p.label, value: p.value, display: amount(p.value, u) })) }] };
+      if (u) item.unit = u;
+      if (note) item.detail = note;
+      if ([...center].length <= 20) item.center = center;
+      s.items.push(item);
       for (const p of all) s.items.push({ type: "row", value: amount(p.value, u), title: p.label, ...(p.note ? { subtitle: p.note } : {}) });
       break;
     }

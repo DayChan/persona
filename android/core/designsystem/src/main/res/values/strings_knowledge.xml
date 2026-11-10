@@ -1,0 +1,5 @@
+<resources>
+    <string name="designsystem_knowledge_disabled">This manager has turned off the knowledge base. Enable it in the manager configuration to use it.</string>
+    <string name="designsystem_knowledge_unavailable">The knowledge base isn\'t ready yet. Try again shortly.</string>
+    <string name="designsystem_knowledge_read_only">The knowledge base is read-only. Change the manager configuration before editing or syncing recordings.</string>
+</resources>

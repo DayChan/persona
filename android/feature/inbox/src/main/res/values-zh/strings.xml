@@ -12,6 +12,35 @@
     <string name="inbox_close">关闭</string>
     <string name="inbox_expand">展开</string>
     <string name="inbox_collapse">收起</string>
+    <string name="inbox_mark_done">标为已处理</string>
+    <string name="inbox_group_agents">Agent 在等你</string>
+    <string name="inbox_group_mail">邮件 · %1$s</string>
+    <string name="inbox_group_just">刚刚处理</string>
+    <string name="inbox_group_today">今天</string>
+    <string name="inbox_group_yesterday">昨天</string>
+    <string name="inbox_group_week">7 天前</string>
+    <string name="inbox_group_month">1 个月前</string>
+    <string name="inbox_grouping_source">按来源</string>
+    <string name="inbox_grouping_time">按时间</string>
+    <string name="inbox_jump_to">跳到</string>
+    <string name="inbox_fold_all">全部折叠</string>
+    <string name="inbox_unfold_all">全部展开</string>
+    <string name="inbox_select_all">全选</string>
+    <string name="inbox_deselect_all">取消全选</string>
+    <string name="inbox_end_selection">结束选择</string>
+    <string name="inbox_pick_group">选中「%1$s」整组</string>
+    <string name="inbox_load_older">加载更早的</string>
+    <string name="inbox_loading_older">正在加载…</string>
+    <string name="inbox_older_failed">没加载到更早的</string>
+    <plurals name="inbox_selected_count">
+        <item quantity="other">已选 %1$d 项</item>
+    </plurals>
+    <plurals name="inbox_group_picked">
+        <item quantity="other">已选 %1$d</item>
+    </plurals>
+    <plurals name="inbox_picked_folded">
+        <item quantity="other">已选 %1$d 项（含折叠的 %2$d 项）</item>
+    </plurals>
     <string name="inbox_source_lark">飞书</string>
     <string name="inbox_source_mail">邮件</string>
     <string name="inbox_moments">公司圈</string>
@@ -131,6 +160,8 @@
     <string name="inbox_handoff_who">交给谁</string>
     <string name="inbox_handoff_main_chat">主对话</string>
     <string name="inbox_handoff_no_agents">没有在线的 Agent；可以先交给 Persona。</string>
+    <string name="inbox_handoff_last_time">上次</string>
+    <string name="inbox_handoff_last_gone">上次交给的 Agent 已经结束，这次默认交给 Persona。</string>
     <string name="inbox_handoff_mark_done">同时标为已处理</string>
     <string name="inbox_handoff_sending">正在交过去…</string>
     <string name="inbox_hand_to_persona">交给 Persona</string>

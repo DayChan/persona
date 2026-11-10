@@ -313,3 +313,42 @@ describe("polling, ordering and compatibility", () => {
     expect(host.textContent).not.toContain(t("machines-usage.old_hub"));
   });
 });
+
+describe("hovering the usage charts", () => {
+  // A day at 10-minute steps (144 points), the four kinds stacked, two offline steps.
+  const step = 600;
+  const points = Array.from({ length: 144 }, (_, i) =>
+    i === 60 || i === 61 ? { t: 1_788_480_000 + i * step, gap: true } : { t: 1_788_480_000 + i * step, in: 4000 + 37 * i, out: 900 + 11 * i, cache_write: 300 + (i % 7) * 40, cache_read: 30_000 + 211 * i, req: 3 + (i % 4) });
+  const shapes = () => [...host.querySelectorAll("polygon, polyline")].map((p) => p.getAttribute("points"));
+  const charts = () => [...host.querySelectorAll<SVGSVGElement>('svg[role="img"]')];
+  const crosshair = () => charts()[0].querySelector(':scope > g[pointer-events="none"] text')?.textContent;
+  const move = (svg: SVGSVGElement, x: number) =>
+    act(() => {
+      svg.querySelector(':scope > rect[fill="transparent"]')!.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: x }));
+    });
+
+  it("redraws the crosshair and the read-outs, not the areas and lines", async () => {
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({ left: 0, top: 0, right: 588, bottom: 170, width: 588, height: 170, x: 0, y: 0, toJSON() {} } as DOMRect);
+    await render();
+    await answer(reads[0], report({ step, points, total: { in: 1e6, out: 2e5, cache_write: 5e4, cache_read: 8e6, req: 600 } }));
+    expect(charts()).toHaveLength(2);
+    const drawn = shapes();
+    expect(drawn.length).toBeGreaterThanOrEqual(5);
+
+    const toFixed = vi.spyOn(Number.prototype, "toFixed");
+    for (let i = 0; i < 20; i++) move(charts()[i % 2], 15 + i * 27);
+    const calls = toFixed.mock.calls.length;
+    toFixed.mockRestore();
+    // Before: both charts rebuilt every area and line on every move (51,920 toFixed calls for these 20 moves).
+    expect(calls).toBeLessThan(200);
+    expect(shapes()).toEqual(drawn);
+
+    // positive control: the moment still follows the pointer
+    move(charts()[1], 100);
+    const first = crosshair();
+    move(charts()[1], 400);
+    expect(first).toMatch(/^\d\d:\d\d$/);
+    expect(crosshair()).toMatch(/^\d\d:\d\d$/);
+    expect(crosshair()).not.toBe(first);
+  });
+});

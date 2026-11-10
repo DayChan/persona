@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import { brotliCopies, FIRST_SCREEN_BUDGET, localeDirs, preloadScript, sentBytes, startupNamespaceGaps } from "./src/startup-preload";
+import { brotliCopies, FIRST_SCREEN_BUDGET, gzipBytes, IDLE_TIER_BUDGET, idleImports, localeDirs, preloadScript, sentBytes, startupNamespaceGaps } from "./src/startup-preload";
 import { textScale } from "./src/lib/text-scale";
 import { classicWorkerProblem } from "./src/sw-entry-check";
 import { catalogFiles, i18nCatalogs, startupNamespacesFile } from "./i18n-catalogs";
@@ -80,12 +80,31 @@ const showcaseImages: Plugin = {
 // screen fetches: once they are written, each of 1 KB or more gets a brotli copy beside it (name.br,
 // src/startup-preload.ts brotliCopies), which the hub sends as stored to a browser that takes br (docs/web/web.md
 // "Precompressed assets"). The build then fails if any language's first screen sends more than FIRST_SCREEN_BUDGET.
+//
+// After start the page also fetches, once the browser is idle, the chunks of each lazyPage(…, { idle: true }) and
+// what they import beyond those files (src/lib/lazy-page.ts): the build fails if they send more than IDLE_TIER_BUDGET.
 function startupPreload(): Plugin {
   let startup: string[] | undefined; // the first screen's files, set by transformIndexHtml for the client page
   let screens: [string, string[]][] = []; // each language's first screen of the App (not the live screen)
+  const idle = new Set<string>(); // the modules lazyPage loads at idle, found by transform
+  let idleFiles: string[] = []; // their files beyond the first screen's, set by transformIndexHtml
   return {
     name: "startup-preload",
     apply: "build",
+    async transform(code, id) {
+      if (!id.includes("/src/") || !code.includes("lazyPage(")) return;
+      let specs: string[];
+      try {
+        specs = idleImports(code);
+      } catch (e) {
+        this.error(`startup-preload: ${(e as Error).message}`); // Rollup names the file
+      }
+      for (const spec of specs) {
+        const target = await this.resolve(spec, id);
+        if (!target) this.error(`startup-preload: ${id} loads ${spec} at idle, which does not resolve`);
+        idle.add(target.id);
+      }
+    },
     async writeBundle({ dir }) {
       if (!startup) this.error("startup-preload: index.html was not transformed, so the first screen's files are unknown");
       await brotliCopies(dir!, startup);
@@ -94,6 +113,10 @@ function startupPreload(): Plugin {
         if (bytes > FIRST_SCREEN_BUDGET) {
           this.error(`startup-preload: the ${lang} first screen sends ${bytes} B, over its budget of ${FIRST_SCREEN_BUDGET} B (src/startup-preload.ts FIRST_SCREEN_BUDGET)`);
         }
+      }
+      const idleBytes = await gzipBytes(dir!, idleFiles);
+      if (idleBytes > IDLE_TIER_BUDGET) {
+        this.error(`startup-preload: the pages loaded at idle send ${idleBytes} B, over their budget of ${IDLE_TIER_BUDGET} B (src/startup-preload.ts IDLE_TIER_BUDGET): load one on intent (lazyPage routes) instead`);
       }
     },
     transformIndexHtml: {
@@ -148,6 +171,8 @@ function startupPreload(): Plugin {
           throw new Error(`startup-preload: the first screen's code names keys of ${gaps.join(", ")}, which the page reads before the rest of the catalog is in: add them to src/i18n/startup-namespaces.json`);
         }
         startup = [...new Set([...entry, ...shared, ...files.app, ...files.screen, ...Object.values(files.catalogs), ...Object.values(catalogs("client-rest"))])];
+        if (!idle.size) throw new Error("startup-preload: no lazyPage(…, { idle: true }) was found, so the idle tier's budget would check nothing");
+        idleFiles = group([...idle].map(find), new Set([...first, ...startup]));
         screens = Object.entries(files.catalogs).map(([lang, catalog]) => [lang, [...new Set([...entry, ...shared, ...files.app, catalog])]]);
         return { html, tags: [{ tag: "script", children: script, injectTo: "head" }] };
       },

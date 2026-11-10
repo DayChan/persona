@@ -68,6 +68,10 @@ fun receiptState(item: FeedItem): String = when (val st = item.field("state")) {
     else -> if (ApiErrorInfo.parse(item.field("summary")) != null) "interrupted" else "done"
 }
 
+/** The task's name on its receipt (#3036): its to-do's title now, so a rename shows on every receipt as on the card and
+ *  lines beside it; the receipt's own title (the name when it was written) once the to-do is gone; else null. */
+fun receiptTitle(item: FeedItem, todo: Todo?): String? = todo?.title?.trim()?.ifEmpty { null } ?: item.field("title")
+
 /** Why the model service cut the agent off (#1516), in words, and whether "Continue" can help; null when it was not. */
 data class Interruption(val reason: CoreText, val canContinue: Boolean) {
     companion object {

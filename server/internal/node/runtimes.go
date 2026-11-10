@@ -236,6 +236,13 @@ func (h *runtimeConn) row(id string) (proto.Session, bool) {
 	return proto.Session{}, false
 }
 
+// listLen is how many rows its last runtime.sessions kept.
+func (h *runtimeConn) listLen() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.sessions)
+}
+
 func (h *runtimeConn) sessionsCopy() []proto.Session {
 	h.mu.Lock()
 	defer h.mu.Unlock()

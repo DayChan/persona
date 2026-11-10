@@ -71,7 +71,8 @@ def run(browser, base, token, main_id, other, shots):
     # Persona, with the app's mark, is the column's first row, a line under it, above the pages (#2004, #5109).
     first = page.locator("aside [data-sidebar-rows] a").first
     expect(first).to_have_attribute("title", "Persona 的主对话")
-    expect(first.locator('img[src$="/app-icon.png"], img[src$="/app-icon-dark.png"]')).to_have_count(2)
+    # one picture, the page theme's (ui/AppMark.tsx): the other theme's is not fetched
+    expect(first.locator('img[src$="/app-icon.png"], img[src$="/app-icon-dark.png"]')).to_have_count(1)
     expect(first.get_by_text("主对话", exact=True)).to_have_count(0)
     expect(page.locator("aside [data-persona-divider]")).to_have_count(1)
     below = page.evaluate("""() => {

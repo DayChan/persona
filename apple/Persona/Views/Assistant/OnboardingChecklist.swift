@@ -81,7 +81,10 @@ struct OnboardingChecklistView: View {
                     .padding(.top, Theme.Space.l)
                     VStack(spacing: Theme.Space.s) {
                         ForEach(OnboardingChecklistModel.rows(readiness)) { row in
-                            ChecklistRow(row: row, busy: row.id == "first_message" && store.probing, probe: row.id == "first_message" ? store.probe : nil) { action in
+                            let ownsProbe = store.probeStep == row.id
+                            ChecklistRow(row: row, busy: ownsProbe && store.probing,
+                                         probe: ownsProbe ? store.probe : nil,
+                                         probeError: ownsProbe ? store.probeError : nil) { action in
                                 run(action, row: row)
                             }
                         }
@@ -140,7 +143,7 @@ struct OnboardingChecklistView: View {
 
     private func run(_ action: String, row: OnboardingChecklistModel.Row) {
         if action == "test_assistant" {
-            Task { await store.refresh(api: model.api, probe: true) }
+            Task { await store.refresh(api: model.api, probe: true, probeStep: row.id) }
             return
         }
         let machine = row.machine.flatMap { id in model.machines.first { $0.id == id }?.name } ?? readiness?.machine?.name
@@ -153,6 +156,7 @@ private struct ChecklistRow: View {
     var row: OnboardingChecklistModel.Row
     var busy: Bool
     var probe: AssistantReadiness.Probe?
+    var probeError: String?
     var run: (String) -> Void
 
     var body: some View {
@@ -166,7 +170,11 @@ private struct ChecklistRow: View {
                 if row.look != .done, let detail = row.detail, !detail.isEmpty {
                     Text(detail).font(Theme.Font.secondary).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
-                if let probe {
+                if let probeError {
+                    Text("Tried a message, it didn't work: \(probeError)")
+                        .font(Theme.Font.secondary).foregroundStyle(Theme.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if let probe {
                     Text(probe.ok == true ? String(localized: "Tried it; it answered: \(probe.answer ?? "")") : String(localized: "Tried a message, it didn't work: \(probe.error ?? "")"))
                         .font(Theme.Font.secondary).foregroundStyle(probe.ok == true ? Theme.positive : Theme.danger)
                         .fixedSize(horizontal: false, vertical: true)
@@ -182,6 +190,7 @@ private struct ChecklistRow: View {
                             Button { run(a) } label: { Text(t).font(Theme.Font.secondaryStrong).lineLimit(1).minimumScaleFactor(0.8) }
                                 .buttonStyle(.borderless)
                                 .foregroundStyle(Theme.accent)
+                                .disabled(busy)
                         }
                     }
                     .padding(.top, Theme.Space.xs)

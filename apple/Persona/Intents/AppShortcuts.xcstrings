@@ -1,6 +1,34 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Record a meeting with ${applicationName}": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Record a meeting with ${applicationName}" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用 ${applicationName} 录会议" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "${applicationName}で会議を録音" } }
+      }
+    },
+    "Record this meeting with ${applicationName}": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Record this meeting with ${applicationName}" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用 ${applicationName} 录下这个会" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "${applicationName}でこの会議を録音" } }
+      }
+    },
+    "Start a meeting recording in ${applicationName}": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Start a meeting recording in ${applicationName}" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在 ${applicationName} 开始会议录音" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "${applicationName}で会議の録音を開始" } }
+      }
+    },
+    "${applicationName}, record the meeting": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "${applicationName}, record the meeting" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "${applicationName} 录会议" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "${applicationName}、会議を録音して" } }
+      }
+    },
     "Run an extension action in ${applicationName}": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Run an extension action in ${applicationName}" } },

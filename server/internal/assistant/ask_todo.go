@@ -62,6 +62,14 @@ type askTodo struct {
 	ClaimedAt  time.Time `json:"claimed_at,omitzero"`
 	AnsweredAt time.Time `json:"answered_at,omitzero"`
 	DroppedAt  time.Time `json:"dropped_at,omitzero"`
+	// Deadline, Reversible and Recommends are the question's deadline, whether it can be undone, and each question's
+	// recommended option (#3127, decision_deadline.go); DueAt is when the deadline was handled (taken by default:
+	// ByDefault, or the owner reminded). Zero: no deadline.
+	Deadline   time.Time `json:"deadline,omitzero"`
+	Reversible bool      `json:"reversible,omitempty"`
+	Recommends []string  `json:"recommends,omitempty"`
+	DueAt      time.Time `json:"due_at,omitzero"`
+	ByDefault  bool      `json:"by_default,omitempty"`
 }
 
 // held: an answer of a's is being sent.
@@ -133,6 +141,9 @@ func (s *Service) askExpired(ctx context.Context, ix proto.Interaction) (Todo, e
 		questions = append(questions, strings.TrimSpace(q.Question))
 	}
 	rec := askTodo{TodoID: id, Interaction: ix.ID, MachineID: ix.MachineID, SessionID: ix.SessionID, Questions: questions, AskedAt: ix.CreatedAt}
+	if d, ok := askDeadlineOf(ix); ok {
+		rec.Deadline, rec.Reversible, rec.Recommends = d.At, d.Reversible, d.Recommends
+	}
 	if err := s.keepAskTodo(ctx, rec); err != nil {
 		return Todo{}, fmt.Errorf("keep its record: %w", err) // a to-do whose answer could go nowhere after a restart is not made
 	}
@@ -338,6 +349,20 @@ func renderAskAnswer(a askTodo, loc *time.Location, choices []askChoice, thread,
 	}
 	for _, c := range choices {
 		m.Choices = append(m.Choices, prompts.AskTodoChoice{Question: contextText(c.Question), Choice: contextText(c.Choice), Reason: contextText(c.Reason)})
+	}
+	return prompts.RenderAskTodoAnswer(m)
+}
+
+// renderAskDefault is the message to the conversation that asked a when nobody decided by its deadline and its
+// recommended options were taken by default (#3127).
+func renderAskDefault(a askTodo, loc *time.Location, choices []askChoice) string {
+	m := prompts.AskTodoAnswer{When: a.AskedAt.In(loc).Format("01-02 15:04"), TodoID: a.TodoID, Defaulted: true,
+		Deadline: a.Deadline.In(loc).Format("01-02 15:04"), Several: len(a.Questions) > 1}
+	for _, q := range a.Questions {
+		m.Questions = append(m.Questions, contextText(q))
+	}
+	for _, c := range choices {
+		m.Choices = append(m.Choices, prompts.AskTodoChoice{Question: contextText(c.Question), Choice: contextText(c.Choice)})
 	}
 	return prompts.RenderAskTodoAnswer(m)
 }

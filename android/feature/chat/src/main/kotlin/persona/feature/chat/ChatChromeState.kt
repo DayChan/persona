@@ -94,14 +94,17 @@ internal class ChatChromeState(
         catch (_: Exception) { muted = null }
     }
 
-    fun run(session: Session, action: ChatAction, verify: Boolean = false) {
+    /** [onFinish]: called once the action ran, with whether it went through; not called when nothing was sent. */
+    fun run(session: Session, action: ChatAction, verify: Boolean = false, onFinish: (Boolean) -> Unit = {}) {
         val service = actions ?: return
         if (busy || (!verify && pending != null)) return
         busy = true
+        var done = false
         scope.launch {
             try {
                 when (val result = if (verify) service.verify(session, action) else service.execute(session, action)) {
                     ChatActionResult.Done -> {
+                        done = true
                         pending = null
                         notice = res.getString(when (action) {
                             ChatAction.Interrupt -> R.string.chat_action_interrupt_sent
@@ -130,7 +133,7 @@ internal class ChatChromeState(
                 pending = action.takeIf { feedback.action == FailureAction.Verify }
                 notice = feedback.text.resolve(res)
             }
-            finally { busy = false }
+            finally { busy = false; onFinish(done) }
         }
     }
 }

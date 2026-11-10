@@ -100,6 +100,9 @@ func nodeHosts(engine string, botmux bool, logf func(format string, args ...any)
 // nodeHostsFor are a set's hosts, and botmux's as for nodeHosts.
 func nodeHostsFor(c proto.EngineChoice, botmux bool, logf func(format string, args ...any)) []host.Host {
 	hs := engineHostsFor(c, logf)
+	// tmux is not an engine to choose: it lists nothing and opens nothing. It is how a pane a Claude Code waits in is
+	// read and answered (#2562), so it is always there, next to whichever engine the machine chose.
+	hs = append(hs, newTmuxHost())
 	if !botmux {
 		return hs
 	}

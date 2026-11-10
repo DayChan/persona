@@ -77,8 +77,8 @@ const SETUP_HINTS: Record<string, string> = {
   no_accounts: t("lib-agents.setup_no_accounts"),
 };
 
-/** What to do so the sources list agents, one line per source that is not set up. */
-export const setupHints = (sources: AgentSourceStatus[]) => sources.flatMap((x) => (x.setup && SETUP_HINTS[x.setup] ? [SETUP_HINTS[x.setup]] : []));
+/** What to do so the sources list agents, or why one can't: one line per source that is not set up or is failing. */
+export const setupHints = (sources: AgentSourceStatus[]) => sources.flatMap((x) => (x.setup && SETUP_HINTS[x.setup] ? [SETUP_HINTS[x.setup]] : x.error ? [x.error] : []));
 
 export function fetchSources() {
   return api<{ sources: AgentSourceStatus[] | null }>("/agents").then((r) => r.sources ?? []);

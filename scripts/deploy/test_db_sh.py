@@ -179,6 +179,7 @@ class DbShTestCase(unittest.TestCase):
         self.assertIn("volume create persona-pgdata", calls)
         self.assertIn("run -d --name persona-postgres", calls)
         self.assertIn("-v persona-pgdata:/var/lib/postgresql", calls)
+        self.assertIn("POSTGRES_DB=persona postgres:18-alpine postgres -c wal_compression=lz4 -c checkpoint_timeout=15min\n", calls)
         url = json.loads((self.state / "hub.json").read_text())["database_url"]
         self.assertRegex(url, r"^postgres://persona:[0-9a-f]{48}@127\.0\.0\.1:18661/persona\?sslmode=disable$")
         self.assertEqual((self.state / "hub.json").stat().st_mode & 0o777, 0o600)

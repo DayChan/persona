@@ -5,6 +5,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { api, credentialOwner, enc, errorText, getToken, isAbort, subscribeCredentialOwner } from "../../lib/api";
 import { defaultManager, MANAGER_HEADER, useKnownDefault } from "../../lib/manager-choice";
 import { ConfirmedFacts } from "./ConfirmedFacts";
+import { RecordingMinutes } from "./RecordingMinutes";
+import { scrollBehavior } from "../../ui/stream/motion";
 import { Relationships } from "./Relationships";
 import { ago, sessionPreview, sessionTitle, shortPath, stateOf, tabLabel } from "../../lib/format";
 import {
@@ -26,6 +28,7 @@ import {
   shortWhen,
   statusLabel,
   timeline,
+  transcriptLineId,
   type KBDetailResponse,
   type KBEntry,
   type KBMatch,
@@ -103,6 +106,22 @@ function OwnedEntryDetail({ kind, id, query, reloadKey, onToggleSidebar, onBack,
   const [showRecent, setShowRecent] = useState(false);
   const [day, setDay] = useState<{ day: string; focus?: number; query?: string } | null>(null);
   const [moment, setMoment] = useState<KBMomentRef | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const [highlighted, setHighlighted] = useState("");
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(highlightTimer.current), []);
+
+  const jumpToTranscript = (lineId: string) => {
+    const line = document.getElementById(lineId);
+    const page = scroller.current;
+    if (!line || !page?.contains(line)) return;
+    // Only move the detail's scroller, not the Knowledge list or outer app shell.
+    page.scrollTo({ top: page.scrollTop + line.getBoundingClientRect().top - page.getBoundingClientRect().top - page.clientHeight / 3, behavior: scrollBehavior() });
+    line.focus({ preventScroll: true });
+    clearTimeout(highlightTimer.current);
+    setHighlighted(lineId);
+    highlightTimer.current = setTimeout(() => setHighlighted(""), 2000);
+  };
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const version = ++request.current;
@@ -171,7 +190,7 @@ function OwnedEntryDetail({ kind, id, query, reloadKey, onToggleSidebar, onBack,
         </Button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[720px] px-4 pt-6 pb-20 sm:px-8">
           {/* Header: what it is at a glance, and the way out (handing it to Persona). */}
           <div>
@@ -243,6 +262,15 @@ function OwnedEntryDetail({ kind, id, query, reloadKey, onToggleSidebar, onBack,
               )}
 
               {rec && <RecordingFacts rec={rec} />}
+              {rec && <RecordingMinutes
+                detail={d}
+                rec={rec}
+                auth={{ token, tokenOwner: owner, headers: { [MANAGER_HEADER]: manager } }}
+                current={current}
+                refresh={load}
+                onSaved={onSaved}
+                onJump={jumpToTranscript}
+              />}
 
               {query && resp?.matches && (
                 <Matches
@@ -373,7 +401,7 @@ function OwnedEntryDetail({ kind, id, query, reloadKey, onToggleSidebar, onBack,
 
               {dirs.length > 0 && <Dirs dirs={dirs} />}
 
-              {rec && <Transcript rec={rec} query={query} />}
+              {rec && <Transcript rec={rec} query={query} highlighted={highlighted} />}
 
               {recent.length > 0 && (
                 <section>
@@ -539,7 +567,7 @@ function RecordingFacts({ rec }: { rec: RecordingView }) {
 }
 
 /** The whole transcript, a line per segment at its clock time; bookmarks inline. */
-function Transcript({ rec, query }: { rec: RecordingView; query?: string }) {
+function Transcript({ rec, query, highlighted }: { rec: RecordingView; query?: string; highlighted: string }) {
   return (
     <section>
       <SectionTitle title={t("knowledge-kbdetail.transcript")} count={rec.lines.filter((l) => !l.bookmark).length} />
@@ -547,7 +575,7 @@ function Transcript({ rec, query }: { rec: RecordingView; query?: string }) {
         {!rec.lines.length && <p className="px-4 py-2.5 text-[12.5px] text-ink-3">{t("knowledge-kbdetail.transcript_empty")}</p>}
         <ol className="px-4 py-1.5">
           {rec.lines.map((l, i) => (
-            <li key={i} className="flex gap-3 py-1.5 text-[13px] leading-relaxed">
+            <li key={i} id={transcriptLineId(l.seconds, l.bookmark)} tabIndex={-1} className={cx("flex gap-3 rounded-control py-1.5 text-[13px] leading-relaxed transition-colors", highlighted === transcriptLineId(l.seconds, l.bookmark) && "bg-accent-tint")}>
               <span className={cx("w-[60px] shrink-0 pt-px text-[11.5px] tabular-nums", l.bookmark ? "font-semibold text-accent-ink" : "text-ink-3")}>{l.clock}</span>
               {l.bookmark ? (
                 <span className="min-w-0 flex-1 font-medium text-accent-ink">

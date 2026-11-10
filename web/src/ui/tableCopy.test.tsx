@@ -97,6 +97,30 @@ describe("Markdown table copy button", () => {
     expect(doc.querySelector("table button")).toBeNull();
   });
 
+  it("places the button from the ResizeObserver's first report, not with a layout read as the table mounts (#2905)", async () => {
+    const reports: ResizeObserverCallback[] = [];
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(cb: ResizeObserverCallback) {
+        reports.push(cb);
+      }
+      observe() {}
+      disconnect() {}
+    });
+    const read = vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockReturnValue(30);
+    const { act } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    act(() => root.render(createElement(Markdown, { text: md })));
+    const button = host.querySelector<HTMLButtonElement>(".md-table > button")!;
+    expect(read).not.toHaveBeenCalled();
+    expect(button.style.top).toBe("");
+    act(() => reports[0]([], {} as ResizeObserver));
+    expect(button.style.top).toBe("calc(30px + 0.375rem)");
+    act(() => root.unmount());
+  });
+
   it("converts the rendered table: header, link label, inline code, pipes, empty cells", () => {
     const html = renderToStaticMarkup(createElement(Markdown, { text: md }));
     const rendered = new DOMParser().parseFromString(html, "text/html").querySelector("table")!;

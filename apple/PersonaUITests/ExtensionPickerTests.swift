@@ -26,6 +26,15 @@ final class ExtensionPickerTests: XCTestCase {
         func scrollTo(_ e: XCUIElement) {
             for _ in 0..<10 where !(e.exists && e.isHittable) { app.swipeUp() }
             usleep(800_000) // the page coasts on after a swipe, and a tap then only stops it
+            // It can come to rest on the screen's bottom edge, hittable at its top with its controls below (#3079): nudge
+            // the page up with slow drags, which do not coast, until all of it is on screen. Dragged at the leading edge,
+            // clear of the rows' switches and steppers.
+            let bottom = app.windows.firstMatch.frame.maxY - 80
+            for _ in 0..<6 where e.exists && e.frame.maxY > bottom {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.6))
+                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.4)),
+                           withVelocity: .slow, thenHoldForDuration: 0.3)
+            }
         }
         func button(_ label: String) -> XCUIElement { app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch }
 

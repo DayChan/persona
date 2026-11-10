@@ -5,6 +5,7 @@
   "search_placeholder": "Search chats",
   "no_match": "No matching chats",
   "empty": "No personal agent chats yet",
+  "sources_unavailable": "Some personal agents can't be listed right now",
   "group_all": "All",
   "pin": "Pin",
   "unpin": "Unpin",

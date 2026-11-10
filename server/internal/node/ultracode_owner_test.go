@@ -164,7 +164,7 @@ func TestUltracodeWaitsForTheStateToLoad(t *testing.T) {
 		}
 		n.state.beginLoad()
 		row := proto.Session{SessionID: ultraProcessTestID, Agent: "claude", PaneID: "test-pane", Status: proto.StatusIdle}
-		n.ultracodeRow(&row)
+		n.ultracodeRow(&row, nil)
 		if row.Ultracode != nil {
 			t.Fatalf("shown before the boundary is known: %v", *row.Ultracode)
 		}
@@ -175,7 +175,7 @@ func TestUltracodeWaitsForTheStateToLoad(t *testing.T) {
 		n.state.merge(map[string]sessionState{ultraProcessTestID: stored()})
 		n.ultracodeStateLoaded()
 		row = proto.Session{SessionID: ultraProcessTestID, Agent: "claude", PaneID: "test-pane", Status: proto.StatusIdle}
-		n.ultracodeRow(&row)
+		n.ultracodeRow(&row, nil)
 		if row.Ultracode == nil || *row.Ultracode {
 			t.Fatalf("an old process's evidence counted: %v", row.Ultracode)
 		}
@@ -480,7 +480,7 @@ func TestStoredObservationOnlyRecordsAreNotPersonas(t *testing.T) {
 		t.Fatal("its global hooks' reports are dropped")
 	}
 	row := proto.Session{SessionID: reportSession, Agent: "claude", Status: proto.StatusOffline}
-	n.ultracodeRow(&row)
+	n.ultracodeRow(&row, nil)
 	if row.Ultracode != nil || row.UltracodeLostAt != nil {
 		t.Fatalf("the old observation came back: %+v", row)
 	}
@@ -797,7 +797,7 @@ func TestUltracodeVersionGateWaitsForThisProcess(t *testing.T) {
 	}
 	// Offline, nothing of a version is shown.
 	row := proto.Session{SessionID: sidA, Agent: "claude", Status: proto.StatusOffline}
-	n.ultracodeRow(&row)
+	n.ultracodeRow(&row, nil)
 	if row.UltracodeNote != "" {
 		t.Fatalf("offline note %q", row.UltracodeNote)
 	}

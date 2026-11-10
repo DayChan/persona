@@ -3,7 +3,11 @@
   "hub_no_response": "hub 太久没有回应：可能正在重启，或者网络不通。稍后再试。",
   "not_found": "找不到内容，或当前版本不支持此功能，请刷新页面或检查 hub 和电脑端是否需要更新。（{detail}）",
   "server_error": "服务暂时出错，请稍后重试；若一直失败，请检查 hub 是否正常运行。（{detail}）",
-  "hub_unavailable": "hub 暂时无法响应，请稍后重试；若一直失败，请检查 hub 和电脑端是否正常运行。（{detail}）",
+  "hub_unavailable": "服务未能完成此次请求，请稍后重试。（{detail}）",
+  "knowledge_disabled": "此管理者已关闭知识库。请在管理者配置中启用后使用。",
+  "knowledge_unavailable": "知识库尚未就绪，请稍后重试。",
+  "knowledge_read_only": "知识库为只读。请先修改管理者配置，再编辑或同步录音。",
+  "manager_offline": "管理者不在线或正在重启，请稍后重试。",
   "computer_offline": "这台电脑不在线。请确认它已开机、已联网，并且 Persona Link 正在运行，然后再试。",
   "computer_dropped": "和这台电脑的连接断了。请重新连接，确认刚才的操作是否已生效，然后再试。",
   "computer_timeout": "请求超时：电脑可能正忙或网络不稳。请先确认刚才的操作是否已生效，稍后再试。"

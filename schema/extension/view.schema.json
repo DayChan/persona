@@ -1034,7 +1034,7 @@
       },
       "required": ["count", "name", "buttons"]
     },
-    "PersonaCardKind": {"type": "string", "enum": ["stat", "stacked_bar", "line", "bar"]},
+    "PersonaCardKind": {"type": "string", "description": "ring: one day's total and its parts (a donut); stacked_bar: parts side by side to compare (days, people).", "enum": ["stat", "stacked_bar", "line", "bar", "ring"]},
     "PersonaCard": {
       "description": "The assistant's ```persona-card block (#886): one JSON object. Joins the components in #1850; this form keeps drawing.",
       "type": "object",

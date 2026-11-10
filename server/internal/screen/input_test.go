@@ -3,6 +3,7 @@ package screen
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -137,5 +138,85 @@ func TestBoxStyleHasNoText(t *testing.T) {
 		if strings.Contains(got, leak) {
 			t.Fatalf("%q in %q", leak, got)
 		}
+	}
+}
+
+// colorlessByRegexp is the regexp form colorless had, kept as the reference its scanner must agree with.
+func colorlessByRegexp(ansi string) bool {
+	for _, m := range regexp.MustCompile(`\x1b\[([0-9;:]*)m`).FindAllStringSubmatch(ansi, -1) {
+		for _, f := range strings.FieldsFunc(m[1], func(r rune) bool { return r == ';' || r == ':' }) {
+			c := atoi(f)
+			if c == 2 || (c >= 30 && c <= 38) || (c >= 40 && c <= 48) || (c >= 90 && c <= 97) || (c >= 100 && c <= 107) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func TestColorless(t *testing.T) {
+	for _, c := range []struct {
+		ansi string
+		want bool
+	}{
+		{"plain text", true},
+		{"", true},
+		{"\x1b[0m", true},
+		{"\x1b[m", true},
+		{"\x1b[;m", true},
+		{"\x1b[1m", true}, // bold is not a color
+		{"\x1b[1;4;7m", true},
+		{"\x1b[39m\x1b[49m", true}, // default foreground and background
+		{"\x1b[2K\x1b[3;5H", true}, // cursor and erase sequences do not end in m
+		{"\x1b]8;;https://example.com/a\x07link\x1b]8;;\x07", true},
+		{"\x1b[2m", false}, // dim
+		{"\x1b[1;2m", false},
+		{"\x1b[38;5;245m", false},
+		{"\x1b[38:2::1:2:3m", false}, // colon sub-parameters
+		{"\x1b[;31m", false},
+		{"\x1b[031m", false},
+		{"\x1b[48;5;0m", false},
+		{"\x1b[97m", false},
+		{"\x1b[100m", false},
+		{"\x1b[107m", false},
+		{"\x1b[108m", true},
+		{"\x1b[49;98m", true},
+		{"\x1b[3\x1b[31m", false}, // a cut sequence does not hide the next one
+		{"\x1b[?25l\x1b[31m", false},
+		{"\x1b[31", true}, // cut before its final byte
+		{"\x1b[", true},
+		{"\x1b", true},
+		{"x\x1b[0m\x1b[1mbold\x1b[0m\x1b[34mblue", false},
+	} {
+		if got := colorless(c.ansi); got != c.want {
+			t.Errorf("colorless(%q) = %v, want %v", c.ansi, got, c.want)
+		}
+		if ref := colorlessByRegexp(c.ansi); ref != c.want {
+			t.Errorf("reference colorless(%q) = %v, want %v", c.ansi, ref, c.want)
+		}
+	}
+	// Every recorded screen is drawn in color, and the scanner agrees with the regexp on each.
+	names, err := filepath.Glob(filepath.Join("testdata", "*.ansi"))
+	if err != nil || len(names) == 0 {
+		t.Fatalf("no recorded screens: %v", err)
+	}
+	for _, name := range names {
+		ansi := fixture(t, filepath.Base(name))
+		if got, ref := colorless(ansi), colorlessByRegexp(ansi); got || got != ref {
+			t.Errorf("%s: colorless %v, regexp %v, want false", name, got, ref)
+		}
+		// Without its colors the same screen is colorless.
+		plain := regexp.MustCompile(`\x1b\[[0-9;:]*m`).ReplaceAllString(ansi, "\x1b[0m")
+		if got, ref := colorless(plain), colorlessByRegexp(plain); !got || !ref {
+			t.Errorf("%s without colors: colorless %v, regexp %v, want true", name, got, ref)
+		}
+	}
+}
+
+// colorless runs on every Codex screen read and in Claude's input checks: it must not allocate.
+func TestColorlessAllocatesNothing(t *testing.T) {
+	s := fixture(t, "claude-2.1.312-typed-162.ansi")
+	if n := testing.AllocsPerRun(50, func() { colorless(s) }); n != 0 {
+		t.Fatalf("colorless allocates %v times per call, want 0", n)
 	}
 }

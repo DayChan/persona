@@ -5,7 +5,6 @@
 package screen
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -152,16 +151,38 @@ func atoi(s string) int {
 func blank(r rune) bool { return r == ' ' || r == '\t' || r == ' ' }
 
 // colorless: the read sets no color and no dim anywhere (Claude Code under NO_COLOR).
+// It runs on every Codex screen read, so it scans the SGR sequences (ESC [ params m) in place instead of with a regexp.
 func colorless(ansi string) bool {
-	for _, m := range regexp.MustCompile(`\x1b\[([0-9;:]*)m`).FindAllStringSubmatch(ansi, -1) {
-		for _, f := range strings.FieldsFunc(m[1], func(r rune) bool { return r == ';' || r == ':' }) {
-			c := atoi(f)
-			if c == 2 || (c >= 30 && c <= 38) || (c >= 40 && c <= 48) || (c >= 90 && c <= 97) || (c >= 100 && c <= 107) {
+	for i := 0; ; {
+		k := strings.Index(ansi[i:], "\x1b[")
+		if k < 0 {
+			return true
+		}
+		start := i + k + 2
+		end := start
+		for end < len(ansi) && (ansi[end] >= '0' && ansi[end] <= '9' || ansi[end] == ';' || ansi[end] == ':') {
+			end++
+		}
+		i = end
+		if end == len(ansi) || ansi[end] != 'm' {
+			continue // not SGR, or cut before its final byte
+		}
+		// Each ';' or ':' separated number; an empty one (as in ESC [ ; m) sets nothing.
+		for p := start; p < end; p++ {
+			c, digits := 0, false
+			for ; p < end && ansi[p] != ';' && ansi[p] != ':'; p++ {
+				c, digits = c*10+int(ansi[p]-'0'), true
+			}
+			if digits && colorCode(c) {
 				return false
 			}
 		}
 	}
-	return true
+}
+
+// colorCode: the SGR code sets dim, a foreground or a background color.
+func colorCode(c int) bool {
+	return c == 2 || (c >= 30 && c <= 38) || (c >= 40 && c <= 48) || (c >= 90 && c <= 97) || (c >= 100 && c <= 107)
 }
 
 // Input is what Claude Code's input box holds.

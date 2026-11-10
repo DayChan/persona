@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
@@ -281,10 +283,14 @@ func TestTaskPlanReportsQueuedDispatchBeforeAnAgentExists(t *testing.T) {
 }
 
 func TestTaskPlanUnsetPermissionDefaultsToExplicitDefaultMode(t *testing.T) {
-	for _, tc := range []struct{ name, configured, explicit, want string }{
-		{"unset", "", "", "default"},
-		{"configured", "acceptEdits", "", "acceptEdits"},
-		{"explicit", "acceptEdits", "bypassPermissions", "bypassPermissions"},
+	// claude: permissions.defaultMode in Claude Code's settings on box ("" none; "-" a node that can't tell, #3026).
+	for _, tc := range []struct{ name, configured, claude, explicit, want string }{
+		{"unset", "", "", "", "default"},
+		{"node cannot tell", "", "-", "", "default"},
+		{"claude settings", "", "auto", "", "auto"},
+		{"claude settings, a mode Persona does not know", "", "dontAsk", "", "default"},
+		{"configured", "acceptEdits", "auto", "", "acceptEdits"},
+		{"explicit", "acceptEdits", "auto", "bypassPermissions", "bypassPermissions"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, f := newTaskService(t)
@@ -295,12 +301,26 @@ func TestTaskPlanUnsetPermissionDefaultsToExplicitDefaultMode(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
+			asked := 0
+			if tc.claude != "-" {
+				f.answerNode(assistantwire.DeviceClaudeSettings, func(machine string, _ json.RawMessage) (any, error) {
+					asked++
+					var value any
+					if tc.claude != "" {
+						value = tc.claude
+					}
+					return map[string]any{"settings": []map[string]any{
+						{"key": "effortLevel", "value": "xhigh"}, {"key": proto.ClaudeDefaultModeSetting, "value": value},
+					}}, nil
+				})
+			}
 			// Writable tasks exercise the default contract. Read-only tasks are
 			// independently constrained to plan and must not inherit this mode.
-			args, err := json.Marshal(map[string]any{"tasks": []map[string]any{{
-				"title": "Inspect code", "prompt": "Review code", "machine": "box",
-				"cwd": "/code/app", "readonly": false, "permission": tc.explicit,
-			}}})
+			task := map[string]any{"title": "Inspect code", "prompt": "Review code", "machine": "box",
+				"cwd": "/code/app", "readonly": false, "permission": tc.explicit}
+			second := maps.Clone(task)
+			second["title"], second["cwd"] = "Inspect more code", "/code/lib"
+			args, err := json.Marshal(map[string]any{"tasks": []map[string]any{task, second}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -313,8 +333,16 @@ func TestTaskPlanUnsetPermissionDefaultsToExplicitDefaultMode(t *testing.T) {
 			if err != nil {
 				t.Fatalf("loadPlan: %v; response: %s", err, res)
 			}
-			if len(plan.Tasks) != 1 || plan.Tasks[0].Permission != tc.want {
+			if len(plan.Tasks) != 2 || plan.Tasks[0].Permission != tc.want || plan.Tasks[1].Permission != tc.want {
 				t.Fatalf("saved tasks = %+v, want permission %q", plan.Tasks, tc.want)
+			}
+			// Read once a plan, and only when neither the task nor the manager's default says.
+			wantAsked := 0
+			if tc.claude != "-" && tc.configured == "" && tc.explicit == "" {
+				wantAsked = 1
+			}
+			if asked != wantAsked {
+				t.Fatalf("claude settings read %d times, want %d", asked, wantAsked)
 			}
 			f.mu.Lock()
 			starts := len(f.starts)
@@ -325,17 +353,51 @@ func TestTaskPlanUnsetPermissionDefaultsToExplicitDefaultMode(t *testing.T) {
 			if _, err := s.startPlan(ctx, id, nil, false); err != nil {
 				t.Fatal(err)
 			}
-			waitFor(t, "approved task started", func() bool {
+			waitFor(t, "approved tasks started", func() bool {
 				f.mu.Lock()
 				defer f.mu.Unlock()
-				return len(f.starts) == 1
+				return len(f.starts) == 2
 			})
 			f.mu.Lock()
-			got := f.starts[0]["permission_mode"]
+			got := []any{f.starts[0]["permission_mode"], f.starts[1]["permission_mode"]}
 			f.mu.Unlock()
-			if got != tc.want {
-				t.Fatalf("started permission = %v, want %q", got, tc.want)
+			if got[0] != tc.want || got[1] != tc.want {
+				t.Fatalf("started permissions = %v, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// A plan saved with no permission (before task_plan settled it) is settled at the start, on the computer it starts on.
+func TestTaskStartSettlesAnUnsetPermission(t *testing.T) {
+	s, f := newTaskService(t)
+	ctx := context.Background()
+	f.answerNode(assistantwire.DeviceClaudeSettings, func(string, json.RawMessage) (any, error) {
+		return map[string]any{"settings": []map[string]any{{"key": proto.ClaudeDefaultModeSetting, "value": "acceptEdits"}}}, nil
+	})
+	res, err := s.toolTaskPlan(ctx, "conv1", json.RawMessage(`{"tasks":[{"title":"Fix","prompt":"Fix it","machine":"box","cwd":"/code/app"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := s.loadPlan(ctx, regexp.MustCompile(`plan_[0-9a-f]+`).FindString(res))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.Tasks[0].Permission = ""
+	if err := s.savePlan(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.startPlan(ctx, plan.ID, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "task started", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.starts) == 1
+	})
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if got := f.starts[0]["permission_mode"]; got != "acceptEdits" {
+		t.Fatalf("started permission = %v, want the computer's Claude Code default", got)
 	}
 }

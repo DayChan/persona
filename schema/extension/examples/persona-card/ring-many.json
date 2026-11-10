@@ -1,0 +1,151 @@
+{
+  "card": {
+    "type": "ring",
+    "title": "本周花销",
+    "unit": "元",
+    "segments": [
+      {
+        "label": "餐饮",
+        "value": 620
+      },
+      {
+        "label": "交通",
+        "value": 180
+      },
+      {
+        "label": "购物",
+        "value": 540
+      },
+      {
+        "label": "娱乐",
+        "value": 120
+      },
+      {
+        "label": "房租",
+        "value": 1500
+      },
+      {
+        "label": "水电",
+        "value": 90
+      },
+      {
+        "label": "通讯",
+        "value": 60
+      },
+      {
+        "label": "医疗",
+        "value": 40
+      },
+      {
+        "label": "其他杂项",
+        "value": 25
+      }
+    ]
+  },
+  "view": {
+    "sections": [
+      {
+        "title": "本周花销",
+        "items": [
+          {
+            "type": "chart",
+            "kind": "donut",
+            "series": [
+              {
+                "points": [
+                  {
+                    "label": "餐饮",
+                    "value": 620,
+                    "display": "620 元"
+                  },
+                  {
+                    "label": "交通",
+                    "value": 180,
+                    "display": "180 元"
+                  },
+                  {
+                    "label": "购物",
+                    "value": 540,
+                    "display": "540 元"
+                  },
+                  {
+                    "label": "娱乐",
+                    "value": 120,
+                    "display": "120 元"
+                  },
+                  {
+                    "label": "房租",
+                    "value": 1500,
+                    "display": "1,500 元"
+                  },
+                  {
+                    "label": "水电",
+                    "value": 90,
+                    "display": "90 元"
+                  },
+                  {
+                    "label": "通讯",
+                    "value": 60,
+                    "display": "60 元"
+                  },
+                  {
+                    "label": "其他",
+                    "value": 65,
+                    "display": "65 元"
+                  }
+                ]
+              }
+            ],
+            "unit": "元",
+            "center": "3,175 元"
+          },
+          {
+            "type": "row",
+            "value": "620 元",
+            "title": "餐饮"
+          },
+          {
+            "type": "row",
+            "value": "180 元",
+            "title": "交通"
+          },
+          {
+            "type": "row",
+            "value": "540 元",
+            "title": "购物"
+          },
+          {
+            "type": "row",
+            "value": "120 元",
+            "title": "娱乐"
+          },
+          {
+            "type": "row",
+            "value": "1,500 元",
+            "title": "房租"
+          },
+          {
+            "type": "row",
+            "value": "90 元",
+            "title": "水电"
+          },
+          {
+            "type": "row",
+            "value": "60 元",
+            "title": "通讯"
+          },
+          {
+            "type": "row",
+            "value": "40 元",
+            "title": "医疗"
+          },
+          {
+            "type": "row",
+            "value": "25 元",
+            "title": "其他杂项"
+          }
+        ]
+      }
+    ]
+  }
+}

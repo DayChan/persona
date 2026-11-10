@@ -47,8 +47,6 @@ REFERENCE = re.compile(r"\.md(?:(?:`|\]\([^)\s]*\))?\)?,? \(?[\"“]"
 PATH_CHAR = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./-")
 
 HEADING = re.compile(r"^#{1,6}\s+(.*?)\s*#*\s*$", re.M)
-# A line starting with # inside a fenced block is a shell comment, not a heading.
-FENCE = re.compile(r"^[ \t]*(```|~~~).*?^[ \t]*\1", re.M | re.S)
 BOLD = re.compile(r"\*\*([^*\n]{2,160})\*\*")
 ANCHOR = re.compile(r"<a\s+(?:id|name)=\"([^\"]+)\"")
 # A list item's opening phrase ends at " (" or with its first sentence. docs/lessons has few headings and names each
@@ -87,7 +85,8 @@ def normalize(name):
 
 def targets(text):
     """The headings, **bold** labels and <a id> anchors, and apart from them the list items' opening phrases."""
-    unfenced = FENCE.sub("", text)
+    # A line starting with # inside a fenced block is a shell comment, not a heading.
+    unfenced = "\n".join(line for _, line in test_doc_paths.outside_fences(text))
     names = HEADING.findall(unfenced) + BOLD.findall(text) + ANCHOR.findall(text)
     leads = (LEAD_END.split(item, 1)[0] for item in LIST_ITEM.findall(unfenced))
     return {normalize(name) for name in names} - {""}, {normalize(lead) for lead in leads} - {""}
@@ -228,6 +227,13 @@ class DocSectionTests(unittest.TestCase):
                               ("case10.go", 1, "docs/sample-guide.md", "Panel kept"),
                               ("case11.go", 1, "docs/sample-guide.md", "旧的配对")], new)
             self.assertEqual([("case0.go", "docs/sample-guide.md", "Gone")], stale)
+
+    def test_headings_inside_fences_do_not_count(self):
+        doc = "\n".join(["# Guide", "```sh", "# a shell comment", "```",
+                         "  ```` ```mermaid ```` starts a line but is an inline span", "## After the span",
+                         "````md", "```", "# still inside the longer fence", "````", "## After the long fence",
+                         "~~~", "# inside tildes", "~~~", "## Last", "```", "# an unclosed fence runs to the end", ""])
+        self.assertEqual({"guide", "after the span", "after the long fence", "last"}, targets(doc)[0])
 
     def test_known_list_is_sorted_and_unique(self):
         lines = [line for line in KNOWN.read_text(encoding="utf-8").splitlines() if not line.startswith("#")]

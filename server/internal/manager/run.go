@@ -87,6 +87,7 @@ func Run(ctx context.Context, build update.Build, dir string, out io.Writer) err
 
 func (e *env) runManager(ctx context.Context, build update.Build, dir string) error {
 	osproc.SealInherited() // what a parent left inheritable reaches none of what the manager starts (osproc)
+	osproc.ReapInherited() // after reexec, what the previous image started is this one's child (osproc)
 	out := e.stdout
 	env := os.Environ() // as it started: RunManager points PERSONA_HOME at dir
 	c, err := assistant.ReadManagerConfig(dir)

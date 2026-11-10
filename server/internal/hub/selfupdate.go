@@ -243,7 +243,12 @@ func startWatchdog(prev, pendingPath string) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	return cmd.Process.Release()
+	// Wait instead of releasing: when the exec into the new version fails the pending marker goes, the watchdog
+	// exits, and a child nobody waits for stays a zombie for as long as this hub runs. It stays this process's direct
+	// child (update-watch's hubIsParent relies on that); after a successful exec this goroutine is gone and the new
+	// image inherits it.
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 // boot runs once, first thing when the hub starts, before the config or the database: a new version that keeps

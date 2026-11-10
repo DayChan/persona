@@ -62,7 +62,7 @@ final class ExtensionSettingsTests: XCTestCase {
         let url = app.textFields.matching(NSPredicate(format: "placeholderValue CONTAINS %@", "notes.example.com")).firstMatch
         XCTAssertTrue(url.waitForExistence(timeout: 5), "no 服务地址 field")
         url.tap()
-        url.typeText("nope")
+        url.typeText("nope\n") // Return dismisses the keyboard; it does not submit the form
         save(app)
         let refusal = app.staticTexts["要是一个网址"]
         for _ in 0..<12 where !refusal.exists { app.swipeDown() }

@@ -52,7 +52,7 @@ struct SyncView: Equatable, CustomStringConvertible {
 final class SyncDevice {
     let name: String
     let key: SessionKey
-    /// What it keeps on disk (the snapshot, the outbox): a folder of its own, so it starts from nothing whatever the
+    /// What it keeps on disk (the snapshot, the outbox, the chat cache): a folder of its own, so it starts from nothing whatever the
     /// simulator's app saved (#1637), and a relaunch finds what it wrote.
     let folder: URL
     private(set) var model: AppModel
@@ -76,8 +76,8 @@ final class SyncDevice {
     /// Interactions as last seen here, to answer by id.
     private(set) var knownCards: [String: Interaction] = [:]
     let owner = UUID()
-    /// While the case sets the device up, a subscribe without `since_seq` gets the hub's backlog.
-    var answersSubscribe: (() -> JSONValue)?
+    /// While the case sets the device up, every subscribe gets the hub's backlog, including a cached cursor.
+    var answersSubscribe: ((Int?) -> JSONValue)?
 
     init(name: String, key: SessionKey, folder: URL) {
         self.name = name
@@ -117,7 +117,7 @@ final class SyncDevice {
         var r: [String: JSONValue] = ["ws": .string(type)]
         if let since = m["since_seq"] as? Int { r["since_seq"] = .number(Double(since)) }
         requests.append(r)
-        if type == "subscribe", m["since_seq"] == nil, let backlog = answersSubscribe?() {
+        if type == "subscribe", let backlog = answersSubscribe?(m["since_seq"] as? Int) {
             Task { @MainActor in self.socket?.send(backlog) }
         }
     }
@@ -199,11 +199,13 @@ final class SyncDevice {
         model.discard(key, msg)
     }
 
-    func answer(_ id: String, _ resolution: JSONValue) {
+    func answer(_ id: String, _ resolution: JSONValue) throws {
         noteCards()
-        guard let ix = knownCards[id],
-              let data = try? JSONEncoder().encode(resolution),
-              let r = try? JSONDecoder().decode(Resolution.self, from: data) else { return }
+        guard let ix = knownCards[id] else {
+            throw SyncUnplayable(description: "\(name): cannot answer unloaded card \(id)")
+        }
+        let data = try JSONEncoder().encode(resolution)
+        let r = try JSONDecoder().decode(Resolution.self, from: data)
         let model = model
         Task { @MainActor in await model.resolve(ix, r) }
     }
@@ -219,9 +221,22 @@ final class SyncDevice {
         let store = model.chat(key)
         let session = model.session(key)
         var v = SyncView()
-        let lines = ChatLines(openWork: []).build(store.blocks, live: nil)
         let queued = session?.queued ?? []
         let pending = (store.arriving + store.pending).filter { p in !queued.contains { PendingMessage.same($0, p.text) } }
+        let status = session?.status ?? .unknown
+        let failed = session?.failureReason == nil ? nil : (session?.stateSince ?? .distantFuture)
+        let awaiting = ChatAwaitingTurn.of(pending: store.arriving + store.pending, last: store.blocks.last,
+                                          status: status, failedSince: failed, now: .now)
+        var liveTurn: String?
+        if case .turn(let turn) = store.blocks.last,
+           !ChatAwaitingTurn.workIsForPending(pending, status: status, stateSince: session?.stateSince,
+                                             newestLine: store.newestLineAt),
+           status.isActive || awaiting.turnID == turn.id { liveTurn = turn.id }
+        var streaming = !store.liveText.isEmpty && (session?.assistant == true || store.liveIsAgents)
+        if !store.liveIsAgents, case .assistant(let item) = store.rows.last,
+           let text = item.text, text.hasPrefix(store.liveText) { streaming = false }
+        let lines = ChatLines(openWork: [], foldSupervision: session?.assistant == true, active: status.isActive)
+            .build(store.blocks, live: liveTurn, streaming: streaming)
         let placed = ChatLines.placeFailed(lines, pending, writtenAt: store.writtenAt)
         func bubble(_ p: PendingMessage) -> SyncView.Message {
             SyncView.Message(from: "user", text: p.text, state: p.state == .failed ? "failed" : "pending")

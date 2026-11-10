@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.navigation3.runtime.NavKey
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.*
@@ -409,6 +410,13 @@ class InboxConversationSwipeTest {
         rule.runOnIdle { assertTrue(inbox.calls.isEmpty()); assertTrue(opened.isEmpty()) }
         row().performTouchInput { swipe(center, center + androidx.compose.ui.geometry.Offset(8f, 0f), 500) }
         rule.runOnIdle { assertTrue(inbox.calls.isEmpty()) }
+        // Held 500 ms within the touch slop, that drag is a long-press: it starts a selection (#2576), which Back ends.
+        val back = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+            .getString(persona.core.designsystem.R.string.designsystem_back)
+        rule.onAllNodesWithContentDescription(back).fetchSemanticsNodes().takeIf { it.isNotEmpty() }?.let {
+            rule.onAllNodesWithContentDescription(back)[0].performClick()
+        }
+        rule.waitForIdle()
         row().performClick()
         rule.runOnIdle { assertEquals(1, opened.size); assertTrue(inbox.calls.isEmpty()) }
     }

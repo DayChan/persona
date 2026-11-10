@@ -2,5 +2,6 @@
   "value": "数值",
   "total": "合计",
   "other": "其他",
-  "current": "当前"
+  "current": "当前",
+  "remaining": "剩余"
 }

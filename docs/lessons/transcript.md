@@ -17,7 +17,14 @@ The generic screenshot mock folds tool calls without production's `fold.supervis
 review hidden in such a fold falsely makes the entire synthetic round quiet. Emit the same retained evidence as
 production when testing this case; do not disable folding or force-open the UI to make the screenshot pass.
 
-## Display provenance is not a model role (#2130)
+## Wake continuations use the ordinary execution summary (#2796)
+
+A wake before new assistant text must not cut the segment holding the previous answer: doing so shows the pre-wake
+narration again outside the folded summary. Keep the previous answer in place until new words arrive and put wake
+notices, new tools and narration in the same inspectable summary. Remove the separate wake-chip/drawer path rather
+than leaving it appended after the answer. Cover the interval between wake and new text in both the line model and
+the shared sync fixture, not only the final completed turn.
+
 
 Persona's `conversation_send` relay is model input with role `user`, not the user's own words. Its existing `from`
 field belongs to runtime peer messages, not Persona conversation ids. Prefer structured source metadata; an older-server
@@ -164,3 +171,25 @@ A view that fetches once per id cannot recover when the store puts the same id b
 - Decide placement (assistant, space, health redaction) by where the session started: the node's start record, else the transcript's first `cwd` (`quickMeta.start`), else its own project directory's name (a first prompt bigger than the 256 KB head read hides the first line). Agents keep reporting their latest directory: their git place walks up to `.git`, so a `cd` into a subfolder keeps the repository. Except an assistant or health directory itself: an agent started in the home directory that `cd`s into one is listed where it started, or the hub, going by the exact directory, takes it for one of their conversations at rest.
 - Hiding and confirming may count a directory inside a health space (`identity.InHealthSpace`); classifying must not (`SpaceOf`, `IsAssistantDirOf` stay exact): a pane-less Claude the user runs in a subfolder of the assistant directory is theirs.
 - Reproduce with Stop, not the 20-minute reap: Stop kills `claude -p`, and the conversation is listed from its transcript at once.
+
+## A tool call's outcome is in its record, not in its text (#2912, Claude Code up to 2.1.314)
+
+- Claude Code writes `toolUseResult` next to every tool result, and its shape depends on the tool and on how the call
+  went: a failed call records a string (`"Error: …"`), an MCP call its content blocks, the rest an object that holds the
+  whole output again (`stdout`, a Read's `content`, an Edit's `originalFile`). Decode only the fields you read, through a
+  type that takes any value (`claudeToolResult`): a plain struct field fails the whole line on the first string, and a
+  `json.RawMessage` copies megabytes per line (`TestToolUseResultNotCopied`). The same goes for any new top-level
+  field such as `toolDenialKind`: a value of another type there fails the whole line, so read it through a type that
+  takes any value.
+- Strings an outcome takes from a result's text (the output's tail, a saved output's path) are copies
+  (`strings.Clone`): a slice keeps the whole output alive in every light item a node keeps, a megabyte per result
+  where the page holds 4 KB (`TestLightResultRetainsNoOutput`).
+- The tail starts where the page's text stops (`pageCut`), not at a fixed 4 KB: `light` ends the page at a newline
+  up to 512 bytes earlier, so a fixed start dropped the line across the cut, often the one that says what failed.
+- A denial is marked by the line's top-level `toolDenialKind` (`user-rejected`, `permission-rule` for rules, the
+  permission mode and hooks, `automode-*`; `interrupted` / `cancelled` are aborts, not denials). Lines from older
+  versions only have the words, and a hook's denial says whatever the hook printed.
+- `timedOutAfterMs` came with `backgroundTaskId` every time: the command was moved to the background, not killed.
+  A Write that creates a file records no hunks; its lines are the content's.
+- One machine's transcripts (2026-11-10): 76k records, 4.4k of them strings and 554 arrays, none with a field of an
+  unexpected type; parsing them before and after the change gave the same items in all 2,023 files.

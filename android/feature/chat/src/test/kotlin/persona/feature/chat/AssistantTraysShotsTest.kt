@@ -7,11 +7,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.height
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -66,6 +69,9 @@ class AssistantTraysShotsTest {
         val opened = mutableListOf<SessionKey>()
         var returnedTodos = todoRows
         val accepted = mutableListOf<Pair<String, String>>()
+        val patches = mutableListOf<Pair<String, Boolean?>>()
+        var completionGate: CompletableDeferred<Unit>? = null
+        var completionFailure: Throwable? = null
         val sessionRows = MutableStateFlow(listOf(Session(main.machineId, main.sessionId, title = "Persona", assistant = true, status = "done", state = "idle"), running, blocked, unread))
         val sessions = object : SessionsRepository {
             override val sessions = sessionRows
@@ -96,6 +102,14 @@ class AssistantTraysShotsTest {
         }
         val api = object : TasksApi {
             override suspend fun todos() = returnedTodos
+            override suspend fun patchTodo(id: String, title: String?, notes: String?, done: Boolean?): Todo {
+                patches += id to done
+                completionGate?.await()
+                completionFailure?.let { throw it }
+                val completed = returnedTodos.first { it.id == id }.copy(doneAt = "2026-11-01T10:00:00Z", ask = null)
+                returnedTodos = returnedTodos.map { if (it.id == id) completed else it }
+                return completed
+            }
             override suspend fun acceptTask(todoId: String, askedAt: String) {
                 accepted += todoId to askedAt
                 returnedTodos = returnedTodos.map { if (it.id == todoId) it.copy(ask = null) else it }
@@ -189,6 +203,8 @@ class AssistantTraysShotsTest {
             for (d in listOf(false, true)) {
                 style = s; dark = d; fixture.requests.value = listOf(permission, planRequest, question); fixture.drafts.value = listOf(inboxDraft); settle()
                 rule.onNodeWithTag("assistant-tray-pending").assertDoesNotExist()
+                for (entry in listOf("pending", "progress", "agents"))
+                    assertEquals(JChipTokens.height, rule.onNodeWithTag("assistant-entry-$entry").getUnclippedBoundsInRoot().height)
                 val suffix = "${s.name.lowercase()}-${if (d) "dark" else "light"}"
                 corners += shot("collapsed-$suffix")
                 rule.onNodeWithTag("assistant-entry-pending").performClick(); settle()
@@ -218,6 +234,67 @@ class AssistantTraysShotsTest {
         }
         tab = "agents"; settle()
         rule.onNodeWithTag("assistant-tray-bar").assertDoesNotExist()
+    }
+
+    /** The #2920 entry this change replaced, kept here only as the "before" in the height comparison. */
+    @Composable
+    private fun ReplacedTallEntry(label: String, count: Int, tone: AssistantTrayTone) {
+        val palette = PersonaTheme.palette
+        val shape = androidx.compose.foundation.shape.RoundedCornerShape(PersonaTheme.shapes.control)
+        Row(Modifier.heightIn(min = 44.dp).clip(shape).background(palette.surfaceStrong).padding(Tokens.Space.s),
+            horizontalArrangement = Arrangement.spacedBy(Tokens.Space.xs), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            AssistantTrayMark(tone)
+            androidx.compose.material3.Text(label, style = PersonaTheme.type.labelSmall, color = palette.ink, maxLines = 1)
+            if (count > 0) androidx.compose.material3.Text("$count", style = PersonaTheme.type.micro, color = palette.ink3)
+            JIcon(PhIcons.CaretUp, null, size = Tokens.Space.m, tint = palette.ink3)
+        }
+    }
+
+    @Test fun trayEntriesAreExactlyTheHistoricalFilterChips() {
+        var style by mutableStateOf(AppStyle.Glass)
+        var dark by mutableStateOf(false)
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            PersonaTheme(darkTheme = dark, reduceMotion = true, style = style) {
+                Column(Modifier.width(400.dp).background(PersonaTheme.palette.background).padding(Tokens.Space.m).testTag("assistant-page-shot"),
+                    verticalArrangement = Arrangement.spacedBy(Tokens.Space.s)) {
+                    val caption = PersonaTheme.type.micro
+                    androidx.compose.material3.Text("Before #2920: All / task chips (JChip)", style = caption, color = PersonaTheme.palette.ink3)
+                    Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Space.s)) {
+                        JChip("All 4", Modifier.testTag("historical-all"), onClick = {})
+                        JChip("Update the web interface", Modifier.testTag("historical-task"), onClick = {}, status = Status.Working)
+                        JChip("Route", onClick = {}, selected = true, icon = PhIcons.PaperPlaneTilt)
+                    }
+                    androidx.compose.material3.Text("#2920: tall entries (replaced)", style = caption, color = PersonaTheme.palette.ink3)
+                    Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Space.s)) {
+                        Box(Modifier.testTag("replaced-entry")) { ReplacedTallEntry("Pending", 4, AssistantTrayTone.Pending) }
+                        ReplacedTallEntry("Progress", 2, AssistantTrayTone.Progress)
+                        ReplacedTallEntry("Agents", 3, AssistantTrayTone.Agents)
+                    }
+                    androidx.compose.material3.Text("Now: Pending / Progress / Agents as JChip", style = caption, color = PersonaTheme.palette.ink3)
+                    Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Space.s)) {
+                        AssistantTrayEntry("Pending", 4, AssistantTrayTone.Pending, false, "", {}, Modifier.testTag("entry-pending"))
+                        AssistantTrayEntry("Progress", 2, AssistantTrayTone.Progress, true, "", {}, Modifier.testTag("entry-progress"))
+                        AssistantTrayEntry("Agents", 3, AssistantTrayTone.Agents, false, "", {}, Modifier.testTag("entry-agents"))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Space.s)) {
+                        AssistantTrayEntry("Pending", 0, AssistantTrayTone.Pending, false, "", {}, Modifier.testTag("entry-empty"))
+                        AssistantTrayEntry("Progress", 0, AssistantTrayTone.Progress, false, "", {})
+                        AssistantTrayEntry("Agents", 0, AssistantTrayTone.Agents, false, "", {})
+                    }
+                }
+            }
+        }
+        for (s in AppStyle.entries) for (d in listOf(false, true)) {
+            style = s; dark = d; settle()
+            val historical = rule.onNodeWithTag("historical-all").getUnclippedBoundsInRoot().height
+            assertEquals(JChipTokens.height, historical)
+            assertEquals(historical, rule.onNodeWithTag("historical-task").getUnclippedBoundsInRoot().height)
+            for (tag in listOf("entry-pending", "entry-progress", "entry-agents", "entry-empty"))
+                assertEquals(tag, historical, rule.onNodeWithTag(tag).getUnclippedBoundsInRoot().height)
+            assertEquals(44.dp, rule.onNodeWithTag("replaced-entry").getUnclippedBoundsInRoot().height)
+            shot("height-comparison-${s.name.lowercase()}-${if (d) "dark" else "light"}")
+        }
     }
 
     @Test fun approveAllNeverSendsDraftsAndSendRequiresItsOwnTap() {
@@ -274,6 +351,153 @@ class AssistantTraysShotsTest {
         for (entry in listOf("pending", "progress", "agents")) rule.onNodeWithTag("assistant-entry-$entry").assertIsDisplayed()
         rule.onNodeWithTag("assistant-entry-pending").performClick(); settle()
         rule.onNodeWithText("All caught up").assertIsDisplayed()
+    }
+
+    private val ownerDecision = Todo("decision", "Choose the release scope", origin = "main",
+        supervision = Supervision(state = "needs_user"),
+        ask = TodoAsk("decide", "The core change is verified. Decide whether to include the optional change.", "Defer the optional change", "2026-11-01T09:00:00Z"))
+
+    private fun decisionFixture() = Fixture().apply {
+        returnedTodos = listOf(ownerDecision)
+        requests.value = emptyList(); drafts.value = emptyList()
+        tasks.reloadTodos()
+    }
+
+    @Test @Config(qualifiers = "zh-w400dp-h900dp-xhdpi")
+    fun directFinishInRealPendingTrayRendersSixStylesAndConfirmedCompletionRemovesTheCard() {
+        val fixture = decisionFixture()
+        var style by mutableStateOf(AppStyle.Glass)
+        var dark by mutableStateOf(false)
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            val configuration = Configuration(LocalConfiguration.current).apply {
+                uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or
+                    if (dark) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO
+            }
+            CompositionLocalProvider(LocalConfiguration provides configuration) {
+                PersonaTheme(style = style, darkTheme = dark, reduceMotion = true) {
+                    Box(Modifier.fillMaxSize().background(PersonaTheme.palette.background).testTag("assistant-page-shot")) {
+                        ChatScreen(main, fixture.chats, fixture.sender, fixture.interactions, fixture.sessions, {},
+                            chrome = ChatChromeBindings(tasks = fixture.tasks), renderStyle = ChatRenderStyle.Assistant, showTopBar = false)
+                    }
+                }
+            }
+        }
+        settle()
+        rule.onNodeWithTag("assistant-entry-pending").performClick(); settle()
+        for (s in AppStyle.entries) {
+            val pixels = mutableListOf<Int>()
+            for (d in listOf(false, true)) {
+                style = s; dark = d; settle()
+                rule.onNodeWithText("直接完成").assertIsDisplayed()
+                rule.onNodeWithText("按建议处理").assertIsDisplayed()
+                rule.onNodeWithText("打开").assertIsDisplayed()
+                val finish = rule.onNodeWithText("直接完成").getUnclippedBoundsInRoot()
+                val open = rule.onNodeWithText("打开").getUnclippedBoundsInRoot()
+                val follow = rule.onNodeWithText("按建议处理").getUnclippedBoundsInRoot()
+                assertTrue(open.left < finish.left && finish.left < follow.left)
+                assertEquals(open.top, finish.top); assertEquals(finish.top, follow.top)
+                pixels += shot("direct-finish-${s.name.lowercase()}-${if (d) "dark" else "light"}")
+            }
+            assertNotEquals("Light and dark must differ", pixels[0], pixels[1])
+        }
+        fixture.completionGate = CompletableDeferred()
+        rule.onNodeWithText("直接完成").performClick(); settle()
+        rule.onNodeWithText("直接完成").assertIsNotEnabled()
+        rule.onNodeWithText("按建议处理").assertIsNotEnabled()
+        rule.onNodeWithText("打开").assertIsNotEnabled()
+        assertFalse(fixture.tasks.todos.value.single().isDone)
+        assertEquals(listOf(ownerDecision.id to true), fixture.patches)
+        assertTrue(fixture.accepted.isEmpty())
+        fixture.completionGate!!.complete(Unit); settle()
+        rule.onNodeWithTag("assistant-task-decision-decision").assertDoesNotExist()
+        assertTrue(fixture.tasks.todos.value.single().isDone)
+        assertNull(fixture.tasks.todos.value.single().doneBy)
+        rule.onNodeWithTag("assistant-entry-pending").performClick(); settle()
+        rule.onNodeWithText("都处理完了").assertIsDisplayed()
+        shot("direct-finish-confirmed")
+    }
+
+    @Test @Config(qualifiers = "zh-w400dp-h900dp-xhdpi")
+    fun directFinishFailureStaysVisibleAndRetrySucceedsInPendingTray() {
+        val fixture = decisionFixture().apply { completionFailure = IllegalStateException("synthetic rejection") }
+        rule.mainClock.autoAdvance = false
+        rule.setContent { PersonaTheme(reduceMotion = true) {
+            Box(Modifier.fillMaxSize().testTag("assistant-page-shot")) {
+                ChatScreen(main, fixture.chats, fixture.sender, fixture.interactions, fixture.sessions, {},
+                    chrome = ChatChromeBindings(tasks = fixture.tasks), renderStyle = ChatRenderStyle.Assistant, showTopBar = false)
+            }
+        } }
+        settle()
+        rule.onNodeWithTag("assistant-entry-pending").performClick(); settle()
+        rule.onNodeWithText("直接完成").performClick(); settle()
+        rule.onNodeWithText("未能完成此任务，请重试。").assertIsDisplayed()
+        rule.onNodeWithText("直接完成").assertIsEnabled()
+        assertEquals(ownerDecision, fixture.tasks.todos.value.single())
+        shot("direct-finish-failure")
+        fixture.completionFailure = null
+        rule.onNodeWithText("直接完成").performClick(); settle()
+        assertTrue(fixture.tasks.todos.value.single().isDone)
+        assertEquals(2, fixture.patches.size)
+    }
+
+    @Test @Config(qualifiers = "en-w320dp-h900dp-xhdpi")
+    fun narrowDecisionKeepsThePrimaryAndMovesOpenAndFinishIntoTheMenu() {
+        val fixture = decisionFixture()
+        rule.mainClock.autoAdvance = false
+        rule.setContent { PersonaTheme(reduceMotion = true) {
+            ChatScreen(main, fixture.chats, fixture.sender, fixture.interactions, fixture.sessions, {},
+                chrome = ChatChromeBindings(tasks = fixture.tasks), renderStyle = ChatRenderStyle.Assistant, showTopBar = false)
+        } }
+        settle()
+        rule.onNodeWithTag("assistant-entry-pending").performClick(); settle()
+        rule.onNodeWithText("Follow recommendation").assertIsDisplayed()
+        rule.onNodeWithText("Finish now").assertDoesNotExist()
+        rule.onNodeWithContentDescription("More").performClick(); settle()
+        rule.onNodeWithText("Open").assertIsDisplayed()
+        rule.onNodeWithText("Finish now").performClick(); settle()
+        assertEquals(listOf(ownerDecision.id to true), fixture.patches)
+        assertTrue(fixture.accepted.isEmpty())
+    }
+
+    @Test @Config(qualifiers = "ja-w400dp-h900dp-xhdpi")
+    fun japaneseDecisionShowsNaturalFinishLabelAndStillFollowsTheCapturedRecommendation() {
+        val fixture = decisionFixture()
+        rule.mainClock.autoAdvance = false
+        rule.setContent { PersonaTheme(reduceMotion = true) {
+            ChatScreen(main, fixture.chats, fixture.sender, fixture.interactions, fixture.sessions, {},
+                chrome = ChatChromeBindings(tasks = fixture.tasks), renderStyle = ChatRenderStyle.Assistant, showTopBar = false)
+        } }
+        settle()
+        rule.onNodeWithTag("assistant-entry-pending").performClick(); settle()
+        rule.onNodeWithText("ここで完了").assertIsDisplayed()
+        rule.onNodeWithText("推奨に従う").performClick(); settle()
+        assertEquals(listOf(ownerDecision.id to ownerDecision.ask!!.askedAt), fixture.accepted)
+        assertTrue(fixture.patches.isEmpty())
+    }
+
+    @Test fun anAlreadyCompletedDoneConclusionRetainsTheOriginalAcceptanceAction() = completedConclusion("done")
+    @Test fun anAlreadyCompletedCannotConclusionRetainsTheOriginalAcknowledgementAction() = completedConclusion("cannot")
+
+    private fun completedConclusion(outcome: String) {
+        val fixture = Fixture()
+        val ask = TodoAsk(outcome = outcome, verdict = "Please acknowledge the completed conclusion.", askedAt = "2026-11-01T09:00:00Z")
+        fixture.returnedTodos = listOf(todoRows.first().copy(ask = ask, doneAt = "2026-11-01T09:00:00Z"))
+        fixture.tasks.reloadTodos()
+        rule.mainClock.autoAdvance = false
+        rule.setContent { PersonaTheme(reduceMotion = true) {
+            ChatScreen(main, fixture.chats, fixture.sender, fixture.interactions, fixture.sessions, {},
+                chrome = ChatChromeBindings(tasks = fixture.tasks), renderStyle = ChatRenderStyle.Assistant, showTopBar = false)
+        } }
+        settle()
+        rule.onNodeWithTag("assistant-entry-pending").performClick(); settle()
+        rule.onNodeWithTag("assistant-review-todo:task-a").performScrollTo().performClick(); settle()
+        rule.mainClock.advanceTimeBy(1_500); settle()
+        rule.onNode(hasText(ask.verdict) and hasAnyAncestor(isDialog())).assertIsDisplayed()
+        rule.onNodeWithText("Finish now").assertDoesNotExist()
+        rule.onNodeWithTag("assistant-accept-task-a").performClick(); settle()
+        assertEquals(listOf("task-a" to ask.askedAt), fixture.accepted)
+        assertTrue(fixture.patches.isEmpty())
     }
 
     @Test fun anOwnerAskAppearsOnceAndReviewOpensTheRealAcceptanceAction() {

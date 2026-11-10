@@ -13,6 +13,9 @@ struct PersonaApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                #if DEBUG && os(iOS)
+                .modifier(TreeSwapFlip()) // `-swapTreeAway YES` (#2836)
+                #endif
                 .environment(model)
                 .task(id: model.fleetLook) { LiveActivityController.shared.look(model.fleetLook) { model.fleetFaces } }
                 .onOpenURL { url in
@@ -23,6 +26,7 @@ struct PersonaApp: App {
                         if let key = model.resolve(path: link.machine + "/" + link.session) { model.open(key) }
                         return
                     }
+                    if RecordingLink.matches(url) { MeetingRecorder.openRecordings(); return } // the recording's activity
                     #endif
                     if let link = ExtensionSystemLink(url: url) { model.openExtension(link); return }
                     if SentSettingsLink.matches(url) { model.openSentRecords(); return }
@@ -140,6 +144,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         }
         // `-openRecapsFresh YES`: no away recap closed yet, so the newest shows open again (RecapInFlowTests).
         if d.bool(forKey: "openRecapsFresh") { d.removeObject(forKey: "closedRecaps") }
+        // `-openDraftsFresh YES`: nothing left typed in any chat's box from an earlier run (SelectTextTests read a copy by
+        // pasting it there; a long one left behind makes the box tall and moves the chat, #603).
+        if d.bool(forKey: "openDraftsFresh") { AppModel.shared.drafts = [:] }
         // `-openScreenFresh YES`: no Mac's Screen Sharing sign-in remembered, One-Tap Unlock off (ScreenPasswordTests, #1322).
         if d.bool(forKey: "openScreenFresh") {
             ScreenCredentials.forgetAll()
@@ -228,6 +235,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let automation = false
         #endif
         PhoneRecordingReceiver.shared.start()
+        #if DEBUG
+        RecordingSamples.showMeetingIfAsked() // `-showMeetingSample recording|paused|interrupted|minutes|pending`
+        #endif
         WatchSync.shared.activate()
         AppModel.shared.start()
         LiveActivityController.shared.start()
@@ -323,6 +333,20 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
+        #if os(iOS)
+        // "Recording paused" (MeetingRecorder.notifyPaused): open Recordings; coming to the front resumes it.
+        if response.notification.request.content.userInfo[RecordingLink.notificationKey] != nil {
+            nonisolated(unsafe) let done = completionHandler
+            let opened = response.actionIdentifier != UNNotificationDismissActionIdentifier
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    if opened { MeetingRecorder.openRecordings() }
+                    done()
+                }
+            }
+            return
+        }
+        #endif
         guard let info = PushCrypto.notificationInfo(response.notification.request.content.userInfo) else {
             completionHandler()
             return

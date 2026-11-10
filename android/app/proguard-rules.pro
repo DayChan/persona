@@ -34,3 +34,11 @@
     public java.lang.Integer getStatus();
     public java.lang.String getCode();
 }
+
+# The SSH tunnel (docs/operations/network.md "Connecting to hub through SSH"): JSch makes its key exchanges, ciphers,
+# MACs, hashes, signatures and sign-in methods from class names in its config, and SshAlgorithms names Tink's X25519 and
+# Ed25519 there. The BouncyCastle, Kerberos and zlib ones are left out: they cannot load on Android or are never asked for,
+# and JSch leaves out an algorithm whose class it cannot make.
+-keep class com.jcraft.jsch.jce.** { <init>(); }
+-keep class com.jcraft.jsch.CipherNone, com.jcraft.jsch.DH*, com.jcraft.jsch.UserAuthNone, com.jcraft.jsch.UserAuthPublicKey { <init>(); }
+-keep class persona.core.hub.tunnel.TinkX25519, persona.core.hub.tunnel.TinkEd25519 { <init>(); }

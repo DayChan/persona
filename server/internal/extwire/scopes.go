@@ -21,6 +21,7 @@ var RouteScopes = map[string]string{
 	"PUT /api/v1/kb/{kind}/{id}":                         ScopeKBWrite,
 	"GET /api/v1/inbox":                                  ScopeInboxRead,
 	"GET /api/v1/inbox/done":                             ScopeInboxRead,
+	"GET /api/v1/inbox/done/days":                        ScopeInboxRead,
 	"GET /api/v1/inbox/{id}":                             ScopeInboxRead,
 	"GET /api/v1/inbox/mutes":                            ScopeInboxRead,
 	"GET /api/v1/inbox/policies":                         ScopeInboxRead,

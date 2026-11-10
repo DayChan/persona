@@ -76,7 +76,7 @@ struct PersonalAgentListView: View {
                     .task(id: paginationArmed) { if paginationArmed { await list.page?.next() } }
             }
             if loaded && sessions.isEmpty && error == nil {
-                let hints = sources.compactMap(\.setupHint)
+                let hints = sources.compactMap { $0.setupHint ?? $0.error }
                 if hints.isEmpty {
                     Text("No personal agent sessions").foregroundStyle(.secondary)
                 } else {
@@ -117,7 +117,8 @@ struct PersonalAgentListView: View {
         .task {
             for await _ in PersonalAgentSync.shared.changes() {
                 await load() // prefs/source status and changed credentials follow the hub; an unchanged row baseline is reused
-                list.page?.invalidate()
+                // a delta only updates rows already shown, so an empty page (a source that started answering) reads afresh
+                if list.page?.rows.isEmpty == true { await list.page?.reload() } else { list.page?.invalidate() }
             }
         }
     }

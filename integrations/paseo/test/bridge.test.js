@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { startFakeNode, until } from '../../runtime-sdk/testing/fake-node.js'
-import { createPaseoBridge, uuidOf } from '../lib/bridge.js'
+import { createPaseoBridge, TIMELINES_MAX, uuidOf } from '../lib/bridge.js'
 import { PaseoClient } from '../lib/paseo.js'
 import { agentSnapshot, entry, startFakePaseo } from './fake-paseo.js'
 
@@ -125,6 +125,43 @@ test("an agent's timeline as items, its live text, and what it writes next while
   await until('the subscription released', () => fake.requestsOf('subscription.release.request').length > 0)
 })
 
+test('whole timelines are kept for the watched agents and the most recently read ones only', async (t) => {
+  const many = Array.from({ length: 40 }, (_, i) => agentSnapshot({ provider: 'my-codex', cwd: '/tmp', title: `T${i}`, status: 'idle' }))
+  const base = Object.values(agents()).map((agent) => ({ agent, project: PROJECT }))
+  const { fake, node, bridge } = await setup(t, { agents: [...base, ...many.map((agent) => ({ agent, project: PROJECT }))] })
+  for (const [i, x] of many.entries()) {
+    fake.setTimeline(x.id, [entry(1, { type: 'user_message', text: `question ${i}`, messageId: `u${i}` }), entry(2, { type: 'assistant_message', text: `answer ${i}` })])
+  }
+  const sid = (x) => `paseo-${x.id}`
+  const reads = (x) => fake.requestsOf('fetch_agent_timeline_request').filter((r) => r.agentId === x.id && r.limit === 0).length
+  const kept = bridge.state.timelines
+  const [watched, ...others] = many
+  const first = await call(node, 'session.items', { session_id: sid(watched), turns: 3 })
+  await call(node, 'session.watch', { session_id: sid(watched), since_seq: 0 })
+  const pages = []
+  for (const x of others) pages.push(await call(node, 'session.items', { session_id: sid(x), turns: 3 }))
+  assert.ok(kept.size <= TIMELINES_MAX, `${kept.size} whole timelines kept after reading ${many.length} agents`)
+  assert.ok(kept.has(watched.id), "the watched agent's is kept, though read first")
+  assert.ok(!kept.has(others[0].id) && kept.has(others.at(-1).id), 'the least recently read go first')
+
+  // A read from the cache counts as recent: the next one to go is the one after it.
+  const oldest = others.find((x) => kept.has(x.id))
+  const next = others[others.indexOf(oldest) + 1]
+  const before = reads(oldest)
+  await call(node, 'session.items', { session_id: sid(oldest), turns: 3 })
+  assert.equal(reads(oldest), before, 'read from the cache')
+  const again = await call(node, 'session.items', { session_id: sid(others[0]), turns: 3 })
+  assert.deepEqual(again, pages[0], 'one that went is read from Paseo again, the same')
+  assert.ok(kept.has(oldest.id) && !kept.has(next.id), 'the one read from the cache stays; the next least recently read went')
+  assert.ok(kept.size <= TIMELINES_MAX)
+
+  // The watched session pages from its kept timeline, as before.
+  const watchedReads = reads(watched)
+  assert.deepEqual(await call(node, 'session.items', { session_id: sid(watched), turns: 3 }), first)
+  assert.equal(reads(watched), watchedReads, 'not read from Paseo again')
+  assert.deepEqual(first.items.map((i) => i.text), ['question 0', 'answer 0'])
+})
+
 test('a rewind in Paseo goes to the phone as another history, even when the timeline got shorter', async (t) => {
   const { fake, node, a } = await setup(t)
   const id = `paseo-${a.codex.id}`
@@ -237,7 +274,10 @@ test('interrupt, rename, permission mode and effort go to the agent', async (t) 
   assert.deepEqual([fake.requestsOf('set_agent_mode_request')[0].modeId, fake.requestsOf('set_agent_thinking_request')[0].thinkingOptionId], ['plan', 'high'])
   await assert.rejects(call(node, 'session.modes', { session_id: SID, effort: 'xhigh' }), /没有「xhigh」/)
   await assert.rejects(call(node, 'session.modes', { session_id: SID, permission_mode: 'auto' }), /没有「auto」模式/)
-  await assert.rejects(call(node, 'session.modes', { session_id: `paseo-${a.codex.id}`, permission_mode: 'plan' }), /没有 Claude Code 的权限模式/)
+  await assert.rejects(call(node, 'session.modes', { session_id: `paseo-${a.codex.id}`, permission_mode: 'plan' }), /没有这个权限模式/)
+  // Codex: Persona's bypassPermissions is Paseo's full-access; the other modes are Paseo's own (left alone).
+  await call(node, 'session.modes', { session_id: `paseo-${a.codex.id}`, permission_mode: 'bypassPermissions' })
+  assert.equal(fake.requestsOf('set_agent_mode_request').at(-1).modeId, 'full-access')
 })
 
 test('a new session: an agent of the launcher\'s provider, with the form\'s choices, under an id kept on it', async (t) => {
@@ -257,6 +297,15 @@ test('a new session: an agent of the launcher\'s provider, with the form\'s choi
   await assert.rejects(call(node, 'session.start', { cwd: '/nonexistent/dir', prompt: 'x' }), /没有这个目录/)
   fake.handlers['agent.create.request'] = () => ({ payload: { agent: null, error: 'Provider unavailable' } })
   await assert.rejects(call(node, 'session.start', { cwd: '/tmp', prompt: 'x', launcher: 'grok' }), /Paseo 没能新建：Provider unavailable/)
+})
+
+test("a new Codex session: bypassPermissions starts it with Paseo's full-access mode; the other modes are left alone", async (t) => {
+  const { fake, node } = await setup(t)
+  const start = (permission_mode) => call(node, 'session.start', { cwd: '/tmp', prompt: 'x', launcher: 'my-codex', permission_mode })
+    .then(() => fake.requestsOf('agent.create.request').at(-1).config)
+  assert.equal((await start('bypassPermissions')).modeId, 'full-access')
+  assert.equal((await start('auto')).modeId, undefined)
+  assert.equal((await start('default')).modeId, undefined)
 })
 
 test("完成未看 follows Paseo: seen there, seen here; a new turn to look at, unread again", async (t) => {

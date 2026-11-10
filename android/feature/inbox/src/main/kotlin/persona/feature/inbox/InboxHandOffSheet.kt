@@ -48,7 +48,33 @@ internal fun InboxHandOffSheet(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val attempt = remember(itemId) { HandOffAttempt() }
-    val targets = remember(snapshot.sessions, snapshot.machines) { handOffTargets(snapshot.sessions.map { it.session }, snapshot.machines) }
+    val live = remember(snapshot.sessions, snapshot.machines) { handOffTargets(snapshot.sessions.map { it.session }, snapshot.machines, limit = Int.MAX_VALUE) }
+    // Where this item's source went last time (#2121): preselected once the memory is read, and marked Last time.
+    val memory by repository.handOffMemory.collectAsStateWithLifecycle(initialValue = null)
+    val memoryKey = remember(record.source, record.mutes) { InboxHandOffMemory.key(record.source, record.mutes) }
+    var preselected by rememberSaveable(itemId) { mutableStateOf(false) }
+    var lastKey by rememberSaveable(itemId) { mutableStateOf<String?>(null) }
+    var lastPersona by rememberSaveable(itemId) { mutableStateOf(false) }
+    var lastGone by rememberSaveable(itemId) { mutableStateOf(false) }
+    LaunchedEffect(memory, live) {
+        val entries = memory ?: return@LaunchedEffect
+        if (preselected) return@LaunchedEffect
+        preselected = true
+        val r = memoryKey?.let { InboxHandOffMemory.resolve(InboxHandOffMemory.recall(entries, it)) { path -> live.any { t -> t.key == path } } }
+            ?: return@LaunchedEffect
+        val agent = r.target.removePrefix("agent:").takeIf { r.target.startsWith("agent:") }
+        targetKey = agent
+        if (!doneChosen) markDone = agent != null
+        lastKey = agent?.takeIf { r.lastTime }
+        lastPersona = r.lastTime && agent == null
+        lastGone = r.gone
+    }
+    // The 8 latest, and the one this source went to last time even when it is older than those.
+    val targets = remember(live, lastKey) {
+        val latest = live.take(8)
+        val last = live.firstOrNull { it.key == lastKey }
+        if (last != null && last !in latest) listOf(last) + latest else latest
+    }
     val target = targets.firstOrNull { it.key == targetKey }
     val palette = PersonaTheme.palette
     val res = LocalResources.current
@@ -56,6 +82,7 @@ internal fun InboxHandOffSheet(
     fun selectTarget(next: HandOffTarget?) {
         if (busy) return
         targetKey = next?.key
+        lastGone = false
         if (!doneChosen) markDone = next != null
     }
     fun send() {
@@ -68,6 +95,10 @@ internal fun InboxHandOffSheet(
                 val operation = attempt.operationId(text, target)
                 val session = repository.handOff(InboxHandOffRequest(itemId, text, target?.machineId, target?.sessionId, operation))
                 attempt.done()
+                memoryKey?.let { key ->
+                    val entries = InboxHandOffMemory.remember(memory.orEmpty(), key, target?.let(InboxHandOffMemory::agent) ?: InboxHandOffMemory.MAIN)
+                    try { repository.saveHandOffMemory(entries) } catch (e: CancellationException) { throw e } catch (_: Exception) {}
+                }
                 if (markDone && !record.item.isDone) {
                     try { repository.setDone(itemId, true) }
                     catch (e: CancellationException) { throw e }
@@ -98,17 +129,21 @@ internal fun InboxHandOffSheet(
             val rows = targets.size + 1
             JGroupItem(GroupPosition.of(0, rows)) {
                 JRow("Persona", subtitle = stringResource(R.string.inbox_handoff_main_chat), leadingIcon = PhIcons.Sparkle, onClick = { selectTarget(null) }, chevron = false,
-                    trailing = { JRadio(target == null, null) })
+                    trailing = { LastTimeRadio(target == null, lastPersona) })
             }
             targets.forEachIndexed { index, agent ->
                 JGroupItem(GroupPosition.of(index + 1, rows)) {
                     JRow(agent.title, subtitle = agent.machine, leadingIcon = PhIcons.Robot, onClick = { selectTarget(agent) },
-                        chevron = false, trailing = { JRadio(target == agent, null) })
+                        chevron = false, trailing = { LastTimeRadio(target == agent, agent.key == lastKey) })
                 }
             }
             if (targets.isEmpty()) {
                 Spacer(Modifier.height(Tokens.Space.s))
                 Text(stringResource(R.string.inbox_handoff_no_agents), style = PersonaTheme.type.caption, color = palette.ink3)
+            }
+            if (lastGone) {
+                Spacer(Modifier.height(Tokens.Space.s))
+                Text(stringResource(R.string.inbox_handoff_last_gone), style = PersonaTheme.type.caption, color = palette.status(Status.NeedsYou).text)
             }
             if (!record.item.isDone) {
                 Spacer(Modifier.height(Tokens.Space.l))
@@ -121,5 +156,14 @@ internal fun InboxHandOffSheet(
             Spacer(Modifier.height(Tokens.Space.xl))
             JButton(stringResource(R.string.inbox_send), ::send, Modifier.fillMaxWidth(), icon = PhIcons.PaperPlaneTilt, loading = busy, loadingText = stringResource(R.string.inbox_handoff_sending))
         }
+    }
+}
+
+/** The row's radio, with "Last time" before it on the target this item's source went to last time (#2121). */
+@Composable
+private fun LastTimeRadio(selected: Boolean, last: Boolean) {
+    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Space.s)) {
+        if (last) JTag(stringResource(R.string.inbox_handoff_last_time), Tone.Neutral)
+        JRadio(selected, null)
     }
 }

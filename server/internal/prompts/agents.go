@@ -3,7 +3,8 @@ package prompts
 // AgentTriage is the system prompt that reads a stopped agent's last reply and says where its work stands
 // (agents/triage, docs/assistant/agent-work.md).
 type AgentTriage struct {
-	Owner string // "" is the user
+	Owner    string // "" is the user
+	Language string // the line's language when it isn't Chinese (answerLanguage), "" for Chinese
 }
 
 func RenderAgentTriage(t AgentTriage) string { return render("agents/triage", t) }

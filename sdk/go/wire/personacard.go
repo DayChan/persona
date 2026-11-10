@@ -12,7 +12,7 @@ import (
 //
 //   - A card the apps cannot draw is nil, and stays the code block it is: a stat without value; a stacked_bar without
 //     parts (segments and rest), with a part below 0 or parts adding up to 0; a line with fewer than two points; a bar
-//     without points.
+//     without points; a ring with fewer than two parts (after the remainder), with a part below 0 or parts adding up to 0.
 //   - One section. A card's title is the section's title (a stat's is its metric's label instead); a subtitle is a
 //     secondary text first.
 //   - Numbers are written grouped, with at most one decimal (2,250 · 7.5), the unit after a space.
@@ -21,6 +21,10 @@ import (
 //     series per part (more than four: the first three and "other", the rest's sum; the rest part's tone neutral), each one
 //     point labelled title or "total"; then a row per part {title: label, subtitle: note, value}. The unit is total's,
 //     else the card's.
+//   - ring (one day's total and its parts): a donut chart, one series of a point per part (more than eight: the first
+//     seven and "other", the rest's sum), center: the total written with its unit (left out past 20 characters), detail:
+//     note; then a row per part. When total is more than the parts' sum, a "remaining" part (total less the sum) comes
+//     last. The unit is total's, else the card's. A stacked_bar is for comparing (days, people), a ring for one whole.
 //   - line, bar: metric {label: the "current" label, value} when the card has a value; a chart of that kind with one series of the
 //     points (the last 120), detail: note.
 
@@ -38,6 +42,19 @@ func (c PersonaCard) View() *View {
 		}
 	case PersonaCardKindStackedBar:
 		if len(parts) == 0 || sum <= 0 {
+			return nil
+		}
+		for _, p := range parts {
+			if p.Value < 0 {
+				return nil
+			}
+		}
+	case PersonaCardKindRing:
+		if c.Total != nil && c.Total.Value > sum {
+			parts = append(parts, CardPart{Label: "剩余", Value: c.Total.Value - sum})
+			sum = c.Total.Value
+		}
+		if len(parts) < 2 || sum <= 0 {
 			return nil
 		}
 		for _, p := range parts {
@@ -91,6 +108,31 @@ func (c PersonaCard) View() *View {
 			series = append(series, ChartSeries{Name: "其他", Tone: ToneNeutral, Points: []ChartPoint{{Label: label, Value: other, Display: amount(other, unit)}}})
 		}
 		s.Items = append(s.Items, Component{Type: ComponentChart, Kind: ChartKindBar, Stacked: true, Unit: unit, Series: series})
+		for _, p := range parts {
+			s.Items = append(s.Items, Component{Type: ComponentRow, Title: p.Label, Subtitle: p.Note, Value: amount(p.Value, unit)})
+		}
+	case PersonaCardKindRing:
+		unit, total := c.Unit, sum
+		if c.Total != nil {
+			unit, total = or(c.Total.Unit, c.Unit), c.Total.Value
+		}
+		shown := parts
+		if len(parts) > 8 {
+			other := 0.0
+			for _, p := range parts[7:] {
+				other += p.Value
+			}
+			shown = append(append([]CardPart{}, parts[:7]...), CardPart{Label: "其他", Value: other})
+		}
+		points := make([]ChartPoint, 0, len(shown))
+		for _, p := range shown {
+			points = append(points, ChartPoint{Label: p.Label, Value: p.Value, Display: amount(p.Value, unit)})
+		}
+		center := amount(total, unit)
+		if len([]rune(center)) > 20 {
+			center = ""
+		}
+		s.Items = append(s.Items, Component{Type: ComponentChart, Kind: ChartKindDonut, Unit: unit, Detail: c.Note, Center: center, Series: []ChartSeries{{Points: points}}})
 		for _, p := range parts {
 			s.Items = append(s.Items, Component{Type: ComponentRow, Title: p.Label, Subtitle: p.Note, Value: amount(p.Value, unit)})
 		}

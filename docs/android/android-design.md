@@ -172,6 +172,7 @@ Components live in `Agents.kt` in `core:designsystem` (`MachineChip`, `AgentTree
 
 - Only Assistant and Agents are primary destinations, selected above the page through `HomeNavigation` in all three styles (#2589).
   The avatar opens one shared history sidebar from either page; its bottom gear opens Settings. Inbox, To-dos, Computers and extension pages are secondary sidebar destinations.
+  In a regular window the same sidebar is a column beside the Assistant page instead of a drawer (section 3.1).
 - Each tab has its own back stack and badge. Visited tabs stay composed: switching away only stops placement (no drawing or touch), and disables back handling for that tab
   (`rememberNavigationEventDispatcherOwner(enabled = false)`). Switching back leaves the page exactly as it was, with no recreation, reload, empty-state flash or spinner.
 - The top switcher belongs only to the two primary roots (`NavEntryDecorator`). Secondary pages cover it and carry Back instead.
@@ -198,30 +199,51 @@ Components live in `Agents.kt` in `core:designsystem` (`MachineChip`, `AgentTree
 
 Layout depends only on the window, not the device model: the shell uses material3-adaptive's `currentWindowAdaptiveInfo()` (WindowSizeClass plus posture from Jetpack WindowManager's FoldingFeature)
 to calculate a `WindowLayout` for the design system; pages do not measure their own width. Split-screen, freeform windows, rotation, folding and unfolding only recompose
-(`MainActivity` declares `configChanges`, without recreating the Activity); the current tab, open session, scroll position and input draft survive.
+(`MainActivity` declares `configChanges`, without recreating the Activity); the current tab, open session, open settings page, scroll position and input draft survive.
 
-| Width | Navigation | List and detail |
+An open foldable and a tablet match the open iPhone Duo and the iPad (`docs/apple/ios.md`, "iPhone Duo" and "iPad"; #2951). The Duo splits on its
+inner screen, about 669 × 951 pt, and stays compact on its outer one, about 466 × 678 pt. Android calls a window **regular** when it is at least
+WindowSizeClass medium both ways, **600dp wide and 480dp tall** (`isRegularWindow`, `app/…/navigation/RegularWindow.kt`). That covers an open foldable and a tablet either way up,
+and the Duo's inner screen; a phone, folded or not, is narrower than 600dp upright and lower than 480dp on its side, so it keeps the compact layout in both orientations.
+
+| Window | Navigation | List and detail |
 | --- | --- | --- |
-| compact (phone, folded foldable) | Assistant / Agents at the top, shared sidebar | One pane |
-| medium (portrait tablet, unfolded portrait foldable) | The same top switcher and sidebar | Two panes at width ≥ 760dp, otherwise one |
-| expanded (landscape tablet, unfolded landscape foldable) | The same top switcher and sidebar | Two panes |
+| compact (phone, folded foldable; a phone on its side too) | Assistant / Agents at the top; the shared sidebar is a drawer | One pane; a phone on its side at least 760dp wide has two, as before |
+| regular (≥ 600dp wide and ≥ 480dp tall: open foldable, tablet) | The same top switcher; the shared sidebar is a column beside the Assistant page | Two panes: Agents, Inbox and Settings |
 
-- Window width changes the list-detail presentation, never the primary navigation destinations. The old expanded rail is removed.
+- Window width changes the list-detail presentation and where the sidebar sits, never the primary navigation destinations: Assistant and Agents stay the only two,
+  Settings still opens from the sidebar, and there is no rail and no layout setting (`docs/SUPER_RULES.md`, rule 3). The old expanded rail is removed.
+- **Sidebar column** (`JSidebarColumn`, `besideAssistant` in `Root.kt`): in a regular window the shared sidebar stands to the left of the Assistant page, as the open Duo's and the iPad's
+  sidebar column does, and the Assistant page draws no list of its own. The avatar at the page's top left hides and shows it (it slides; the page widens), like the Duo's sidebar button;
+  it starts shown and keeps that choice through rotation and folding (`rememberSaveable`). Its width is a list's (`sidebarSplit`: 38% of the window, 280–380dp, at most the phone drawer's width), on the same surface as the drawer
+  with a hairline toward the page. It lives inside the Assistant root page, so a page opened over the Assistant page (Inbox, To-dos, Computers, an extension page, the knowledge base) slides in over
+  the column and keeps the whole width: Inbox keeps its own list beside its detail, which a third column would not leave room for on a foldable. On Agents the left column is the Agents list,
+  as in the Duo's Agents tab; the avatar there still opens the sidebar as the drawer, so Settings stays one sidebar away from both pages. Folding turns the column back into the drawer (closed)
+  and unfolding back into the column; unfolding with the drawer open over the Assistant page shows the column instead. The drawer and the column keep separate saveable state (`shared-sidebar`, `shared-sidebar-column`):
+  the Assistant page stays composed behind Agents, so both can be composed at once.
 - Two panes use Navigation 3's list-detail scene (`rememberListDetailSceneStrategy`); the shell centrally assigns list and detail roles (`paneMetadata` in `Root.kt`):
   Agents' "computer → space → session" tree | chat (terminal takeover also in the right pane); Inbox list | Lark conversation / email; settings categories | settings subpage (all settings subpages therefore use navigation).
-  Persona's main chat does not split. An unselected right pane shows a placeholder.
+  Persona's main chat does not split. An unselected right pane shows a placeholder. A detail with no list under it (Computers or an extension page opened from the sidebar over the Assistant page)
+  is a page of its own: the scene finds one pane to show and leaves it to the single-pane scene.
+- **Settings** opens in its sheet (`JSettingsSheet`, which fills the window), and in a regular window the sheet holds its own list-detail scene:
+  the list of settings with Close on the left, the opened page on the right, its row marked; the divider can be dragged but is not kept. On a phone it is one stack, as before.
+- Agents and Inbox split in every regular window, from 600dp, where they used to wait for 760dp (an open foldable upright was one pane). A phone on its side at least 760dp wide keeps its two panes.
 - Panes share the shell's single background layer (section 3), without separate backing panels.
-  Only an 8dp gap (`horizontalPartitionSpacerSize`) separates panes, with no divider line or second backing layer; right-pane placeholders and the wide-screen Persona chat list draw the same background.
+  Only an 8dp gap (`horizontalPartitionSpacerSize`) separates panes, with no divider line or second backing layer; right-pane placeholders draw the same background.
 - In two-pane mode, the item currently displayed on the right is highlighted in its card on the left (`LocalDetailKey` + the component's `selected`), calculated by the shell from the route (`detailOf`). Left-pane taps, deep links, notifications, debug entries and back all stay synchronized; switching between one and two panes uses the same back stack and retains selection.
   Back in two-pane mode first closes the right detail, returning to "list + placeholder"; another back returns to Persona. The list-detail scene must use `PopUntilContentChange`:
   the default `PopUntilScaffoldValueChange` waits for the pane layout to change, but after closing details the placeholder remains and the layout is unchanged, so it empties the entire back stack and one back exits the App (fixed 2026-11-01).
 - The divider between panes is draggable (`PaneDivider`, `app/…/ui/PaneDividers.kt`): the left pane tracks the finger, gives a light haptic when crossing a flat fold, and snaps within 28dp on release; minimum widths are 280dp left and 320dp right; before any drag the left is about 38% (320–420dp, leaving 400dp on the right if possible); each tab remembers a width ratio; dragging all the way left hides the Agents list while something is open beside it. A separating fold fixes the split with no handle. Details in `docs/android/android.md` ("Wide two panes").
 - The Agents space page is detail (`SpaceRoute`): on wide screens it opens to the list's right rather than covering both panes.
 - In landscape, the shell leaves space for left/right safe areas (camera cutout, side navigation bar); the background still fills the window.
-- Reading width: `pagePadding` includes `LocalReadingInset`; content in wide panes is centered and capped at `ReadingWidth` (760dp), for chats, long articles and lists alike;
-  bottom overlays such as input fields and key bars share that limit. Images and tables lay out within the content width.
-- Foldable book posture (vertical half-fold): the hinge separates panes, and content and buttons do not sit over it (the list-detail scene handles it through `HingePolicy`).
-- Tabletop posture (horizontal half-fold): pages with bottom overlays (chat, terminal) place content above the hinge and the input field / key bar below (`PageFrame`).
+- Reading width: `pagePadding` includes `LocalReadingInset`; content in wide panes is centered and capped at `ReadingWidth` (760dp), for chats, the Assistant home, long articles and lists alike;
+  bottom overlays such as input fields and key bars share that limit. Images and tables lay out within the content width. This is the Duo's 760pt readable width.
+- Foldable book posture (vertical half-fold): the hinge separates panes, and content and buttons do not sit over it (the list-detail scene handles it through `HingePolicy`);
+  the sidebar column ends at the fold and the Assistant page starts past it (`sidebarSplit`), as the half-folded Duo keeps both columns clear of its crease.
+- Tabletop posture (horizontal half-fold): pages with bottom overlays (chat, terminal) place content above the hinge and the input field / key bar below (`PageFrame`); the sidebar column runs the full height.
+- Not taken from iOS, because Android has no matching system behavior: the Duo's vertical side bars and the shell's side rail (`ShellSideRail`; the system moves iOS bars to the screen's edge on the outer screen and inner landscape,
+  Android never does), the cross-fade between pages under those bars, and the iPad's page-sized Settings card (`presentationSizing(.page)`): Android's sheet spans the window like the Duo's.
+  The Agents page gets no sidebar column: the Duo's Agents tab has none either, and on an open foldable a third column would take the room the Agents list and its chat need.
 - Keyboard, mouse, trackpad: session, message and settings-row long-press menus also respond to right-click; hover has feedback; lists support the wheel; the software keyboard does not open by itself on launch.
 - Glass blurs a larger area on large screens (each pane's top bar and scroll edges); performance has not been measured.
 

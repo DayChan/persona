@@ -20,6 +20,7 @@ import { BASE, stripBase } from "./base";
 import { contextBody } from "./context-body";
 import { otherManager } from "./manager-choice";
 import { localhostLink, PREVIEW_FEATURE } from "./preview";
+import type { PortLink } from "./port-links";
 import { getSession, getState, hubHas, larkOn, onHubEvent } from "./store";
 import { mediaMatches, NARROW } from "./viewport";
 
@@ -193,15 +194,34 @@ export function opensInApp(url: string): boolean {
  */
 export function previewTarget(url: string): { mid: string; sid: string; cwd: string; port: number; path: string } | null {
   if (typeof location === "undefined" || !hubHas(getState().features, PREVIEW_FEATURE)) return null;
-  const at = localhostLink(url);
-  if (!at) return null;
   const r = parseRoute(stripBase(location.pathname), location.search.replace(/^\?/, ""));
   if (r.name !== "session" && r.name !== "tab") return null;
   const mid = r.mid;
+  const at = localhostLink(url, machineHostnames(mid));
+  if (!at) return null;
+  // This hub's own pages (a hub on the agent's computer, this page opened at localhost) open as hub pages, not in a preview.
+  const u = parse(url);
+  if (u && hubPage(u, pageOrigin(), BASE)) return null;
   const sid = r.name === "session" ? r.sid : r.sid ?? "";
   const s = sid ? getSession(mid, sid) : undefined;
   if (!s?.cwd) return null;
   return { mid, sid, cwd: s.cwd, ...at };
+}
+
+/** The names a computer goes by in links to its ports: its host name, when the hub knows it. */
+export function machineHostnames(mid: string): string[] {
+  const h = getState().machines.find((m) => m.id === mid)?.hostname;
+  return h ? [h] : [];
+}
+
+/** Whether a port link of an agent's computer is one of this hub's own pages (the hub runs on that computer and the
+ *  answer links its /s/…, /todos or /persona/… page; iOS isHubPage, #2696): it is no dev server, so it gets no chip. */
+export function isHubPortLink(l: PortLink, hostnames: readonly string[]): boolean {
+  const scheme = l.secure ? "https" : "http";
+  return ["127.0.0.1", "localhost", ...hostnames].some((host) => {
+    const u = parse(`${scheme}://${host}:${l.port}${l.path}`);
+    return !!u && !!hubPage(u, pageOrigin(), BASE);
+  });
 }
 
 /** The href to put on an <a>: persona://session links become the in-app path, so ⌘-click opens a tab of that page. */

@@ -10,10 +10,14 @@ import {
 } from "../../lib/readiness";
 import { navigate } from "../../lib/router";
 import { getState, useStore } from "../../lib/store";
-import { AddComputer, type PendingComputer } from "../machines/AddComputer";
+import type { PendingComputer } from "../machines/AddComputer";
+import { lazyDialog } from "../LazyOverlay";
 import { Button, Collapse, copyText, cx, Dialog, IconButton } from "../../ui/atoms";
 import { Icon, type IconName } from "../../ui/icons";
 import { t } from "../../i18n";
+
+// the machines page's dialog loads on its first open, not with the main conversation
+const AddComputer = lazyDialog(() => import("../machines/AddComputer").then((m) => m.AddComputer));
 
 // ── the gate ────────────────────────────────────────────
 

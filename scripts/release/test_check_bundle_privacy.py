@@ -3,6 +3,7 @@ import hashlib
 import io
 import ipaddress
 from pathlib import Path
+import plistlib
 import struct
 import subprocess
 import sys
@@ -576,6 +577,168 @@ class MacBundleTests(unittest.TestCase):
         fat = b"\xca\xfe\xba\xbe" + b"\0" * 60 + b"second slice " + value.encode()
         code, output = self.scan({"MacOS/Persona": fat}, (value,))
         self.assertNotEqual(code, 0, output)
+
+
+class BinaryPlistTests(unittest.TestCase):
+    address = str(ipaddress.ip_address(0x0A01010B))
+
+    @staticmethod
+    def marker(kind, length):
+        return bytes([kind << 4 | length]) if length < 15 else bytes([kind << 4 | 15, 0x12]) + struct.pack(">I", length)
+
+    @classmethod
+    def string(cls, text, utf16=False):
+        data = text.encode("utf-16be" if utf16 else "ascii")
+        return cls.marker(6 if utf16 else 5, len(data) // (2 if utf16 else 1)) + data
+
+    @staticmethod
+    def plist(objects, width=2, *, before=b"", padding=b"", offset_padding=b"", tail=b""):
+        data = bytearray(b"bplist00" + before)
+        offsets = []
+        for obj in objects:
+            offsets.append(len(data))
+            data.extend(obj + b"\0")  # Separate object text, rather than creating one enormous printable field.
+        data.extend(padding)
+        table = len(data)
+        data.extend(b"".join(struct.pack(">I", offset) for offset in offsets) + offset_padding)
+        return bytes(data) + struct.pack(">6xBBQQQ", 4, width, len(objects), 0, table) + tail
+
+    @classmethod
+    def reference_objects(cls, text, kind=10, width=2):
+        raw = text.encode()
+        raw += b"\0" * (-len(raw) % width)
+        refs = [int.from_bytes(raw[i:i + width], "big") for i in range(0, len(raw), width)]
+        keys = b"".join(i.to_bytes(width, "big") for i in range(1, len(refs) + 1)) if kind == 13 else b""
+        root = cls.marker(kind, len(refs)) + keys + raw
+        # Unique string objects make dictionary keys valid too; the large indexes are deliberate, not text values.
+        return [root] + [cls.string("item%d" % i) for i in range(1, max(refs) + 1)]
+
+    def scan(self, data, words=()):
+        with tempfile.TemporaryDirectory(prefix="bundle-privacy-plist-") as directory:
+            path = Path(directory) / "Localizable.strings"
+            path.write_bytes(data)
+            output = io.StringIO()
+            with patch.object(sys, "argv", ["check_bundle_privacy.py", directory]), \
+                    patch.object(cbp.pc, "module_paths", return_value=None), \
+                    patch.object(cbp.pc, "terms", return_value=(words, set())), \
+                    patch.object(cbp.persona_config, "load", return_value={}), redirect_stdout(output):
+                try:
+                    cbp.main()
+                except SystemExit as error:
+                    return error.code, output.getvalue()
+            return 0, output.getvalue()
+
+    def test_valid_reference_bytes_are_not_generic_addresses(self):
+        for kind in (10, 13):
+            for width in (1, 2):
+                for text in (self.address, EMAIL) if width == 1 else (self.address,):
+                    with self.subTest(kind=kind, width=width, length=len(text)):
+                        data = self.plist(self.reference_objects(text, kind, width), width)
+                        self.assertIsInstance(plistlib.loads(data), list if kind == 10 else dict)
+                        ranges, strings = cbp.plist_references(data)
+                        self.assertTrue(ranges)
+                        self.assertFalse(any(cbp.pc.problems(value, []) for value in strings))
+                        self.assertTrue(any(text.encode() in match.group() for match in cbp.PRINTABLE.finditer(data)))
+                        code, output = self.scan(data)
+                        self.assertEqual(code, 0, output)
+
+    def test_real_ascii_and_utf16_keys_and_values_still_fail(self):
+        for utf16 in (False, True):
+            for text, kind in ((self.address, "private IP"), (EMAIL, "email")):
+                for as_key in (False, True):
+                    with self.subTest(utf16=utf16, kind=kind, as_key=as_key):
+                        values = (text, "safe") if as_key else ("safe", text)
+                        data = self.plist([b"\xd1\x00\x01\x00\x02", *(self.string(v, utf16) for v in values)])
+                        self.assertTrue(cbp.plist_references(data)[0])
+                        code, output = self.scan(data)
+                        self.assertNotEqual(code, 0)
+                        self.assertIn(kind, output)
+                        self.assertNotIn(text, output)
+
+    def test_unreferenced_strings_and_data_are_not_hidden(self):
+        for text, kind in ((self.address, "private IP"), (EMAIL, "email")):
+            for obj in (self.string(text), self.string(text, True), self.marker(4, len(text)) + text.encode()):
+                with self.subTest(kind=kind, marker=obj[0]):
+                    objects = self.reference_objects(self.address) + [obj]
+                    data = self.plist(objects)
+                    self.assertTrue(cbp.plist_references(data)[0])
+                    code, output = self.scan(data)
+                    self.assertNotEqual(code, 0)
+                    self.assertIn(kind, output)
+                    self.assertNotIn(text, output)
+
+    def test_referenced_data_and_padding_and_trailing_bytes_still_fail(self):
+        for text, kind in ((self.address, "private IP"), (EMAIL, "email")):
+            raw = b"\0" + text.encode() + b"\0"
+            objects = self.reference_objects(self.address)
+            samples = [self.plist(objects, **{location: raw}) for location in
+                       ("before", "padding", "offset_padding", "tail")]
+            samples.append(self.plist([b"\xa1\x00\x01", self.marker(4, len(raw)) + raw]))
+            for index, data in enumerate(samples):
+                with self.subTest(kind=kind, location=index):
+                    code, output = self.scan(data)
+                    self.assertNotEqual(code, 0)
+                    self.assertIn(kind, output)
+                    self.assertNotIn(text, output)
+
+    def test_configured_values_still_match_reference_bytes_and_strings(self):
+        for text in (self.address, EMAIL, "private-placeholder"):
+            reference_data = tuple(self.plist(self.reference_objects(text, width=width), width=width)
+                                   for width in ((1, 2) if text == self.address else (1,)))
+            for data in (*reference_data, self.plist([self.string(text)]), self.plist([self.string(text, True)])):
+                with self.subTest(length=len(text), bytes=len(data)):
+                    code, output = self.scan(data, (text,))
+                    self.assertNotEqual(code, 0)
+                    self.assertIn("private value (%d chars)" % len(text), output)
+                    self.assertNotIn(text, output)
+
+    def test_malformed_references_and_objects_do_not_exclude_any_bytes(self):
+        objects = self.reference_objects(self.address)
+        # Keep the pseudo-address in valid-looking references while invalidating other parts of the structure.
+        samples = [self.plist(objects + [b"\xa1\xff\xff"]),  # out-of-range unreachable reference
+                   self.plist(objects + [b"\xa1" + len(objects).to_bytes(2, "big")]),  # unreachable self-cycle
+                   self.plist(objects + [b"\x7f"]),  # unsupported object
+                   self.plist(objects + [b"\x5f\x14"]),  # invalid extended length
+                   self.plist(objects + [b"\x5e"]),  # truncated object
+                   self.plist(objects + [b"\xd1\x00\x00\x00\x01"])]  # non-string dictionary key
+        original = self.plist(objects)
+        table = struct.unpack_from(">Q", original, len(original) - 8)[0]
+        for offset, replacement in ((len(original) - 26, b"\0"),  # bad offset width
+                                    (len(original) - 25, b"\0"),  # bad reference width
+                                    (len(original) - 16, struct.pack(">Q", len(objects))),  # bad root
+                                    (table + 4, struct.pack(">I", 8)),  # duplicate offsets
+                                    (table + 4, struct.pack(">I", 9)),  # overlapping objects
+                                    (table + 4, struct.pack(">I", table))):  # out-of-bounds offset
+            samples.append(original[:offset] + replacement + original[offset + len(replacement):])
+        samples.extend((original[:-1], original + b"trailing"))
+        for index, data in enumerate(samples):
+            with self.subTest(mutation=index):
+                self.assertEqual(cbp.plist_references(data)[0], [])
+                code, output = self.scan(data)
+                self.assertNotEqual(code, 0)
+                self.assertIn("private IP", output)
+                self.assertNotIn(self.address, output)
+
+    def test_malformed_plists_and_raw_data_do_not_hide_utf16_addresses(self):
+        for text, kind in ((self.address, "private IP"), (EMAIL, "email")):
+            raw = text.encode("utf-16be")
+            samples = (self.plist([b"\xa1\xff\xff", self.string(text, True)]),
+                       b"bplist00" + self.string(text, True),
+                       self.plist([b"\xa1\x00\x01", self.marker(4, len(raw)) + raw]),
+                       self.plist(self.reference_objects(self.address), padding=raw))
+            for index, data in enumerate(samples):
+                with self.subTest(kind=kind, location=index):
+                    code, output = self.scan(data)
+                    self.assertNotEqual(code, 0)
+                    self.assertIn(kind, output)
+                    self.assertNotIn(text, output)
+
+    def test_binary_plist_scanning_uses_the_supplied_snapshot(self):
+        with tempfile.TemporaryDirectory(prefix="bundle-privacy-plist-snapshot-") as directory:
+            path = Path(directory) / "Localizable.strings"
+            path.write_bytes(self.plist([self.string("safe")]))
+            snapshot = self.plist([self.string(self.address, True)])
+            self.assertTrue(any("private IP" in cbp.text_kinds(text, ()) for text in cbp.texts(str(path), snapshot)))
 
 
 class MachOSignatureTests(unittest.TestCase):

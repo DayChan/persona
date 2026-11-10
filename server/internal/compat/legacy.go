@@ -103,6 +103,10 @@ func LegacyRuntimePackage(name string) string {
 
 const NodeUpdateLock = ".jarvis-update.lock"
 
+// LauncherCheckDir is the temp directory prefix older nodes ran launcher health checks in; their transcripts stay
+// under Claude Code's projects for days after an upgrade.
+const LauncherCheckDir = "jarvis-check-"
+
 func LegacyURL(value string) string {
 	if strings.HasPrefix(value, "persona:") {
 		return "jarvis:" + strings.TrimPrefix(value, "persona:")

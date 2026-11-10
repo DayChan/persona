@@ -137,6 +137,51 @@ type KBRecordingInput struct {
 
 func RenderKBRecordingInput(in KBRecordingInput) string { return render("kb/recording_input", in) }
 
+// RenderKBMinutes is the system prompt for a meeting recording's minutes, or a part's notes (kb/minutes).
+func RenderKBMinutes(o KBOwner) string { return render("kb/minutes", o) }
+
+// RenderKBMinutesMerge is the system prompt merging the parts' notes of a long meeting into its minutes
+// (kb/minutes_merge).
+func RenderKBMinutesMerge(o KBOwner) string { return render("kb/minutes_merge", o) }
+
+// KBMinutesInput is a meeting recording to make minutes of (kb/minutes_input, kb/minutes_meeting): times in the user's
+// zone; Title the user's or the calendar's; Meeting the knowledge base's calendar item; Attendees and Location the
+// phone calendar's. Part of Parts (both 1 for a transcript read at once); Transcript is that part's numbered lines.
+type KBMinutesInput struct {
+	Pinned, Title, Meeting, Location, Weekday, Language string
+	Attendees                                           []string
+	Start, End                                          time.Time
+	Minutes                                             int
+	Part, Parts                                         int
+	Transcript                                          string
+}
+
+func RenderKBMinutesInput(in KBMinutesInput) string { return render("kb/minutes_input", in) }
+
+// KBMinutesNote is an item of a part's notes: Line the transcript line it cites; Who, By and DueDate as the part said.
+type KBMinutesNote struct {
+	Line                   int
+	Text, Who, By, DueDate string
+}
+
+// KBMinutesPart is a part's notes, From and To its first and last lines' clock times.
+type KBMinutesPart struct {
+	Part                             int
+	From, To, Where                  string
+	Attendees                        []string
+	Points, Decisions, Actions, Open []KBMinutesNote
+}
+
+// KBMinutesMergeInput is a long meeting's parts' notes to merge (kb/minutes_merge_input).
+type KBMinutesMergeInput struct {
+	Meeting KBMinutesInput
+	Parts   []KBMinutesPart
+}
+
+func RenderKBMinutesMergeInput(in KBMinutesMergeInput) string {
+	return render("kb/minutes_merge_input", in)
+}
+
 // KBDigestEntry is one project or chat in the digest.
 type KBDigestEntry struct {
 	ID, Name, Importance, OneLine string

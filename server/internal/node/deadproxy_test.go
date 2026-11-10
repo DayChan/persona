@@ -76,9 +76,9 @@ func TestLauncherEnvWinsAndClears(t *testing.T) {
 	if !providerShaped(proto.ManagedLauncher{Name: "e", Env: "FOO=1"}) {
 		t.Error("a launcher with its own environment is not a provider")
 	}
-	// The main conversation decides its own thinking level and compact window.
+	// An assistant conversation decides its own thinking level; its compact window is the launcher's (#3066).
 	main := providerEnv(proto.ManagedLauncher{Name: "p", Kind: "api", Env: "CLAUDE_CODE_EFFORT_LEVEL=high\nCLAUDE_CODE_AUTO_COMPACT_WINDOW=5\nFOO=1"}, "", "", true)
-	if _, ok := main["CLAUDE_CODE_EFFORT_LEVEL"]; ok || main["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] != "200000" || main["FOO"] != "1" {
+	if _, ok := main["CLAUDE_CODE_EFFORT_LEVEL"]; ok || main["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] != "5" || main["FOO"] != "1" {
 		t.Errorf("main conversation: %v", main)
 	}
 	// An agent that is no Claude Code gets it too, over what Persona sets.

@@ -209,9 +209,12 @@ var rpcFailureKeys = map[string]string{
 	"prompt_changed":           "rpc-errors.prompt_changed",
 	"attach_busy":              "rpc-errors.attach_busy",
 	proto.CodeTerminalNotReady: "rpc-errors.terminal_not_ready",
-	"node_outdated":            "rpc-errors.node_outdated",
-	"readonly_unsupported":     "rpc-errors.readonly_unsupported",
-	"assistant_in_doubt":       "rpc-errors.in_doubt",
+	// a start's new tab stopped on its shell (node/shellsettle.go, #2570)
+	proto.CodeShellWaiting:      "rpc-errors.shell_waiting",
+	proto.CodeStartLineRejected: "rpc-errors.start_line_rejected",
+	"node_outdated":             "rpc-errors.node_outdated",
+	"readonly_unsupported":      "rpc-errors.readonly_unsupported",
+	"assistant_in_doubt":        "rpc-errors.in_doubt",
 	// queued messages sent now (#6088)
 	"nothing_queued":        "rpc-errors.nothing_queued",
 	"send_now_unsupported":  "rpc-errors.send_now_unsupported",
@@ -229,6 +232,19 @@ var rpcFailureKeys = map[string]string{
 	"peer_too_long":    "rpc-errors.peer_too_long",
 	"peer_unconfirmed": "rpc-errors.peer_unconfirmed",
 	"peer_command":     "rpc-errors.peer_command",
+	// the node menus' Git ▸ Pull / Push / Fetch and the Git pane's Pull (#1888); the *_failed ones carry git's words
+	"no_directory":        "rpc-errors.no_directory",
+	"detached_head":       "rpc-errors.detached_head",
+	"no_upstream":         "rpc-errors.no_upstream",
+	"uncommitted_changes": "rpc-errors.uncommitted_changes",
+	"not_fast_forward":    "rpc-errors.not_fast_forward",
+	"push_rejected":       "rpc-errors.push_rejected",
+	"pull_failed":         "rpc-errors.pull_failed",
+	"push_failed":         "rpc-errors.push_failed",
+	"fetch_failed":        "rpc-errors.fetch_failed",
+	// session.modes (node/modes.go, #1843)
+	proto.CodeModesOnComputer: "rpc-errors.modes_on_computer",
+	proto.CodeModesNotRunning: "rpc-errors.modes_not_running",
 	// a start in a directory whose name can't be typed into a terminal (node/hostorca_launch.go)
 	proto.CodeDirectoryUntypable: "rpc-errors.directory_untypable",
 }
@@ -257,7 +273,8 @@ func localizeFailure(body map[string]any, status int, err error, l i18n.Lang) {
 	if key == "" {
 		return
 	}
-	body["error"] = i18n.T(l, key)
+	// a summary that names {reason} carries the original words (git's, for a failed pull or push)
+	body["error"] = i18n.T(l, key, i18n.Args{"reason": original})
 	if _, hasDetail := body["detail"]; !hasDetail && original != body["error"] {
 		body["detail"] = original
 	}
@@ -340,6 +357,15 @@ func Sentence(l i18n.Lang, code string, data map[string]any) string {
 	switch code {
 	case "readonly_unsupported", proto.CodeDirectoryUntypable: // the request refused, with nothing to name
 		return i18n.T(l, rpcFailureKeys[code])
+	}
+	if code == proto.CodeShellWaiting || code == proto.CodeStartLineRejected { // a start's new tab (node/shellsettle.go, #2570)
+		machine, _ := data["machine_name"].(string)
+		line, _ := data["line"].(string)
+		key := "apierr-apierr." + code
+		if machine == "" {
+			key += "_here"
+		}
+		return i18n.T(l, key, i18n.Args{"machine": machine, "line": line})
 	}
 	if _, ok := codeActions[code]; !ok {
 		return ""

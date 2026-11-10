@@ -54,6 +54,8 @@ export interface SentItem {
   let_through: SentLetThrough;
   message_ref?: string;
   recalled_at?: string;
+  /** The hub can take the message back now (absent from a hub from before recall: no button). */
+  can_recall?: boolean;
   chat_rule?: ChatRuleState;
 }
 
@@ -101,6 +103,7 @@ function row(raw: unknown): SentItem | null {
     let_through: object(r.let_through) as SentLetThrough,
     message_ref: str(r.message_ref) || undefined,
     recalled_at: str(r.recalled_at) || undefined,
+    can_recall: r.can_recall === true,
     chat_rule: r.chat_rule && typeof r.chat_rule === "object" && !Array.isArray(r.chat_rule) ? {
       can: object(r.chat_rule).can === true, exists: object(r.chat_rule).exists === true,
       id: str(object(r.chat_rule).id) || undefined, reason: str(object(r.chat_rule).reason) || undefined,
@@ -116,6 +119,31 @@ export function sentPage(raw: unknown): SentPage {
 
 export async function listSent(o: { before?: number | null; limit?: number; connector?: string | null; signal?: AbortSignal } = {}): Promise<SentPage> {
   return sentPage(await api<unknown>(sentPath(o), { signal: o.signal }));
+}
+
+/** `POST /connectors/sent/{id}/recall`: the user agreed in the page's own confirm step, so `confirm: true` (the hub shows no
+ *  card). The row as the ledger has it afterwards. No timeout: the hub may take about 40 seconds. */
+export async function recallSent(id: number): Promise<SentItem | null> {
+  return row(object(await api<unknown>(`/connectors/sent/${id}/recall`, { method: "POST", json: { confirm: true } })).item);
+}
+
+/** Why a recall did not happen, in plain words; a code this page does not know says what the hub said. */
+export function recallProblem(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.status === 403) return t("settings-sent.recall_forbidden");
+    if ((e.status === 404 && !e.code) || e.status === 405) return t("settings-sent.recall_unsupported");
+    switch (e.code) {
+      case "not_found": return t("settings-sent.recall_not_found");
+      case "not_recallable": return t("settings-sent.recall_not_recallable");
+      case "too_old": return t("settings-sent.recall_too_old");
+      case "already_recalled": return t("settings-sent.recall_already");
+      case "connector_unavailable": return t("settings-sent.recall_unavailable");
+      case "no_database": return t("settings-sent.recall_no_database");
+      case "recall_unknown": return t("settings-sent.recall_unknown");
+      case "recall_refused": return t("settings-sent.recall_refused", { detail: e.message });
+    }
+  }
+  return errorText(e);
 }
 
 // ── failures ─────────────────────────────────────────────

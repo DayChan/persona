@@ -36,5 +36,6 @@
   "no_policy": "その受信箱ルールはありません。",
   "history_limit": "limit は1〜{max}の数値にしてください。",
   "history_cursor": "before はRFC 3339形式の時刻にしてください。before_id は before と一緒に指定します。",
+  "history_zone": "tz にはタイムゾーン名（例: Europe/Berlin）を指定してください。",
   "bad_folder": "フォルダのパスには少なくとも 1 つの名前が必要です。"
 }

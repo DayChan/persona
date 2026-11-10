@@ -134,7 +134,7 @@ class KeyboardDismissTest {
             style = each
             rule.waitForIdle()
             focusField()
-            rule.onNodeWithTag("composer").performTouchInput { click(centerLeft.copy(x = 20f)) }
+            rule.onNodeWithTag("composer").performTouchInput { click(centerLeft.copy(x = 14f)) }
             rule.waitForIdle()
             assertTrue("composer padding keeps focus inside nested pages in $style", focused)
         }
@@ -150,7 +150,8 @@ class KeyboardDismissTest {
             rule.waitForIdle()
             assertFalse(focused)
             val before = blankTaps
-            rule.onNodeWithTag("composer").performTouchInput { click(centerLeft.copy(x = 20f)) }
+            // Left of the inner field's horizontal inset in all styles, clear of any leading action.
+            rule.onNodeWithTag("composer").performTouchInput { click(centerLeft.copy(x = 14f)) }
             rule.waitForIdle()
             assertEquals("one blank tap in $style", before + 1, blankTaps)
             assertTrue("composer padding focuses the field in $style", focused)

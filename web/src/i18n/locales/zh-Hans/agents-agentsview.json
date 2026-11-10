@@ -5,6 +5,7 @@
   "search_placeholder": "搜索会话",
   "no_match": "没有匹配的会话",
   "empty": "还没有个人 Agent 会话",
+  "sources_unavailable": "部分个人 Agent 暂时列不出来",
   "group_all": "全部",
   "pin": "置顶",
   "unpin": "取消置顶",

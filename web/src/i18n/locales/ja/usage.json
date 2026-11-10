@@ -13,7 +13,7 @@
   "days_hours": "{d}日{h}時間",
   "reset_in": "{countdown}後にリセット",
   "reset_at": "{time}にリセット",
-  "source_local": "このコンピューター",
+  "source_local": "コンピューター",
   "sources_title": "取得元：{sources}",
   "problem_unreachable": "ゲートウェイに接続できません。前回の数値を表示しています",
   "problem_rejected": "ゲートウェイがキーを拒否しました。管理画面 → 使用量ソースで更新してください。前回の数値を表示しています",

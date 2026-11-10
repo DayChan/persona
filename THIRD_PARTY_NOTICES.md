@@ -290,6 +290,92 @@ follow the `GlueHandler` and `SSHWrapperHandler` of swift-nio-ssh's `NIOSSHClien
 Copyright (c) Apple Inc. and the SwiftNIO / Swift project authors. Licensed under the Apache License, Version 2.0
 (https://www.apache.org/licenses/LICENSE-2.0); each package's LICENSE.txt and NOTICE.txt apply.
 
+## JSch
+
+The Android app's SSH tunnel to the hub (`android/core/hub/src/main/kotlin/persona/core/hub/tunnel/`,
+docs/operations/network.md) uses JSch (https://github.com/mwiede/jsch, `com.github.mwiede:jsch`), which carries JZlib
+(`com.jcraft.jsch.jzlib`) and jBCrypt (`com.jcraft.jsch.jbcrypt`) inside it. Authors' email addresses are left out of
+the license texts.
+
+JSch:
+
+```text
+Copyright (c) 2002-2015 Atsuhiko Yamanaka, JCraft,Inc.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+  1. Redistributions of source code must retain the above copyright notice,
+     this list of conditions and the following disclaimer.
+
+  2. Redistributions in binary form must reproduce the above copyright
+     notice, this list of conditions and the following disclaimer in
+     the documentation and/or other materials provided with the distribution.
+
+  3. The names of the authors may not be used to endorse or promote products
+     derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESSED OR IMPLIED WARRANTIES,
+INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL JCRAFT,
+INC. OR ANY CONTRIBUTORS TO THIS SOFTWARE BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
+OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+JZlib:
+
+```text
+Copyright (c) 2000-2011 ymnk, JCraft,Inc. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+  1. Redistributions of source code must retain the above copyright notice,
+     this list of conditions and the following disclaimer.
+
+  2. Redistributions in binary form must reproduce the above copyright
+     notice, this list of conditions and the following disclaimer in
+     the documentation and/or other materials provided with the distribution.
+
+  3. The names of the authors may not be used to endorse or promote products
+     derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESSED OR IMPLIED WARRANTIES,
+INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL JCRAFT,
+INC. OR ANY CONTRIBUTORS TO THIS SOFTWARE BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
+OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+jBCrypt:
+
+```text
+Copyright (c) 2006 Damien Miller
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```
+
 ## MarkdownUI and its dependencies
 
 The iOS, Mac and Vision apps link swift-markdown-ui (`apple/project.yml`) to render Markdown, which depends on the
@@ -302,6 +388,17 @@ packages below; its swift-snapshot-testing dependency is only for its own tests 
 | swift-cmark (cmark-gfm) | https://github.com/swiftlang/swift-cmark | BSD-2-Clause, Copyright (c) 2014, John MacFarlane; parts under MIT: houdini (Copyright (C) 2012 Vicent Martí), buffer and chunk ((C) 2012 Github, Inc.), utf8 ((C) 2009 Public Software Group e. V., Berlin, Germany) |
 
 Each package's LICENSE (swift-cmark's COPYING) applies.
+
+## MarqueeGlow
+
+The iOS app links MarqueeGlow (`apple/project.yml`) to draw the composer's glow while a reply is generating
+(`apple/Persona/DesignSystem/ComposerGlow.swift`). It has no dependencies.
+
+| Package | Source | License |
+| --- | --- | --- |
+| MarqueeGlow | https://github.com/szupzj18/MarqueeGlow | MIT, Copyright (c) 2026 ChrisPan |
+
+The package's LICENSE applies.
 
 ## SheetJS
 

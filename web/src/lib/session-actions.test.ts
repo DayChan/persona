@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EFFORTS, effortOptions, effortTitle, hasEffortOnly, hasModes, isMuted, modeTitle, renameBody, SWITCHABLE_MODES, switchableModes, toggleMute } from "./session-actions";
+import { canSwitchToBypass, EFFORTS, effortOptions, effortTitle, hasEffortOnly, hasModes, isMuted, modeTitle, renameBody, SWITCHABLE_MODES, switchableModes, toggleMute } from "./session-actions";
 import type { Session } from "./types";
 
 const s = (over: Partial<Session> = {}): Session => ({ machine_id: "mac", session_id: "s1", title: "修登录", cwd: "/home/me/app", status: "idle", space_name: "app", slot_id: "p1", slot_name: "login", ...over });
@@ -42,10 +42,20 @@ describe("modes", () => {
     expect(effortTitle("xhigh")).toBe("很高");
   });
 
-  it("never offers 全部放行 on a running session", () => {
+  it("never offers 全部放行 on a running session that can't reach it", () => {
     expect(SWITCHABLE_MODES.some((m) => m.id === "bypassPermissions")).toBe(false);
     expect(switchableModes(false)).toBe(SWITCHABLE_MODES);
     expect(switchableModes(undefined)).toBe(SWITCHABLE_MODES);
+    expect(switchableModes(false, "claude", false)).toBe(SWITCHABLE_MODES);
+    expect(canSwitchToBypass(s({ permission_mode: "acceptEdits" }))).toBe(false);
+  });
+
+  it("offers 全部放行 to an agent whose Claude was started so it can reach it, or is in it now (#1379)", () => {
+    expect(canSwitchToBypass(s({ bypass_available: true, permission_mode: "plan" }))).toBe(true);
+    expect(canSwitchToBypass(s({ permission_mode: "bypassPermissions" }))).toBe(true);
+    const ids = switchableModes(false, "claude", true).map((m) => m.id);
+    expect(ids).toEqual(["default", "acceptEdits", "plan", "auto", "bypassPermissions"]);
+    expect(switchableModes(false, "claude", true).find((m) => m.id === "bypassPermissions")?.detail).not.toContain("新开");
   });
 
   it("lets an assistant conversation switch to every mode, 全部放行 included (#2416)", () => {
@@ -63,6 +73,21 @@ describe("modes", () => {
     expect(hasModes(s({ assistant: true }))).toBe(false);
     expect(hasModes(s({ source_kind: "runtime" }))).toBe(false);
     expect(hasModes(undefined)).toBe(false);
+  });
+
+  it("follows the node's modes capability when it gives one (#1843)", () => {
+    // Orca's conversations: a runtime that applies the modes
+    expect(hasModes(s({ agent: "claude", source_kind: "runtime", capabilities: { read: true, send: true, modes: true } }))).toBe(true);
+    // a row the node says no for (a runtime that did not declare them), whatever its agent
+    expect(hasModes(s({ agent: "agy", source_kind: "runtime", capabilities: { read: true, send: true, modes: false } }))).toBe(false);
+    // Claude's desktop app or another terminal: messages only
+    for (const source_kind of ["claude_desktop", "claude_cli", "claude_bg"]) {
+      expect(hasModes(s({ agent: "claude", source_kind, capabilities: { read: true, send: true, modes: false } }))).toBe(false);
+    }
+    expect(hasModes(s({ assistant: true, capabilities: { modes: true } }))).toBe(false);
+    // an older node says nothing: the agent decides, as before
+    expect(hasModes(s({ agent: "claude", source_kind: "runtime", capabilities: { read: true, send: true } }))).toBe(false);
+    expect(hasModes(s({ agent: "claude", source_kind: "claude_desktop", capabilities: { read: true, send: true } }))).toBe(false);
   });
 
   it("gives a Codex thread on its app-server the effort alone, among its own levels", () => {

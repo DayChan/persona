@@ -480,7 +480,7 @@ func (c *conversation) sendUp(gen int, frames ...any) bool {
 		return false
 	}
 	for _, f := range frames {
-		if err := writeJSON(c.ctx, up, f); err != nil {
+		if err := c.writeUp(up, f); err != nil {
 			return false
 		}
 	}

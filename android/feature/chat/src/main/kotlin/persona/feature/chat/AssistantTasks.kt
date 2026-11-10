@@ -80,6 +80,7 @@ import persona.core.domain.tasks.Interruption
 import persona.core.domain.tasks.TaskNow
 import persona.core.domain.tasks.TaskState
 import persona.core.domain.tasks.receiptState
+import persona.core.domain.tasks.receiptTitle
 import persona.core.domain.lines.ApiErrorInfo
 import persona.core.domain.tasks.TasksStore
 import persona.core.domain.tasks.SentToAgents
@@ -386,6 +387,7 @@ private fun ReportCard(item: FeedItem, title: String, onOpenTask: (() -> Unit)?)
 internal fun permissionLabel(mode: String?): String = when (mode ?: "default") {
     "acceptEdits" -> stringResource(R.string.chat_tasks_permission_accept_edits)
     "plan" -> stringResource(R.string.chat_tasks_permission_plan)
+    "auto" -> stringResource(R.string.chat_tasks_permission_auto)
     "bypassPermissions" -> stringResource(R.string.chat_tasks_permission_bypass)
     "default" -> stringResource(R.string.chat_tasks_permission_default)
     else -> mode.orEmpty()
@@ -543,7 +545,7 @@ private fun ReceiptCard(item: FeedItem, host: AssistantTaskHost, todos: List<Tod
     if (outcome == "interrupted") return InterruptedReceipt(item, host, todos)
     val failed = outcome == "failed"
     val todo = todos.firstOrNull { it.id == item.ref }
-    val title = item.field("title") ?: stringResource(R.string.chat_tasks_default_title)
+    val title = receiptTitle(item, todo) ?: stringResource(R.string.chat_tasks_default_title)
     // A failed start's banner follows its task: "Retry" while it is still failed (with its latest error), a quiet line once
     // it was started again, so no stale error stays in the conversation (#1396).
     val state = todo?.let { host.tasks.stateOf(it, host.sessions) }
@@ -605,7 +607,7 @@ private fun ReceiptSummary(md: String) {
 @Composable
 private fun InterruptedReceipt(item: FeedItem, host: AssistantTaskHost, todos: List<Todo>) {
     val todo = todos.firstOrNull { it.id == item.ref }
-    val title = item.field("title") ?: stringResource(R.string.chat_tasks_default_title)
+    val title = receiptTitle(item, todo) ?: stringResource(R.string.chat_tasks_default_title)
     val state = todo?.let { host.tasks.stateOf(it, host.sessions) }
     if (todo != null && state != TaskState.Interrupted) {
         Row(Modifier.clip(PersonaTheme.shapes.controlShape).clickable { openTask(host, todo) }.padding(vertical = Tokens.Space.xs),

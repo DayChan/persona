@@ -54,5 +54,11 @@
   "verdict_to_agent": "用户看了你的结论后的意见（从飞书回的）：\n{feedback}\n\n照这个接着做，最后的回复里重新给结论：做完了还是做不了，一句依据，一个链接。",
   "verdict_decided_to_agent": "用户的决定（从飞书回的）：\n{decision}\n\n照这个接着做。",
   "verdict_take_to_agent": "用户选了推荐的做法：\n{option}\n\n照这个接着做。",
-  "verdict_over": "返工了 {rounds} 轮还没做完，接下来怎么办？"
+  "verdict_over": "返工了 {rounds} 轮还没做完，接下来怎么办？",
+  "deadline_default": "到 {when} 没回复就按推荐执行（可撤回）",
+  "deadline_irreversible": "截止 {when}；撤不回，到期不会自动执行，只再提醒",
+  "deadline_overdue": "已过截止 {when}；撤不回，不会自动执行，等你决定",
+  "deadline_taken_reason": "到期按默认执行：截止 {when} 前没有回复",
+  "verdict_taken_default": "到期没回复，已按推荐执行，交给了干活的 Agent",
+  "verdict_default_to_agent": "截止前用户没有回复，按推荐的做法执行（可撤回，用户之后可能改主意）：\n{option}\n\n照这个接着做。"
 }

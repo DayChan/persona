@@ -377,6 +377,16 @@ nonisolated struct InboxTriageStatus: Codable, Hashable, Sendable {
         var state: String
         var reason: String?
         var waiting: Int
+        /// timeout | rate_limited | login_refused | failed: this round could not read the source, so its items may be old.
+        var readError: String? = nil
+        /// The failed read in the hub's words; older hubs may omit it.
+        var readReason: String? = nil
+
+        private enum CodingKeys: String, CodingKey {
+            case source, name, state, reason, waiting
+            case readError = "read_error"
+            case readReason = "read_reason"
+        }
     }
 }
 
@@ -384,6 +394,30 @@ nonisolated struct InboxTriageStatus: Codable, Hashable, Sendable {
 nonisolated struct InboxListing: Decodable, Sendable {
     var items: [InboxItem]
     var triage: InboxTriageStatus?
+}
+
+/// A page of the hub's done history (GET /api/v1/inbox/done, #2200): done items older than the list's few days, newest
+/// done first; `next` is where the following page starts, present when this one is full.
+nonisolated struct InboxDonePage: Decodable, Sendable {
+    nonisolated struct Cursor: Codable, Sendable, Equatable {
+        var before: String
+        var beforeID: String
+        enum CodingKeys: String, CodingKey {
+            case before
+            case beforeID = "before_id"
+        }
+    }
+    var items: [InboxItem]
+    var next: Cursor?
+}
+
+/// GET /api/v1/inbox/done/days' answer (#2967): the done items per calendar day in the zone asked for.
+nonisolated struct InboxDoneDays: Decodable, Sendable {
+    nonisolated struct Day: Decodable, Sendable {
+        var day: String
+        var count: Int
+    }
+    var days: [Day]
 }
 
 extension APIClient {
@@ -402,6 +436,29 @@ extension APIClient {
     /// The same with how triage stands.
     func inboxListing(connectors: Bool = false) async throws -> InboxListing {
         try await Self.decodeInbox(request("GET", "/api/v1/inbox", query: connectors ? ["sources": "all"] : [:]))
+    }
+
+    /// A page of done items older than the list's (GET /api/v1/inbox/done, #2200), from `after` (nil: the newest).
+    /// `before` without a cursor is a moment: the items done before it (a Done group's end, #2969).
+    func inboxDone(after cursor: InboxDonePage.Cursor?, before moment: Date? = nil, limit: Int = 100, connectors: Bool = false) async throws -> InboxDonePage {
+        var query = ["limit": String(limit)]
+        if connectors { query["sources"] = "all" }
+        if let cursor {
+            query["before"] = cursor.before
+            query["before_id"] = cursor.beforeID
+        } else if let moment {
+            query["before"] = moment.formatted(.iso8601)
+        }
+        return try await JSON.decoder.decode(InboxDonePage.self, from: request("GET", "/api/v1/inbox/done", query: query))
+    }
+
+    /// The done items per calendar day in `zone` (GET /api/v1/inbox/done/days, #2967): "YYYY-MM-DD" → count. 404 on a
+    /// hub from before them.
+    func inboxDoneDays(zone: String, connectors: Bool = false) async throws -> [String: Int] {
+        var query = ["tz": zone]
+        if connectors { query["sources"] = "all" }
+        let page = try JSON.decoder.decode(InboxDoneDays.self, from: try await request("GET", "/api/v1/inbox/done/days", query: query))
+        return Dictionary(page.days.map { ($0.day, $0.count) }, uniquingKeysWith: +)
     }
 
     /// Collects Feishu and mail now, then lists.

@@ -34,14 +34,6 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<key>PersonaAppGroup</key>
-	<string>$(PERSONA_APP_GROUP)</string>
-	<key>PersonaPushKeychainGroup</key>
-	<string>$(DEVELOPMENT_TEAM).$(PERSONA_BUNDLE_ID).push</string>
-	<key>PersonaPushRelay</key>
-	<string>$(PERSONA_PUSH_RELAY)</string>
-	<key>PersonaGettingStartedURL</key>
-	<string>$(PERSONA_GETTING_STARTED_URL)</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>NSAppTransportSecurity</key>
@@ -50,7 +42,7 @@
 		<true/>
 	</dict>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Persona lets Claude read and add calendar events when you ask, for example to check whether you are free on Friday afternoon or to book a meeting.</string>
+	<string>Persona lets Claude read and add calendar events when you ask, for example to check whether you are free on Friday afternoon or to book a meeting. It also names a meeting recording after the event happening now.</string>
 	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
 	<string>Persona adds events to your calendar when you ask Claude to, for example to save a meeting it scheduled for you.</string>
 	<key>NSCameraUsageDescription</key>
@@ -77,6 +69,14 @@
 	<string>Persona turns your voice into text when you hold the mic button, for example to dictate a reply to Claude.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>PersonaAppGroup</key>
+	<string>$(PERSONA_APP_GROUP)</string>
+	<key>PersonaGettingStartedURL</key>
+	<string>$(PERSONA_GETTING_STARTED_URL)</string>
+	<key>PersonaPushKeychainGroup</key>
+	<string>$(DEVELOPMENT_TEAM).$(PERSONA_BUNDLE_ID).push</string>
+	<key>PersonaPushRelay</key>
+	<string>$(PERSONA_PUSH_RELAY)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

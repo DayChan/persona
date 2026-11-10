@@ -6,6 +6,7 @@
   "agents_working_other": "{count} subagents working",
   "agents_more_other": "+{count} more",
   "background_workflow": "Background workflow",
+  "tokens_per_second": "{n} tok/s",
   "more_workflows_one": "{count} more",
   "more_workflows_other": "{count} more",
   "more_waits_one": "{count} more",

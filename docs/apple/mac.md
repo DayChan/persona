@@ -247,7 +247,7 @@ open ../../build/DerivedDataMac/Build/Products/Debug/Persona.app   # or run Cont
     Capture now draws container views individually, then composites the toolbar (`0af14af`, DEBUG only). About 12pt of black border remains along the list column's top and left (already present before the fix), capture-only, not in real windows; not investigated further.
   - Still incorrect on 2026-11-01, requiring unlocked-window checks: dark toolbar search is an empty white pill; colored progress bars (launcher quota) turn gray in inactive windows; prominent white-text buttons (Knowledge **Ask Persona**) disappear;
     connection-details popover; quick-command panel and terminal key bar have dark text on dark backgrounds; same-space tab pill bar above chat; Persona sidebar with `-openAssistantSidebar YES`.
-  - Screenshot pitfalls: DEBUG hooks such as `-showMailAskClaude` and `-openMonitor` run on every onAppear (DEBUG and screenshots only, unchanged); `-showWakeDrawer` and `-showMenu` need about 11 seconds `DELAY`;
+  - Screenshot pitfalls: DEBUG hooks such as `-showMailAskClaude` and `-openMonitor` run on every onAppear (DEBUG and screenshots only, unchanged); `-showMenu` needs about 11 seconds `DELAY`;
     drafts left in shared UserDefaults by other runs (such as `/`) open the slash menu at launch; after restarting the mock with changed data, cache merging can duplicate an error card; `-openChatsFresh` clears it.
 
 
@@ -736,8 +736,8 @@ How the checklist was reviewed, and the roles and rules for real-window checks d
 - [ ] BeautifulUI: ThinkingState, tool-run chips (ToolRunRow/ToolChipRow) — ToolViews.swift, Views/BeautifulUIBridge.swift, Packages/BeautifulUI
   - Check at Mac: last answer partly covered by composer in capture (seemed ChatView bug), ThinkingState; tool chips/composer rendered.
   - Mac (2026-11-02 real Mac mini): two chats' last answers fully visible above composer/question cards, likely capture issue. ThinkingState remains (thinking session, `MOCK_STREAM=1`).
-- [x] Wake chip/Drawer; recap strip/Drawer (folded multiples) — MessageViews.swift (WakeChip, RecapCard, RecapStrip, RecapDrawer)
-  - Mac (2026-11-01): wake and `-showWakeDrawer` (about 11s DELAY), recap and `-showRecapDrawer` (While Away · 3 Times) correct.
+- [x] Wake work in the ordinary execution summary; recap strip/Drawer (folded multiples) — MessageViews.swift (RecapCard, RecapStrip, RecapDrawer)
+  - Mac (2026-11-01): wake and its then-separate drawer were checked. Wake continuation now stays in the ordinary execution summary (#2796); the recap and `-showRecapDrawer` (While Away · 3 Times) are unchanged.
 - [x] Background-task outcome notices — Views/Chat/TaskNoteRow.swift
   - Mac (2026-11-01) mock: ✕ Exit Code 1 and ✓ · 3 min.
 - [x] API error card (human explanation, chips, copyable details, repeated-error fold, Retry) — Views/Chat/APIErrorCard.swift

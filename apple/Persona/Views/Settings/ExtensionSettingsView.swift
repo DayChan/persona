@@ -2,24 +2,29 @@ import SwiftUI
 
 /// The host-owned settings shell on iOS and macOS. Extensions supply configuration
 /// sections only; identity and lifecycle controls cannot be replaced by extension UI.
+///
+/// These are rows of the page's List: what the page does as a whole (reading the update's metadata and the managers,
+/// the Update sheet) is `ExtensionSettingsPageWork`, on the List itself.
 struct ExtensionSettingsView<Configuration: View, AdvancedInformation: View>: View {
     @Bindable var page: ExtensionModel
+    let lifecycle: ExtensionSettingsLifecycle
+    /// The managers, for whether this one is online (`ExtensionSettingsPageWork` reads them).
+    let roster: ManagerRoster?
     let detail: HubExtensionDetail
     let hasConfiguration: Bool
     @ViewBuilder var configuration: Configuration
     @ViewBuilder var advancedInformation: AdvancedInformation
-    @State private var lifecycle: ExtensionSettingsLifecycle
-    @State private var roster: ManagerRoster?
 
-    init(page: ExtensionModel, detail: HubExtensionDetail, hasConfiguration: Bool,
-         @ViewBuilder configuration: () -> Configuration,
+    init(page: ExtensionModel, lifecycle: ExtensionSettingsLifecycle, roster: ManagerRoster?, detail: HubExtensionDetail,
+         hasConfiguration: Bool, @ViewBuilder configuration: () -> Configuration,
          @ViewBuilder advancedInformation: () -> AdvancedInformation) {
         self.page = page
+        self.lifecycle = lifecycle
+        self.roster = roster
         self.detail = detail
         self.hasConfiguration = hasConfiguration
         self.configuration = configuration()
         self.advancedInformation = advancedInformation()
-        _lifecycle = State(initialValue: ExtensionSettingsLifecycle(id: page.id, manager: page.manager))
     }
 
     private var policy: ExtensionSettingsPolicy { .init(detail: detail) }
@@ -39,24 +44,7 @@ struct ExtensionSettingsView<Configuration: View, AdvancedInformation: View>: Vi
 
     var body: some View {
         Group {
-            // A Group's modifiers go to each of its sections: on the Group, the five sheets bound to one preview
-            // closed Settings when Review opened it, and the metadata was read five times. One child carries them.
             enabled
-                .task(id: detail) { await lifecycle.loadMetadata(detail: detail) }
-                .task(id: AppModel.shared.managersRevision) {
-                    if let api = AppModel.shared.api {
-                        roster = await ManagerRoster.read(api.manager(nil), keeping: roster)
-                    }
-                }
-                .sheet(isPresented: Binding(get: { lifecycle.preview != nil }, set: { if !$0 { lifecycle.dismissPreview() } })) {
-                    if let preview = lifecycle.preview {
-                        ExtensionInstallSheet(preview: preview, name: detail.plugin.name) {
-                            let succeeded = await lifecycle.confirmUpgrade()
-                            if succeeded { await page.load() }
-                            return succeeded
-                        }
-                    }
-                }
             Section {
                 if !hasConfiguration { Text("No configuration required").foregroundStyle(.secondary) }
             } header: {
@@ -234,5 +222,37 @@ struct ExtensionSettingsView<Configuration: View, AdvancedInformation: View>: Vi
         } footer: {
             Text(offline ? offlineReason : policy.uninstallReason)
         }
+    }
+}
+
+/// What an extension's settings page does as a whole, on the page's List and never on one of its rows (#2988): reading
+/// the update's metadata and the managers, and the Update sheet. A List builds its rows lazily and takes one down once
+/// it scrolls off, so a sheet on a row went with it and took Settings, the shell's sheet, along: in TestFlight 220 it was
+/// on a Group of the sections (a sheet per section, #2547), then on the first section, which a long page has off screen
+/// by the time Review is tapped at the bottom. A task on a row also runs again each time the row comes back.
+struct ExtensionSettingsPageWork: ViewModifier {
+    let page: ExtensionModel
+    let lifecycle: ExtensionSettingsLifecycle
+    @Binding var roster: ManagerRoster?
+
+    func body(content: Content) -> some View {
+        content
+            .task(id: page.detail) {
+                if let detail = page.detail { await lifecycle.loadMetadata(detail: detail) }
+            }
+            .task(id: AppModel.shared.managersRevision) {
+                if let api = AppModel.shared.api {
+                    roster = await ManagerRoster.read(api.manager(nil), keeping: roster)
+                }
+            }
+            .sheet(isPresented: Binding(get: { lifecycle.preview != nil }, set: { if !$0 { lifecycle.dismissPreview() } })) {
+                if let preview = lifecycle.preview {
+                    ExtensionInstallSheet(preview: preview, name: page.detail?.plugin.name ?? page.id) {
+                        let succeeded = await lifecycle.confirmUpgrade()
+                        if succeeded { await page.load() }
+                        return succeeded
+                    }
+                }
+            }
     }
 }

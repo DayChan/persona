@@ -137,6 +137,22 @@ class ChatDeliveryStateTest {
         assertNull(chatStatus(res, snapshot, session.copy(status = "done"), null, emptyList(), emptyList(), false))
     }
 
+    /** A refused message says why in words, whatever the hub's code: never the raw code (#2821). */
+    @Test fun refusalsSayWhyWithoutTheHubsCode() {
+        val cases = listOf(
+            "input_draft" to R.string.chat_delivery_input_draft,
+            "node_unreachable" to persona.core.designsystem.R.string.designsystem_feedback_computer_offline,
+            "stale_session" to persona.core.designsystem.R.string.designsystem_feedback_stale_session,
+            "claude_missing" to persona.core.designsystem.R.string.designsystem_feedback_claude_missing,
+            "rpc_glitch" to R.string.chat_delivery_refused,
+        )
+        for ((code, expected) in cases) {
+            val text = refusalText(code).resolve(res)
+            assertEquals(code, res.getString(expected), text)
+            assertFalse(code, text.contains(code))
+        }
+    }
+
     private class FakeSender : MessageSender {
         val message = OutboxMessage("message", SessionKey("machine", "session"), "原消息", DeliveryState.WaitingForNetwork)
         override val outbox = MutableStateFlow(listOf(message))

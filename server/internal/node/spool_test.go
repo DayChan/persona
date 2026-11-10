@@ -84,7 +84,10 @@ func TestStandbyAnswers(t *testing.T) {
 	if r := reply(hookReq("PreToolUse", "Bash", nil)); r["retry"] != nil {
 		t.Fatalf("a Bash PreToolUse is not held: %v", r)
 	}
-	if r := reply(hookReq("PreToolUse", "AskUserQuestion", func(r *sockRequest) { r.Resume = true })); r["retry"] != true {
+	if r := reply(hookReq("PreToolUse", "AskUserQuestion", nil)); r["retry"] != nil {
+		t.Fatalf("a question PreToolUse is not held: %v", r)
+	}
+	if r := reply(hookReq("PermissionRequest", "AskUserQuestion", func(r *sockRequest) { r.Resume = true })); r["retry"] != true {
 		t.Fatalf("a resumed question: %v", r)
 	}
 	if r := reply(hookReq("Stop", "", func(r *sockRequest) { r.ReportOnly = true })); r["output"] != nil {
@@ -124,8 +127,8 @@ func TestStandbyAnswers(t *testing.T) {
 		_ = json.Unmarshal(e.Request.Input, &in)
 		kept = append(kept, e.Kind+":"+in.HookEventName+in.ToolName)
 	}
-	// The resumed question was reported by the node it first reached; the report-only PostToolUse is not reported.
-	want := "hook:Stop hook:PermissionRequestBash hook:PreToolUseBash hook:Stop notify:"
+	// The non-resumed PreToolUse is spooled but not held; the resumed PermissionRequest was already reported by its first node.
+	want := "hook:Stop hook:PermissionRequestBash hook:PreToolUseBash hook:PreToolUseAskUserQuestion hook:Stop notify:"
 	if strings.Join(kept, " ") != want {
 		t.Fatalf("kept %v\nwant %s", kept, want)
 	}

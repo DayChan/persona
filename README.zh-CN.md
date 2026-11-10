@@ -83,6 +83,16 @@ github:nwverse/persona-extensions
 
 [开始使用](docs/operations/getting-started.md) · [架构](docs/server/architecture.md) · [协议](docs/protocol/protocol.md) · [Docker](docs/operations/docker.md) · [iOS](docs/apple/ios.md) · [Mac](docs/apple/mac.md) · [Android](docs/android/android.md) · [网页](docs/web/web.md) · [全部文档](CLAUDE.md#docs-index)
 
+## Star History
+
+<a href="https://www.star-history.com/#nwverse/persona&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=nwverse/persona&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=nwverse/persona&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=nwverse/persona&type=Date" />
+  </picture>
+</a>
+
 ## License
 
 Persona 采用 [MIT 许可证](LICENSE)。

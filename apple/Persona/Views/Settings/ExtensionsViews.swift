@@ -179,6 +179,9 @@ struct ExtensionDetailView: View {
 
     @State private var signIn: ExtensionSignInModel
     private var authStore: ExtensionAuthStore { .shared }
+    /// Its updates and the managers: the page's, not a row's (`ExtensionSettingsPageWork`, #2988).
+    @State private var lifecycle: ExtensionSettingsLifecycle
+    @State private var roster: ManagerRoster?
 
     /// `manager`: another manager's copy (docs/assistant/managers.md "Grouping"): everything the page reads and changes is
     /// that manager's, and so are the pages and connectors it opens. nil: the default manager's.
@@ -186,6 +189,7 @@ struct ExtensionDetailView: View {
         _page = State(initialValue: ExtensionModel(id: id, manager: manager))
         _signIn = State(initialValue: ExtensionSignInModel(id: id, manager: manager))
         _connectorInbox = State(initialValue: ExtensionConnectorsModel(manager: manager))
+        _lifecycle = State(initialValue: ExtensionSettingsLifecycle(id: id, manager: manager))
     }
 
     /// Its sign-in, with a hub that has them (#4507): the latest of the page's and the pushes'.
@@ -210,7 +214,8 @@ struct ExtensionDetailView: View {
         SettingsForm {
             header
             if let d = page.detail {
-                ExtensionSettingsView(page: page, detail: d, hasConfiguration: hasConfiguration(d)) {
+                ExtensionSettingsView(page: page, lifecycle: lifecycle, roster: roster, detail: d,
+                                      hasConfiguration: hasConfiguration(d)) {
                     configuration(d)
                 } advancedInformation: {
                     contributions(d)
@@ -219,6 +224,7 @@ struct ExtensionDetailView: View {
                 }
             }
         }
+        .modifier(ExtensionSettingsPageWork(page: page, lifecycle: lifecycle, roster: $roster))
         .themedPage()
         .detailTitle(page.detail?.plugin.name ?? String(localized: "Extensions"))
         .navigationBarTitleDisplayMode(.inline)

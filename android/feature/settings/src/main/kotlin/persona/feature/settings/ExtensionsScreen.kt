@@ -24,6 +24,7 @@ import persona.core.contracts.api.ConnectorsManagement
 import persona.core.contracts.api.HubConnector
 import persona.core.contracts.Machine
 import persona.core.contracts.api.HubExtension
+import persona.core.contracts.api.HubLauncher
 import persona.core.contracts.api.ExtensionDetail
 import persona.core.contracts.api.ExtensionField
 import persona.core.contracts.api.ExtensionManagement
@@ -149,6 +150,8 @@ fun ExtensionPage(
     onConnector: ((String) -> Unit)? = null,
     /** The hub's machines, for a field that lists machines (format machine); without them such a list shows only its values. */
     machines: Flow<List<Machine>>? = null,
+    /** The hub's launchers, for a field that picks one (format launcher); without them, or until they are in, it is typed. */
+    launchers: (suspend () -> List<HubLauncher>)? = null,
     /** Opens a newer version in the market (market id, extension id) to review and upgrade it; without it the line only says. */
     onUpgrade: ((String, String) -> Unit)? = null,
     /** Just installed and not signed in (`next: auth`, #4507): its sign-in starts once the page knows it. */
@@ -175,6 +178,20 @@ fun ExtensionPage(
     val machineList by remember(machines) {
         (machines ?: flowOf(emptyList())).map { list -> list.map { ExtensionMachine(it.id, it.displayName, it.os, it.online, it.computer) } }.distinctUntilChanged()
     }.collectAsState(emptyList())
+    // Read once per open page, and only for a form that picks a launcher (#2448). By the page, not the function: callers
+    // pass a new one each time they are drawn, and every read asks each machine.
+    val readLaunchers by rememberUpdatedState(launchers)
+    var launcherList by remember(extensionId) { mutableStateOf<List<HubLauncher>?>(null) }
+    var launchersLoading by remember(extensionId) { mutableStateOf(false) }
+    val picksLauncher = state.detail?.form.orEmpty().any { it.picksLauncher || it.fields.orEmpty().any { f -> f.picksLauncher } }
+    LaunchedEffect(extensionId, picksLauncher, launchers != null) {
+        val read = readLaunchers
+        if (read == null || !picksLauncher || launcherList != null) return@LaunchedEffect
+        launchersLoading = true
+        launcherList = try { read() } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+        launchersLoading = false
+    }
+    val lists = FormLists(machineList, launcherList, launchersLoading)
     LaunchedEffect(model) { model.load() }
     // Its sign-in (#4507): the hub's pushes, and the steps a sheet shows.
     LaunchedEffect(model) { model.watchAuth() }
@@ -242,7 +259,7 @@ fun ExtensionPage(
                         }
                     }
                 }
-                if (hasForm) form(detail, state, model, machineList, onChoose = { field, path -> choosing = field to path })
+                if (hasForm) form(detail, state, model, lists, onChoose = { field, path -> choosing = field to path })
                 if (!detail.readOnly && detail.secrets.isNotEmpty()) secrets(detail, state, onEdit = { editingSecret = it })
                 if (!hasForm && detail.secrets.isEmpty() && auth == null && (onPage == null || pages.isEmpty()) && hubConnectors.isEmpty() &&
                     (onChannel == null || detail.extension.contributes.orEmpty()["channel"].isNullOrEmpty()))
@@ -299,9 +316,12 @@ fun ExtensionPage(
     }
     choosing?.let { (field, path) ->
         val current = state.value(path)
+        // A machine or a launcher picks from the hub's; any other choice from the field's own.
+        val options = ExtensionPickers.choices(res, field, (current as? JsonPrimitive)?.contentOrNull, machineList, launcherList)
+            ?.map { JsonPrimitive(it.value) to it.label } ?: field.enum.orEmpty().map { it.value to it.label }
         JActionSheet(listOf(JAction(ExtensionText.placeholder(res, field), checked = current == null, onClick = { model.edit(path, null) })) +
-            field.enum.orEmpty().map { choice ->
-                JAction(choice.label, checked = current == choice.value, onClick = { model.edit(path, choice.value) })
+            options.map { (value, label) ->
+                JAction(label, checked = current == value, onClick = { model.edit(path, value) })
             }, { choosing = null }, title = ExtensionText.fieldTitle(res, field))
     }
     editingSecret?.let { secret ->
@@ -376,33 +396,39 @@ private fun LazyListScope.connectorInbox(list: List<HubConnector>, onOpen: ((Str
     }
 }
 
-private fun LazyListScope.form(detail: ExtensionDetail, state: ExtensionState, model: ExtensionModel, machines: List<ExtensionMachine>, onChoose: (ExtensionField, List<String>) -> Unit) {
+private fun LazyListScope.form(detail: ExtensionDetail, state: ExtensionState, model: ExtensionModel, lists: FormLists, onChoose: (ExtensionField, List<String>) -> Unit) {
     val plain = detail.form.filter { it.type != "object" }
     if (plain.isNotEmpty()) {
         item("form-title") { JSectionHeader(stringResource(R.string.settings_ext_settings)) }
-        plain.forEach { field -> item("field-${field.name}") { ExtensionFieldBlock(field, listOf(field.name), state, model, machines, onChoose) } }
+        plain.forEach { field -> item("field-${field.name}") { ExtensionFieldBlock(field, listOf(field.name), state, model, lists, onChoose) } }
     }
     if (ExtensionDraft.paths(detail.form).isNotEmpty() && detail.form.flatMap { if (it.type == "object") it.fields.orEmpty() else listOf(it) }.any { it.items?.machines != true })
         item("form-note") { Note(stringResource(R.string.settings_ext_form_note)) }
     detail.form.filter { it.type == "object" }.forEach { group ->
         item("group-${group.name}") { JSectionHeader(group.label) }
         group.fields.orEmpty().forEach { field ->
-            item("field-${group.name}.${field.name}") { ExtensionFieldBlock(field, listOf(group.name, field.name), state, model, machines, onChoose) }
+            item("field-${group.name}.${field.name}") { ExtensionFieldBlock(field, listOf(group.name, field.name), state, model, lists, onChoose) }
         }
         group.description?.takeIf { it.isNotBlank() }?.let { item("group-note-${group.name}") { Note(it) } }
     }
 }
 
+/** What the form's fields pick from: the hub's machines, and its launchers (null until in, or when they could not be read). */
+internal data class FormLists(val machines: List<ExtensionMachine>, val launchers: List<HubLauncher>?, val launchersLoading: Boolean)
+
 /**
- * One field of an extension's form, by its type: a text field, a number, a switch, a choice, a list of texts or of
- * choices. Its description and the hub's word on it below.
+ * One field of an extension's form, by its type: a text field, a number (a whole one with a stepper), a switch, a
+ * choice (the field's own, or one of the hub's machines or launchers), a list of texts or of choices. Its description
+ * and the hub's word on it below.
  */
 @Composable
 private fun ExtensionFieldBlock(
-    field: ExtensionField, path: List<String>, state: ExtensionState, model: ExtensionModel, machines: List<ExtensionMachine>,
+    field: ExtensionField, path: List<String>, state: ExtensionState, model: ExtensionModel, lists: FormLists,
     onChoose: (ExtensionField, List<String>) -> Unit,
 ) {
     val res = LocalResources.current
+    val picked = (state.value(path) as? JsonPrimitive)?.contentOrNull
+    val picks = ExtensionPickers.choices(res, field, picked, lists.machines, lists.launchers)
     val title = ExtensionText.fieldTitle(res, field)
     val error = state.fieldError(path)
     val enabled = !state.saving
@@ -411,12 +437,22 @@ private fun ExtensionFieldBlock(
         when {
             field.type == "boolean" -> {
                 val on = (state.value(path) as? JsonPrimitive)?.booleanOrNull ?: (field.fallback as? JsonPrimitive)?.booleanOrNull ?: false
+                // x-confirm asks before it is turned on (turning off is not asked); the yes only edits the draft, saved with Save.
+                var asking by remember(path) { mutableStateOf(false) }
                 JGroupItem(GroupPosition.Single) {
-                    JSwitchRow(title, on, { model.edit(path, JsonPrimitive(it)) }, subtitle = description, enabled = enabled)
+                    JSwitchRow(title, on, { if (field.asksFirst(it)) asking = true else model.edit(path, JsonPrimitive(it)) }, subtitle = description, enabled = enabled)
+                }
+                if (asking) JDialog({ asking = false }, title = stringResource(R.string.settings_ext_turn_on_title, field.label), text = field.confirm,
+                    confirm = stringResource(R.string.settings_ext_turn_on) to { asking = false; model.edit(path, JsonPrimitive(true)) })
+            }
+            field.type == "array" && field.items?.machines == true -> MachineSwitches(field, title, path, state, model, lists.machines)
+            field.type == "array" -> ExtensionListField(field, title, path, state, model, enabled)
+            picks != null -> {
+                val label = picks.firstOrNull { it.value == picked }?.label ?: ExtensionText.placeholder(res, field)
+                JGroupItem(GroupPosition.Single) {
+                    JRow(title, subtitle = description, value = label, enabled = enabled, onClick = { onChoose(field, path) })
                 }
             }
-            field.type == "array" && field.items?.machines == true -> MachineSwitches(field, title, path, state, model, machines)
-            field.type == "array" -> ExtensionListField(field, title, path, state, model, enabled)
             field.enum != null -> {
                 val current = state.value(path)
                 val label = field.enum.orEmpty().firstOrNull { it.value == current }?.label
@@ -428,16 +464,27 @@ private fun ExtensionFieldBlock(
             field.type == "integer" || field.type == "number" -> {
                 val key = path.joinToString(".")
                 val text = state.numberText[key] ?: (state.value(path) as? JsonPrimitive)?.contentOrNull.orEmpty()
-                JTextField(text, { model.editNumber(path, it, field.type == "integer") }, Modifier.fillMaxWidth(), label = title,
+                val integer = field.type == "integer"
+                val now = (state.value(path) as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()?.toLong()
+                JTextField(text, { model.editNumber(path, it, integer) }, Modifier.fillMaxWidth(), label = title,
                     placeholder = ExtensionText.placeholder(res, field), supportingText = error ?: description, singleLine = true, enabled = enabled,
                     isError = error != null,
-                    keyboardOptions = KeyboardOptions(keyboardType = if (field.type == "integer") KeyboardType.Number else KeyboardType.Decimal))
+                    // A whole number also steps within its bounds, from what the form has now (#2448, as on iOS).
+                    trailing = if (!integer) null else { {
+                        JStepper(null, onDown = { model.editNumber(path, ExtensionPickers.stepped(field, now, up = false).toString(), true) },
+                            onUp = { model.editNumber(path, ExtensionPickers.stepped(field, now, up = true).toString(), true) },
+                            canDown = ExtensionPickers.canStep(field, now, up = false), canUp = ExtensionPickers.canStep(field, now, up = true), enabled = enabled)
+                    } },
+                    keyboardOptions = KeyboardOptions(keyboardType = if (integer) KeyboardType.Number else KeyboardType.Decimal))
             }
             else -> {
                 if (field.name == "triage_rules" && path.size == 1) TriageTemplatePicker(enabled) { model.edit(path, JsonPrimitive(it)) }
                 val text = (state.value(path) as? JsonPrimitive)?.contentOrNull.orEmpty()
+                // A launcher is typed until the hub's are in, or when they could not be read.
+                val loading = field.picksLauncher && lists.launchersLoading
                 JTextField(text, { model.edit(path, it.takeIf { v -> v.isNotEmpty() }?.let(::JsonPrimitive)) }, Modifier.fillMaxWidth(),
-                    label = title, placeholder = ExtensionText.placeholder(res, field), supportingText = error ?: description, singleLine = field.name != "triage_rules",
+                    label = title, placeholder = ExtensionText.placeholder(res, field),
+                    supportingText = error ?: (if (loading) stringResource(R.string.settings_ext_launchers_loading) else description), singleLine = field.name != "triage_rules",
                     enabled = enabled, isError = error != null,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None,
                         keyboardType = when (field.format) { "uri" -> KeyboardType.Uri; "email" -> KeyboardType.Email; else -> KeyboardType.Text }))
@@ -445,7 +492,7 @@ private fun ExtensionFieldBlock(
         }
         // Text and number fields carry their description and error themselves (supportingText); a switch or a choice
         // has its description in its row, a list below it.
-        val textField = field.type != "boolean" && field.type != "array" && field.enum == null
+        val textField = field.type != "boolean" && field.type != "array" && field.enum == null && picks == null
         if (field.type == "array") description?.takeIf { error == null }?.let { FieldSupport(it, isError = false) }
         if (!textField) error?.let { FieldSupport(it, isError = true) }
     }
@@ -489,7 +536,7 @@ private fun MachineSwitches(field: ExtensionField, title: String, path: List<Str
             val status = if (row.known) ExtensionText.machineStatus(res, row.online, nodes.firstOrNull { it.machineId == row.id }, picksProgram, on, row.computer, computers)
                 else stringResource(R.string.settings_ext_machine_not_found)
             JGroupItem(GroupPosition.of(index, rows.size)) {
-                JSwitchRow(row.name, on, { next -> if (next && !field.confirm.isNullOrBlank()) asking = row else save(row.id, next) },
+                JSwitchRow(row.name, on, { next -> if (field.asksFirst(next)) asking = row else save(row.id, next) },
                     subtitle = status, leadingIcon = PhIcons.Desktop, enabled = !state.busy && !state.saving)
             }
         }

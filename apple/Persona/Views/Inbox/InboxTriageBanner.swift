@@ -35,6 +35,22 @@ nonisolated enum InboxTriageText {
     static func configurable(_ t: InboxTriageStatus?, mayChangeSettings: Bool) -> Bool {
         mayChangeSettings && t?.state == "unconfigured"
     }
+
+    /// One line per source the latest round could not read, apart from the waiting-for-triage banner: a source can be
+    /// unread while triage is ok and nothing waits. The list keeps that source's earlier items, so name it and give the
+    /// hub's reason (or the same fallback as the other apps). Nil after a good read, or from an older hub.
+    static func unread(_ t: InboxTriageStatus?) -> String? {
+        let lines = (t?.sources ?? []).filter {
+            !($0.readError?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
+        }.map { source in
+            let ownName = source.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let name = ownName.isEmpty ? source.source : ownName
+            let ownReason = source.readReason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let reason = ownReason.isEmpty ? String(localized: "Not read this round; the list may be incomplete") : ownReason
+            return String(localized: "\(name): \(reason)")
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
 }
 
 /// The inbox's banner about new items waiting for triage, in the caution tone with a clock: not dismissable, gone once
@@ -54,5 +70,16 @@ struct InboxTriageBanner: View {
         }
         .accessibilityIdentifier("inbox.triage")
         .modelConfigurationSheet(isPresented: $configuring, purposeID: InboxTriageText.purpose)
+    }
+}
+
+/// The quiet, neutral notice about sources whose earlier items may still be in the list. One line per source, none
+/// clipped; not dismissable: it goes when the next successful read removes `read_error` from the hub's triage status.
+struct InboxUnreadNotice: View {
+    var text: String
+
+    var body: some View {
+        NoticeBanner(text: text, tone: .neutral, symbol: Theme.Icon.info, lineLimit: nil)
+            .accessibilityIdentifier("inbox.unread")
     }
 }

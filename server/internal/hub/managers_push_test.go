@@ -296,6 +296,7 @@ func TestPrefsMutedManagersWhenTheRosterCannotAnswer(t *testing.T) {
 		t.Fatalf("roster reads for four ids: %d lists, %d lookups; want one list", l, k)
 	}
 	reads.away.Store(true)
+	h.expireOwners() // the roster read a moment ago is not kept any more
 	if got := put(body); !reflect.DeepEqual(got, []any{"m-0b0b0b", "m-0c0c0c", "m-0d0d0d", "m-dead00"}) {
 		t.Fatalf("the roster not answering keeps every id: %v", got)
 	}

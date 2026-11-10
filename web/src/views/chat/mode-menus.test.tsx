@@ -114,6 +114,43 @@ describe("permission mode menu (#5584)", () => {
   });
 });
 
+describe("Allow all on a running agent (#1379)", () => {
+  const agent = (over: Partial<Session>) => ({ machine_id: "mac", session_id: "a1", agent: "claude", permission_mode: "acceptEdits", effort: "high", ...over }) as unknown as Session;
+  const show = (s: Session) => {
+    act(() => root.unmount());
+    root = createRoot(host);
+    act(() => root.render(<ModeChips session={s} />));
+    // in "Allow all" the chip's title is its red warning
+    open(s.permission_mode === "bypassPermissions" ? t("lib-session-actions.bypass_warning") : t("chat-sessiondialogs.permission_mode"));
+  };
+  const bypassRow = () => rows().find((r) => r.textContent?.includes(t("lib-session-actions.mode_bypass_permissions")));
+
+  it("is not offered to a Claude that wasn't started so it can reach it", () => {
+    show(agent({}));
+    expect(rows()).toHaveLength(4);
+    expect(bypassRow()).toBeUndefined();
+  });
+
+  it("is offered in red when the node says it can reach it, and asks again before switching", async () => {
+    show(agent({ bypass_available: true }));
+    expect(rows()).toHaveLength(5);
+    const row = bypassRow()!;
+    expect(row.className).toContain("text-red");
+    await act(async () => row.click());
+    expect(api).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="menu"]')!.textContent).toContain(t("chat-sessiondialogs.bypass_confirm"));
+    expect(document.querySelector('[role="menu"]')!.textContent).toContain(t("lib-session-actions.bypass_warning"));
+    await act(async () => bypassRow()!.click());
+    expect(api).toHaveBeenCalledWith(expect.stringContaining("/modes"), { method: "POST", json: { permission_mode: "bypassPermissions" } });
+  });
+
+  it("is the checked row while the agent runs in it, so it can be switched away and back", () => {
+    show(agent({ permission_mode: "bypassPermissions" }));
+    expect(rows()).toHaveLength(5);
+    expect(bypassRow()!.getAttribute("aria-checked")).toBe("true");
+  });
+});
+
 describe("effort menu (#5584)", () => {
   it("shows every effort's name above its description and marks the current one", () => {
     open(t("chat-sessiondialogs.effort"));

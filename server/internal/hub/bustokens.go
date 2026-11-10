@@ -61,6 +61,7 @@ func (h *Hub) createBusToken(ctx context.Context, id, name string) (string, erro
 	if err := s.SaveBusIdentity(ctx, ident, hashToken(tok)); err != nil {
 		return "", err
 	}
+	h.ownersChanged() // the roster kept (ownership.go) has it now
 	h.busHangUp(id, bus.CloseRevoked, "its token was replaced")
 	return tok, nil
 }
@@ -75,6 +76,7 @@ func (h *Hub) revokeBusToken(ctx context.Context, id string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	h.ownersChanged()      // the roster kept (ownership.go) no longer has it
 	h.extRoster.forget(id) // not in the roster any more, from now on (extensions_proof.go)
 	h.busHangUp(id, bus.CloseRevoked, "its token was revoked")
 	return ok, nil

@@ -38,12 +38,14 @@ func (n *Node) maybePruneGoneMetas(files []string) {
 }
 
 // metaStamp tells whether a quick meta was written again: every read sets readAt, a rewind clears it with mtime.
+// scan is set instead for a background-task scan with no quick meta (pruneCandidates).
 type metaStamp struct {
 	size          int64
 	mtime, readAt time.Time
+	scan          *bgScan
 }
 
-func stampOf(m quickMeta) metaStamp { return metaStamp{m.size, m.mtime, m.readAt} }
+func stampOf(m quickMeta) metaStamp { return metaStamp{size: m.size, mtime: m.mtime, readAt: m.readAt} }
 
 func (s metaStamp) same(o metaStamp) bool {
 	return s.size == o.size && s.mtime.Equal(o.mtime) && s.readAt.Equal(o.readAt)
@@ -65,7 +67,9 @@ func (n *Node) pruneGoneMetas(present map[string]bool) {
 	n.dropGoneMetas(check, gone)
 }
 
-// pruneCandidates are the metas not in present, with how each looked.
+// pruneCandidates are the metas not in present, with how each looked, and the background-task scans not in present
+// that have no meta: a resident node's new connection starts with the last one's scans (carry.go) and no metas, so a
+// transcript deleted in between would keep its scan for good.
 func (n *Node) pruneCandidates(present map[string]bool) map[string]metaStamp {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -73,6 +77,11 @@ func (n *Node) pruneCandidates(present map[string]bool) map[string]metaStamp {
 	for p, m := range n.metas {
 		if !present[p] {
 			check[p] = stampOf(m)
+		}
+	}
+	for p, sc := range n.bgScans {
+		if _, ok := n.metas[p]; !ok && !present[p] {
+			check[p] = metaStamp{scan: sc}
 		}
 	}
 	return check
@@ -88,6 +97,10 @@ func (n *Node) dropGoneMetas(check map[string]metaStamp, gone []string) {
 	defer n.mu.Unlock()
 	for _, p := range gone {
 		m, ok := n.metas[p]
+		if sc := check[p].scan; !ok && sc != nil && n.bgScans[p] == sc {
+			delete(n.bgScans, p) // a scan with no meta, still the one checked (by pointer: n.mu holds no bgScan's lock)
+			continue
+		}
 		if !ok || !stampOf(m).same(check[p]) {
 			continue // read again since the stat: the file may be back
 		}

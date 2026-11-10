@@ -54,5 +54,11 @@
   "verdict_to_agent": "What the user said about your conclusion (a reply in Lark):\n{feedback}\n\nWork on it, and in your last reply give the conclusion again: done or cannot be done, why in one sentence, and one link.",
   "verdict_decided_to_agent": "The user's decision (a reply in Lark):\n{decision}\n\nGo on with it.",
   "verdict_take_to_agent": "The user took the recommended option:\n{option}\n\nGo on with it.",
-  "verdict_over": "sent back {rounds} times and still not done; how should it go on?"
+  "verdict_over": "sent back {rounds} times and still not done; how should it go on?",
+  "deadline_default": "No answer by {when} takes the recommendation (it can be undone)",
+  "deadline_irreversible": "Deadline {when}; this cannot be undone, so it is not taken automatically, only reminded",
+  "deadline_overdue": "Past the deadline ({when}); this cannot be undone, so nothing was taken: it waits for you",
+  "deadline_taken_reason": "Taken by default: no answer by {when}",
+  "verdict_taken_default": "No answer by the deadline: the recommendation was taken and sent to the agent",
+  "verdict_default_to_agent": "The user did not answer by the deadline, so the recommended option is taken by default (it can be undone; they may still change their mind):\n{option}\n\nGo on with it."
 }

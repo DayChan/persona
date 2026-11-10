@@ -136,4 +136,7 @@
     <string name="knowledge_disabled_title">Knowledge base is turned off</string>
     <string name="knowledge_disabled_text">This manager has turned off the knowledge base. Enable it in the manager configuration to read it.</string>
     <string name="knowledge_opening">The knowledge base is starting. Please try again shortly.</string>
+    <string name="knowledge_timeout">The knowledge request timed out. Try again later.</string>
+    <string name="knowledge_forbidden">This device does not have permission to read this knowledge. Check its access permissions.</string>
+    <string name="knowledge_missing">This item was not found, or the hub does not support this knowledge feature yet.</string>
 </resources>

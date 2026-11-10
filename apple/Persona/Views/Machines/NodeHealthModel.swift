@@ -209,12 +209,17 @@ nonisolated enum NodeHealth {
         return nil
     }
 
-    /// Whether the hub can install its own build there (Redeploy): not the hub's own machine, not one that dials in.
-    static func canDeploy(_ m: Machine) -> Bool { !["local", "link", "service"].contains(m.kind) }
+    /// Whether the hub can install its own build there (Redeploy): the hub's own answer (newer hubs), else not the hub's
+    /// own machine and not one that dials in.
+    static func canDeploy(_ m: Machine) -> Bool {
+        if let can = m.canDeploy { return can }
+        return !["local", "link", "service"].contains(m.kind)
+    }
 
-    /// Why an old node cannot be updated from here, when it cannot.
+    /// Why an old node cannot be updated from here, when it cannot: the hub's own words (newer hubs), else ours.
     static func deployReason(_ m: Machine) -> String? {
-        switch m.kind {
+        if let reason = m.deployReason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty { return reason }
+        return switch m.kind {
         case "local": String(localized: "This is the hub machine. Upgrade the hub and node on it directly.")
         case "link", "service": String(localized: "First upgrade node locally on this computer, and upgrade the hub to a version that supports updates over the link.")
         default: nil
@@ -264,6 +269,29 @@ nonisolated enum NodeHealth {
                                 : String(localized: "Make sure it's on, the network is up and the node is running, then reconnect"))
         }
         return String(localized: "\(title): \(next)")
+    }
+}
+
+/// A Redeploy's stage as the hub reports it (`deploy_phase`): what the machine card says while it runs.
+nonisolated enum MachineDeployPhase: String, Sendable {
+    case waitingIdle = "waiting_idle"
+    case transferring
+    case restarting
+    case confirming
+
+    /// The card's line for this stage.
+    var message: String {
+        switch self {
+        case .waitingIdle: String(localized: "Waiting for the agents on this computer to go idle…")
+        case .transferring: String(localized: "Sending Persona to this computer…")
+        case .restarting: String(localized: "Restarting Persona on this computer…")
+        case .confirming: String(localized: "Waiting for Persona to reconnect and confirm its version…")
+        }
+    }
+
+    /// The stage a machine's `deploy_phase` names; nil for an older hub or a deploy with no stage yet.
+    static func of(_ m: Machine) -> MachineDeployPhase? {
+        m.deployPhase.flatMap(MachineDeployPhase.init(rawValue:))
     }
 }
 

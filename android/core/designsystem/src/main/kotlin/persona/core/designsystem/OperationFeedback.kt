@@ -101,6 +101,9 @@ private val HubWordedCodes = setOf("no_machine", "machine_pending", "claude_miss
 
 /** The words of the main conversation's coded refusals. */
 private fun codedFeedback(reason: FailureReason): Int? = when (reason) {
+    FailureReason.KnowledgeDisabled -> R.string.designsystem_knowledge_disabled
+    FailureReason.KnowledgeUnavailable -> R.string.designsystem_knowledge_unavailable
+    FailureReason.KnowledgeReadOnly -> R.string.designsystem_knowledge_read_only
     FailureReason.NoMachine -> R.string.designsystem_feedback_no_machine
     FailureReason.MachinePending -> R.string.designsystem_feedback_machine_pending
     FailureReason.ComputerOffline -> R.string.designsystem_feedback_computer_offline

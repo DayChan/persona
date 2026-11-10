@@ -31,6 +31,8 @@ func TestPersonaCardsBecomeNumbers(t *testing.T) {
 			[]string{"| 今天的热量分配 · 推荐全天摄入 | 2,250 kcal |\n| --- | --- |\n| 早餐 · 已吃 | 555 kcal |\n| 午餐 | 900 kcal |\n| 晚餐 | 750 kcal |\n| 还能吃 | 45 kcal |\n"}},
 		{"stacked bar without a total", `{"type":"stacked_bar","unit":"小时","note":"按手表记录","segments":[{"label":"深睡","value":1.2},{"label":"浅睡","value":4.1}]}`,
 			[]string{"| 合计 | 5.3 小时 |\n", "| 深睡 | 1.2 小时 |\n", "|\n\n按手表记录\n"}},
+		{"ring with what remains", `{"type":"ring","title":"今天的热量","total":{"value":2000,"unit":"kcal"},"segments":[{"label":"早餐","value":480},{"label":"午餐","value":720}]}`,
+			[]string{"| 今天的热量 | 2,000 kcal |\n| --- | --- |\n| 早餐 | 480 kcal |\n| 午餐 | 720 kcal |\n| 剩余 | 800 kcal |\n"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := PersonaCards("结论。\n\n" + cardFence(tc.card) + "\n\n后面的话")

@@ -61,5 +61,6 @@
   "device_watch": "手表",
   "duration_hours": "{h} 小时 {m} 分",
   "duration_minutes": "{m} 分 {s} 秒",
-  "duration_seconds": "{s} 秒"
+  "duration_seconds": "{s} 秒",
+  "hit_minutes": "会议纪要"
 }

@@ -24,11 +24,11 @@ export function offlineNow(): Offline {
 
 /**
  * Whether an error's text says the request never reached the hub: errorText's line for a failed fetch (TypeError,
- * often inside "send failed: …" in Chinese), or a proxy's bare 502 / 503 / 504 in front of a hub that is down. The app folds only
- * `error.isOffline` the same way.
+ * often inside "send failed: …" in Chinese). An HTTP gateway status can also be a business refusal
+ * from a manager, so is not evidence that the hub is unreachable. The app folds only `error.isOffline` the same way.
  */
 export function isOfflineError(text: string): boolean {
-  return text.includes(t("lib-api.cant_reach_hub")) || /\bHTTP 50[234]\b/.test(text);
+  return text.includes(t("lib-api.cant_reach_hub"));
 }
 
 export interface Shown {

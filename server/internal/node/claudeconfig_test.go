@@ -166,3 +166,67 @@ func TestClaudeSettingsEffortLevels(t *testing.T) {
 		}
 	}
 }
+
+// permissions.defaultMode is one key inside settings.json's permissions object: set and reset without touching the
+// rest of it (#3026).
+func TestClaudeSettingsDefaultMode(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	n := &Node{home: home}
+	_ = os.MkdirAll(filepath.Join(home, ".claude"), 0o700)
+	path := filepath.Join(home, ".claude", "settings.json")
+	_ = os.WriteFile(path, []byte(`{"permissions":{"allow":["Bash(ls)"]},"language":"中文"}`), 0o600)
+	read := func() ClaudeSetting {
+		t.Helper()
+		list, err := n.getClaudeSettings(i18n.En)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range list {
+			if s.Key == "permissions.defaultMode" {
+				return s
+			}
+		}
+		t.Fatal("default mode setting is missing")
+		return ClaudeSetting{}
+	}
+	got := read()
+	if got.Value != nil || got.Default != "default" || !slices.Equal(got.Options, permissionModes) || got.Title != i18n.T(i18n.En, "claude-settings.default_mode_title") {
+		t.Fatalf("unset default mode = %+v", got)
+	}
+	if err := n.setClaudeSetting("permissions.defaultMode", "dontAsk"); err == nil {
+		t.Fatal("a mode Persona does not know was accepted")
+	}
+	if err := n.setClaudeSetting("permissions.defaultMode", "auto"); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(); got.Value != "auto" {
+		t.Fatalf("value = %v, want auto", got.Value)
+	}
+	raw, _ := n.readClaudeSettings()
+	perms, _ := raw["permissions"].(map[string]any)
+	if perms["defaultMode"] != "auto" || len(perms["allow"].([]any)) != 1 || raw["language"] != "中文" || raw["permissions.defaultMode"] != nil {
+		t.Fatalf("settings = %v", raw)
+	}
+	if err := n.setClaudeSetting("permissions.defaultMode", nil); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = n.readClaudeSettings()
+	perms, _ = raw["permissions"].(map[string]any)
+	if _, set := perms["defaultMode"]; set || perms["allow"] == nil {
+		t.Fatalf("reset = %v", raw)
+	}
+
+	// A settings.json without the object gets one; one whose permissions is not an object is left alone.
+	_ = os.WriteFile(path, []byte(`{}`), 0o600)
+	if err := n.setClaudeSetting("permissions.defaultMode", "acceptEdits"); err != nil || read().Value != "acceptEdits" {
+		t.Fatalf("set on an empty file: %v, %+v", err, read())
+	}
+	_ = os.WriteFile(path, []byte(`{"permissions":"odd"}`), 0o600)
+	if err := n.setClaudeSetting("permissions.defaultMode", "plan"); err == nil {
+		t.Fatal("overwrote a permissions value that is not an object")
+	}
+	if b, _ := os.ReadFile(path); string(b) != `{"permissions":"odd"}` {
+		t.Fatalf("file changed: %s", b)
+	}
+}

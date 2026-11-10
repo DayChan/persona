@@ -25,6 +25,12 @@ nonisolated struct Machine: Codable, Identifiable, Hashable, Sendable {
     /// The hub is installing its own build there (Redeploy); deployError: why the last try did not work.
     var deploying: Bool?
     var deployError: String?
+    /// The hub's own answer on updating the node from here (newer hubs): whether it can (`can_deploy`), why not
+    /// (`deploy_reason`, in the request's language), and the stage of a deploy that is running (`deploy_phase`:
+    /// waiting_idle, transferring, restarting or confirming). nil from older hubs.
+    var canDeploy: Bool? = nil
+    var deployReason: String? = nil
+    var deployPhase: String? = nil
     /// OS and hardware (docs/server/machines.md); nil from hubs before machine monitoring, or a machine never connected.
     var system: MachineSystem?
     var engine: MachineEngine = .herdr
@@ -59,6 +65,7 @@ nonisolated struct Machine: Codable, Identifiable, Hashable, Sendable {
         case errorCode = "error_code"
         case sshHost = "ssh_host", herdrVersion = "herdr_version", claudeVersion = "claude_version", lastSeen = "last_seen"
         case nodeMismatch = "node_mismatch", nodeVersion = "node_version", deploying, deployError = "deploy_error"
+        case canDeploy = "can_deploy", deployReason = "deploy_reason", deployPhase = "deploy_phase"
         case hubID = "hub_id", hubName = "hub_name", machineUID = "machine_uid", hubGroup = "app_hub_group",
              groupLabel = "app_group_label"
     }
@@ -94,6 +101,9 @@ extension Machine {
         nodeVersion = try c.decodeIfPresent(String.self, forKey: .nodeVersion)
         deploying = try c.decodeIfPresent(Bool.self, forKey: .deploying)
         deployError = try c.decodeIfPresent(String.self, forKey: .deployError)
+        canDeploy = try c.decodeIfPresent(Bool.self, forKey: .canDeploy)
+        deployReason = try c.decodeIfPresent(String.self, forKey: .deployReason)
+        deployPhase = try c.decodeIfPresent(String.self, forKey: .deployPhase)
         system = try c.decodeIfPresent(MachineSystem.self, forKey: .system)
         engine = try c.decodeIfPresent(MachineEngine.self, forKey: .engine) ?? .herdr
         engines = try c.decodeIfPresent([DetectedEngine].self, forKey: .engines) ?? []

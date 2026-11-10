@@ -31,11 +31,16 @@ func runtimeTranscripts(params json.RawMessage) map[string]string {
 	}
 	out := map[string]string{}
 	for _, s := range p.Sessions {
-		if s.Transcript != "" && validID(s.Transcript) && runtimeIDRe.MatchString(s.SessionID) {
+		if namesTranscript(s.SessionID, s.Transcript) {
 			out[s.SessionID] = s.Transcript
 		}
 	}
 	return out
+}
+
+// namesTranscript: a row of session id names Claude session t as its transcript.
+func namesTranscript(id, t string) bool {
+	return t != "" && validID(t) && runtimeIDRe.MatchString(id)
 }
 
 // foundTranscripts keeps the transcripts this machine has. One not written yet (a session's first turn just started,

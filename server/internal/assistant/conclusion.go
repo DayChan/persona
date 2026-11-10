@@ -63,6 +63,8 @@ func askSummary(l i18n.Lang, a *acceptAsk) string {
 // acceptedNote is what the bot answers under a card the owner passed.
 func acceptedNote(l i18n.Lang, a *acceptAsk) string {
 	switch {
+	case decideAsk(a) && a.ByDefault:
+		return i18n.T(l, "assistant-reports.verdict_taken_default")
 	case decideAsk(a):
 		return i18n.T(l, "assistant-reports.verdict_taken")
 	case a.Conclusion:
@@ -87,6 +89,9 @@ func (s *Service) conclusionCard(ctx context.Context, t Todo, a acceptAsk) *feis
 	c.Markdown("**" + feishubot.EscapeMarkdown(verdictText(l, &a)) + "**")
 	if r := recommendText(l, &a); r != "" {
 		c.Markdown(feishubot.EscapeMarkdown(r))
+	}
+	if d := deadlineText(l, s.location(ctx), a.Deadline, a.Reversible, time.Now()); d != "" && decideAsk(&a) && a.AcceptedAt.IsZero() {
+		c.Markdown(feishubot.EscapeMarkdown(d))
 	}
 	if a.Link != "" {
 		c.Markdown(i18n.T(l, "assistant-reports.verdict_link", i18n.Args{"link": "[" + feishubot.EscapeMarkdown(clip(a.Link, 80)) + "](" + a.Link + ")"}))
@@ -122,6 +127,9 @@ type conclusionInput struct {
 	Recommend string // a decision's recommended option
 	Note      string
 	Checks    []ReviewCheck
+	// Deadline and Reversible: a decision's deadline and whether it can be undone (#3127, decision_deadline.go).
+	Deadline   time.Time
+	Reversible bool
 }
 
 // askConclusion keeps supervised task t's conclusion as its ask and posts its card when the bot can; true when the card
@@ -151,6 +159,9 @@ func (s *Service) askConclusion(ctx context.Context, t Todo, in conclusionInput)
 	note, _, _ := strings.Cut(strings.TrimSpace(in.Note), "\n")
 	a := acceptAsk{Conclusion: true, Outcome: in.Outcome, Reason: clip(oneLine(cmp.Or(strings.TrimSpace(in.Reason), note)), 120),
 		Recommend: clip(oneLine(in.Recommend), 120), Link: s.conclusionLink(ctx, t, in), AskedAt: time.Now().UTC(), Earlier: earlier}
+	if in.Outcome == outcomeDecide && a.Recommend != "" {
+		a.Deadline, a.Reversible = in.Deadline, in.Reversible
+	}
 	if a.Reason == "" && in.Outcome == outcomeDone {
 		a.Reason = i18n.T(l, "assistant-reports.verdict_done_default")
 	}
@@ -226,8 +237,9 @@ func (s *Service) askCopy(id string) (acceptAsk, bool) {
 	return *a, true
 }
 
-// takeRecommendation: the owner took decision a's recommended option for task id: it is kept in the todo's decisions and
-// sent to the task's agent, whose next stop comes back to the supervisor (userDecided). An error: it did not reach the agent.
+// takeRecommendation: the owner took decision a's recommended option for task id (or, a.ByDefault, nobody answered by its
+// deadline and the hub took it, #3127): it is kept in the todo's decisions and sent to the task's agent, whose next stop
+// comes back to the supervisor (userDecided). An error: it did not reach the agent.
 func (s *Service) takeRecommendation(ctx context.Context, id string, a acceptAsk) error {
 	t, ok := s.todoNow(id)
 	if !ok {
@@ -235,15 +247,23 @@ func (s *Service) takeRecommendation(ctx context.Context, id string, a acceptAsk
 	}
 	l := s.botLang(ctx)
 	msg := i18n.T(l, "assistant-reports.verdict_take_to_agent", i18n.Args{"option": a.Recommend})
-	if _, err := s.routeToTask(ctx, t.Origin, id, msg); err != nil {
+	row := db.TodoDecisionRow{Question: cmp.Or(a.Reason, i18n.T(l, "assistant-reports.verdict_decide")), Choice: decisionText(a.Recommend),
+		Source: db.DecisionManual}
+	if a.ByDefault {
+		msg = i18n.T(l, "assistant-reports.verdict_default_to_agent", i18n.Args{"option": a.Recommend})
+		// The hub's call at the deadline, not the owner's: an agent's source, with the reason saying so.
+		row.Reason, row.Source = defaultReason(l, s.location(ctx), a.Deadline), db.DecisionAgent
+	}
+	if _, err := s.routeToTaskChecked(ctx, t.Origin, id, msg, func(cur Todo) bool {
+		return cur.DoneAt == nil && !acceptAskStale(&a, cur)
+	}); err != nil {
 		s.logf("task %s: conclusion to agent: %v", id, err)
 		return err // not recorded either: the decision is not made until it reaches the agent
 	}
 	if st := s.todoDB(); st != nil {
 		at := decisionNow()
-		if ok, err := s.insertDecision(ctx, st, db.TodoDecisionRow{ID: "dec_" + randomHex(8), TodoID: id,
-			Question: cmp.Or(a.Reason, i18n.T(l, "assistant-reports.verdict_decide")), Choice: decisionText(a.Recommend),
-			Source: db.DecisionManual, CreatedAt: at}); err != nil {
+		row.ID, row.TodoID, row.CreatedAt = "dec_"+randomHex(8), id, at
+		if ok, err := s.insertDecision(ctx, st, row); err != nil {
 			s.logf("task %s: conclusion decision: %v", id, err)
 		} else if ok {
 			s.decisionsChanged(ctx, id, at)

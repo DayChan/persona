@@ -104,8 +104,12 @@ final class NewAgentAttachmentsTests: XCTestCase {
         XCTAssertTrue(why.label.contains("不能带附件"), why.label)
         usleep(1_500_000) // the keyboard settled
         shot("new-agent-codex-typing")
-        app.buttons["移除图片 1"].tap()
-        XCTAssertTrue(start.isEnabled, "nothing attached, the Codex start can go")
+        nudge() // bring the photo's × out from behind the floating Start Chat bar while the keyboard is up
+        shot("new-agent-codex-remove")
+        let remove = app.buttons["移除图片 1"]
+        XCTAssertFalse(remove.frame.intersects(start.frame), "the photo's × must not be under the floating Start Chat bar")
+        remove.tap()
+        wait("nothing attached, the Codex start can go") { start.isEnabled }
         XCTAssertFalse(app.buttons["移除图片 1"].exists)
         XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "newChat.codexNote").firstMatch.exists)
     }

@@ -16,9 +16,11 @@ export function permissionLabel(mode: string): string {
     ? t("assistant-tasks.perm_accept_edits")
     : mode === "plan"
       ? t("assistant-tasks.perm_plan")
-      : mode === "bypassPermissions"
-        ? t("assistant-tasks.perm_bypass")
-        : t("assistant-tasks.perm_default");
+      : mode === "auto"
+        ? t("assistant-tasks.perm_auto")
+        : mode === "bypassPermissions"
+          ? t("assistant-tasks.perm_bypass")
+          : t("assistant-tasks.perm_default");
 }
 
 /** The hub keeps the plan's model when the field is sent empty (applyPlanEdit): say so rather than "use the default". */

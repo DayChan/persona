@@ -280,3 +280,43 @@ func TestMissingFromOtherShells(t *testing.T) {
 		}
 	}
 }
+
+// What the shell says of a start line whose head something ate (#2570): the start file itself refused (". " eaten),
+// a tail of the line's first word not found ("nset" for "unset"), a parse error, or a quote left open. An rc file's
+// noise after the line is none of them, nor is anything before the line.
+func TestStartProbeSeesARejectedLine(t *testing.T) {
+	const id, file = "0b7c1e52-3a4d-4f6e-8a9b-1c2d3e4f5a6b", "/home/me/.persona/agent-start-123.sh"
+	probe := func(firstWord string) *startProbe {
+		return &startProbe{anchor: id, program: "cc", launcher: "cc", startFile: file, firstWord: firstWord}
+	}
+	back := func() bool { return true }
+	for _, tc := range []struct {
+		name, firstWord, screen, rejected string
+	}{
+		{"start file", ".", "% '" + file + "' && true '" + id + "'\nzsh: permission denied: " + file + "\n% ",
+			"zsh: permission denied: " + file},
+		{"first word's tail", "unset", "% nset PERSONA_ASSISTANT && true '" + id + "'\nzsh: command not found: nset\n% ",
+			"zsh: command not found: nset"},
+		{"parse error", ".", "% && true '" + id + "'\nzsh: parse error near `&&'\n% ", "zsh: parse error near `&&'"},
+		{"open quote", ".", "% ersona/agent-start-123.sh' && true '" + id + "'\nquote> ", "quote>"},
+		{"rc noise", ".", "$ . '" + file + "' && true '" + id + "'\nbash: __git_ps1: command not found\n$ ", ""},
+		{"before the line", ".", "zsh: command not found: nset\nzsh: parse error near `&&'\n% . '" + file + "' && true '" + id + "'\n", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := probe(tc.firstWord)
+			refused, _ := p.verdict(tc.screen, back)
+			got := ""
+			var r *startLineRejected
+			if errors.As(refused, &r) {
+				got = r.line
+			} else if refused != nil {
+				t.Fatalf("refused otherwise: %v", refused)
+			} else {
+				got = p.rejectedLine(tc.screen)
+			}
+			if got != tc.rejected {
+				t.Errorf("rejected %q, want %q", got, tc.rejected)
+			}
+		})
+	}
+}

@@ -7,7 +7,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { brotliCompress, constants } from "node:zlib";
+import { brotliCompress, constants, gzip as gzipCompress } from "node:zlib";
 
 /** The languages under `dir` (src/i18n/locales): code → the language subtags its _meta.json matches. Build time only. */
 export function localeDirs(dir: string): Record<string, string[]> {
@@ -98,6 +98,69 @@ export const FIRST_SCREEN_BUDGET = 576_352;
 export async function sentBytes(dir: string, files: string[]): Promise<number> {
   const sizes = await Promise.all(files.map((file) => stat(join(dir, `${file}.br`)).catch(() => stat(join(dir, file)))));
   return sizes.reduce((sum, s) => sum + s.size, 0);
+}
+
+/**
+ * The most the idle tier may send (src/lib/lazy-page.ts: the chunks of each `lazyPage(…, { idle: true })` and what they
+ * import beyond the first screen), in bytes as gzipBytes counts them (vite.config.ts startupPreload fails the build past
+ * it): 29,143 B at #2798 plus 3% (28,085 B at #2880; #2798 moved ModelIdField, which the model popover now shares with
+ * the idle ModelPicker, out of the first screen into a chunk of its own). Every other lazy page loads on intent, not at
+ * idle; raise it on purpose, in the change that needs it.
+ */
+export const IDLE_TIER_BUDGET = 30_017;
+
+const gzip = promisify(gzipCompress);
+
+/** What the built-in hub sends for `files` (paths below `dir`, none with a brotli copy) once the release precompressed
+ *  them (server/internal/webasset): each one gzipped at the best level, or the file itself under BROTLI_MIN_SIZE. Build
+ *  time only. */
+export async function gzipBytes(dir: string, files: string[]): Promise<number> {
+  const sizes = await Promise.all(files.map(async (file) => {
+    const data = await readFile(join(dir, file));
+    return data.length < BROTLI_MIN_SIZE ? data.length : (await gzip(data, { level: 9 })).length;
+  }));
+  return sizes.reduce((sum, n) => sum + n, 0);
+}
+
+// The arguments of the call whose "(" ends just before `from` in `code`, as written and split at its top-level commas;
+// null when it never closes (not a call).
+function callArgs(code: string, from: number): string[] | null {
+  const args: string[] = [];
+  let depth = 0;
+  let start = from;
+  for (let i = from; i < code.length; i++) {
+    const c = code[i];
+    if (c === '"' || c === "'" || c === "`") {
+      for (i++; i < code.length && code[i] !== c; i++) if (code[i] === "\\") i++;
+    } else if ("([{".includes(c)) depth++;
+    else if (")]}".includes(c) && depth-- === 0) return [...args, code.slice(start, i)].filter((a) => a.trim());
+    else if (c === "," && !depth) {
+      args.push(code.slice(start, i));
+      start = i + 1;
+    }
+  }
+  return null;
+}
+
+/**
+ * The modules a source file (`code`) loads at idle: the "x" of each `lazyPage(() => import("x")…, { idle: true })`, as
+ * written, wherever `idle` stands among its options. Throws on a lazyPage marked idle whose loader is written another
+ * way, and on one whose options are not an object literal: either would load at idle without counting against
+ * IDLE_TIER_BUDGET. Build time only.
+ */
+export function idleImports(code: string): string[] {
+  const specs: string[] = [];
+  for (const m of code.matchAll(/(?<!function\s*)\blazyPage\(/g)) { // each call, not lazyPage's own definition
+    const [load, opts] = callArgs(code, m.index + m[0].length) ?? [];
+    if (opts === undefined) continue;
+    const call = `lazyPage(${load.trim().slice(0, 60)}…)`;
+    if (!opts.trim().startsWith("{")) throw new Error(`${call}: write its options as an object literal, so the idle tier's budget sees whether it is idle`);
+    if (!/\bidle\b(?!\s*:\s*false\b)/.test(opts)) continue;
+    const spec = /^\(\s*\)\s*=>\s*import\(\s*(["'])([^"'`]+)\1\s*\)/.exec(load.trim())?.[2];
+    if (!spec) throw new Error(`${call} is idle, but its loader is not \`() => import("…")\`, so the idle tier's budget cannot count it`);
+    specs.push(spec);
+  }
+  return specs;
 }
 
 /**

@@ -6,5 +6,7 @@
   "compose_no_account": "New email (add a mail account in Settings › Connectors first)",
   "refresh": "Refresh (fetch Lark and mail now)",
   "list": "Inbox list",
-  "detail": "Details"
+  "detail": "Details",
+  "select": "Select",
+  "select_done": "Done"
 }

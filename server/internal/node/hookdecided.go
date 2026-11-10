@@ -103,10 +103,7 @@ func (d *decisions) watch(ctx context.Context, key string) (context.Context, fun
 			delete(d.unused, key)
 		}
 	}
-	if d.waiting == nil {
-		d.waiting = map[string][]*decisionWaiter{}
-	}
-	d.waiting[key] = append(d.waiting[key], w)
+	d.waiting = addHookWaiter(d.waiting, key, w)
 	answered := w.answered
 	d.mu.Unlock()
 	if answered {
@@ -118,18 +115,7 @@ func (d *decisions) watch(ctx context.Context, key string) (context.Context, fun
 			return w.answered
 		}, func() {
 			d.mu.Lock()
-			ws := d.waiting[key]
-			for i, o := range ws {
-				if o == w {
-					ws = append(ws[:i:i], ws[i+1:]...)
-					break
-				}
-			}
-			if len(ws) == 0 {
-				delete(d.waiting, key)
-			} else {
-				d.waiting[key] = ws
-			}
+			d.waiting = removeHookWaiter(d.waiting, key, w)
 			d.mu.Unlock()
 			cancel()
 		}

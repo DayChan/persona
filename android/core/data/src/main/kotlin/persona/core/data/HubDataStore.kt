@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import java.io.File
 import java.io.IOException
+import java.util.Base64
 import java.util.UUID
 import persona.core.contracts.HubScope
 import persona.core.contracts.api.MessageTransport
@@ -141,6 +142,43 @@ class HubDataStore(
             withContext(NonCancellable) { storeJob.cancelAndJoin() }
         }
     } }
+
+    /** A pairing's SSH tunnel and local proxy; unreadable or missing is neither. */
+    suspend fun tunnels(scope: HubScope): PairedTunnels = withContext(Dispatchers.IO) { lock.withLock {
+        check(job.isActive) { "Hub data store is closed" }
+        temporary({ encrypted.tunnels(scope.path, it) }) { it.data.first() }.routes()
+    } }
+
+    /** Saves [transform] of a pairing's tunnels and returns what was saved. */
+    suspend fun updateTunnels(scope: HubScope, transform: (PairedTunnels) -> PairedTunnels): PairedTunnels =
+        withContext(Dispatchers.IO) { lock.withLock {
+            check(job.isActive) { "Hub data store is closed" }
+            check(scope.path in registryLocked().groups.flatMap { group -> group.hubs.map { it.pairing.path } }) { "Not a paired hub" }
+            temporary({ encrypted.tunnels(scope.path, it) }) { store -> store.updateData { transform(it.routes()).document() } }.routes()
+        } }
+
+    /**
+     * This device's SSH key's seed (docs/operations/network.md "Connecting to hub through SSH"), made by [generate] the
+     * first time. It stays when pairings go: servers list it in their authorized_keys. Throws when it cannot be read.
+     */
+    suspend fun deviceSshKey(generate: () -> ByteArray): ByteArray = withContext(Dispatchers.IO) { lock.withLock {
+        check(job.isActive) { "Hub data store is closed" }
+        temporary(encrypted::sshKey) { store ->
+            val saved = store.data.first().seed
+                ?: store.updateData { if (it.seed == null) it.copy(seed = Base64.getEncoder().encodeToString(generate())) else it }.seed
+            Base64.getDecoder().decode(checkNotNull(saved))
+        }
+    } }
+
+    /** Opens a store for one read or write; DataStore refuses a second live instance of a file. Callers hold [lock]. */
+    private suspend fun <T, R> temporary(open: (CoroutineScope) -> DataStore<T>, use: suspend (DataStore<T>) -> R): R {
+        val storeJob = SupervisorJob(job)
+        try {
+            return use(open(CoroutineScope(ioScope.coroutineContext + storeJob)))
+        } finally {
+            withContext(NonCancellable) { storeJob.cancelAndJoin() }
+        }
+    }
 
     /**
      * Opens a group's data: databases, caches and files in [storage]; credentials and route choices of [home] (the
@@ -374,9 +412,9 @@ internal fun eraseScope(roots: List<File>, scope: HubScope) {
 }
 
 /** The files of a pairing in its no-backup scope directory; everything else there is group data. */
-internal val pairingFiles = setOf("credentials.enc", "endpoints.enc")
+internal val pairingFiles = setOf("credentials.enc", "endpoints.enc", "tunnels.enc")
 
-/** Deletes a pairing's credentials and route choices only: the directory still holds a group's data. */
+/** Deletes a pairing's credentials, route choices and tunnels only: the directory still holds a group's data. */
 internal fun eraseCredentials(noBackup: File, scope: HubScope) {
     pairingFiles.forEach { name ->
         val file = File(noBackup, "hub-data/${scope.path}/$name")

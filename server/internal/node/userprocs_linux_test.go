@@ -3,10 +3,13 @@
 package node
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -56,6 +59,28 @@ func TestReadProcArgv(t *testing.T) {
 		t.Fatalf("readProcArgv of a missing root = %v, want none", got)
 	}
 }
+
+// A walk allocates what it returns and little more: the 300 processes below, with command lines of a few hundred bytes
+// to a few kilobytes (a browser's, a language server's), cost 2.41 MB a walk through os.ReadDir, DirEntry.Info and
+// os.ReadFile, which grows a new buffer for each; 1.53 MB with one buffer for the walk. The bound is that, plus 3%.
+func TestReadProcArgvAllocatesWhatItReturns(t *testing.T) {
+	procs := map[string][]byte{}
+	for i := range 300 {
+		arg := strings.Repeat(fmt.Sprintf("--flag-%d=value ", i), 10+(i%7)*40)
+		procs[strconv.Itoa(1000+i)] = []byte("/usr/lib/app/bin/app\x00" + strings.ReplaceAll(strings.TrimSpace(arg), " ", "\x00") + "\x00")
+	}
+	root := fakeProc(t, procs)
+	uid := uint32(os.Getuid())
+	if got := len(readProcArgv(root, uid)); got != 300 {
+		t.Fatalf("read %d processes, want 300", got)
+	}
+	if per := bytesPerRun(10, func() { readProcArgv(root, uid) }); per > readProcArgvBudget {
+		t.Errorf("a walk of 300 processes allocates %.0f bytes, want at most %d", per, readProcArgvBudget)
+	}
+}
+
+// readProcArgvBudget is what TestReadProcArgvAllocatesWhatItReturns lets a walk allocate.
+const readProcArgvBudget = 1_572_600 // 1,526,777 measured (1,537,762 with -race)
 
 func TestUserProcessesSharesOneWalk(t *testing.T) {
 	procSnapshot.Lock()

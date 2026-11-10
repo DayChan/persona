@@ -306,7 +306,7 @@ func (c *conversation) flushRing() {
 		}
 		c.mu.Unlock()
 		for i, f := range out {
-			err := writeJSON(c.ctx, up, f)
+			err := c.writeUp(up, f)
 			if err == nil {
 				continue
 			}

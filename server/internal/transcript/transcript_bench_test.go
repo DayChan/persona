@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/nwverse/persona/server/internal/proto"
 )
 
 // benchTranscript writes a Claude transcript of about size bytes shaped like a real session's: each line carries the
@@ -71,4 +73,58 @@ func TestToolUseResultNotCopied(t *testing.T) {
 	if per := (after.TotalAlloc - before.TotalAlloc) / runs; per > 2718 {
 		t.Fatalf("parsing the line allocated %d bytes, want at most 2718", per)
 	}
+}
+
+// The light copy a node keeps of a long result (File.items) holds its page and its outcome, not the output: an outcome's
+// tail and saved-output path are copied out, never slices that keep the whole output alive.
+func TestLightResultRetainsNoOutput(t *testing.T) {
+	out := strings.Repeat("compiling a package\n", 1<<20/20) + "error: the cause" // about 1 MB
+	lines := []struct {
+		line  string
+		codex bool
+	}{
+		{resultLine(quote("Exit code 1\n"+out), true, `"toolUseResult":"Error: Exit code 1"`), false},
+		{resultLine(quote("<persisted-output>\nOutput too large. Full output saved to: /work/tool-results/b1.txt\n\n"+out), false, ""), false},
+		{`{"type":"user","uuid":"b1","message":{"role":"user","content":` + quote("<bash-stdout>"+out+"</bash-stdout><bash-stderr></bash-stderr>") + `}}`, false},
+		{`{"timestamp":"2026-10-26T05:06:06.000Z","type":"event_msg","payload":{"type":"item_completed","item":` +
+			`{"type":"CommandExecution","id":"e1","command":["/bin/zsh","-lc","make"],"status":"failed","aggregated_output":` +
+			quote(out) + `,"exit_code":1}}}`, true},
+	}
+	parse := func(kept *[]proto.Item) {
+		for i, l := range lines {
+			for _, it := range ParseLine(i+1, []byte(l.line), &Meta{Codex: l.codex}) {
+				k, _ := light(it, false)
+				*kept = append(*kept, k)
+			}
+		}
+	}
+	parse(new([]proto.Item)) // compiles the patterns parsing needs, kept for good
+	const runs = 4
+	kept := make([]proto.Item, 0, runs*2*len(lines))
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	for range runs {
+		parse(&kept)
+	}
+	runtime.GC()
+	runtime.ReadMemStats(&after)
+	results, persisted := 0, 0
+	for _, it := range kept {
+		if it.Kind == proto.KindToolResult && it.Outcome != nil && it.Outcome.Tail != "" {
+			results++
+			if it.Outcome.Persisted != nil {
+				persisted++
+			}
+		}
+	}
+	if results != runs*len(lines) || persisted != runs {
+		t.Fatalf("%d results with a tail and %d with a saved output, want %d and %d", results, persisted, runs*len(lines), runs)
+	}
+	// A page is about 4 KB and a tail at most 2 KB; a kept output would be 1 MB.
+	if per := (int64(after.HeapAlloc) - int64(before.HeapAlloc)) / int64(results); per > 64<<10 {
+		t.Fatalf("each kept result holds %d bytes, want at most %d", per, 64<<10)
+	}
+	runtime.KeepAlive(kept)
+	runtime.KeepAlive(lines) // the input too: freed by the second GC, it would offset what is kept
 }

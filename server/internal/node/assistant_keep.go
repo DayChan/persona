@@ -1,6 +1,12 @@
 package node
 
-import "sync"
+import (
+	"log"
+	"sync"
+	"time"
+
+	"github.com/nwverse/persona/server/internal/osproc"
+)
 
 // A resident node keeps its headless conversations when the hub's connection ends (docs/operations/hub-restart.md "Chats not interrupted: hosting by the resident node"):
 // a hub restart or a reconnect replaces the connection, and with it the Node serving it (attach.go), but the assistant
@@ -25,15 +31,60 @@ func AssistantsBusy() bool {
 	return busy
 }
 
-// stopAll ends what is kept: the resident node itself is ending.
+// keeperStopGrace is how long stopAll gives the kept conversations to end on SIGTERM before it kills their process
+// groups; keeperKillWait bounds the wait after that SIGKILL. Variables so tests can shorten them.
+var (
+	keeperStopGrace = 5 * time.Second
+	keeperKillWait  = 2 * time.Second
+)
+
+// stopAll ends what is kept: the resident node itself is ending. When it returns the process exits or execs a new
+// binary (nodecmd runResident), and the SIGKILL fallback stop() leaves to a goroutine goes with it, so a conversation
+// that ignores SIGTERM would go on orphaned, holding its gate and files. Nothing else will finish the job: it waits
+// for them, kills the process groups of those still running after keeperStopGrace, and waits for those too.
 func (k *assistantKeeper) stopAll() {
 	k.mu.Lock()
 	kept := k.procs
 	k.procs = map[string]*assistantProc{}
 	k.mu.Unlock()
+	var running []*assistantProc
 	for _, p := range kept {
 		p.stop()
+		if p.cmd != nil && p.cmd.Process != nil && p.exited != nil { // never started: nothing to wait for
+			running = append(running, p)
+		}
 	}
+	left := waitExited(running, keeperStopGrace)
+	for _, p := range left {
+		_ = osproc.StopGroup(p.cmd.Process.Pid, true)
+	}
+	if left = waitExited(left, keeperKillWait); len(left) > 0 {
+		log.Printf("node: %d kept conversations still running after SIGKILL", len(left))
+	}
+}
+
+// waitExited waits up to within for every process in procs to exit and returns the ones still running. exited closes
+// only after cmd.Wait has reaped the process, so the pid of one still running, and with it its process group, cannot
+// have been reused: killing that group reaches nobody else.
+func waitExited(procs []*assistantProc, within time.Duration) (left []*assistantProc) {
+	if len(procs) == 0 {
+		return nil
+	}
+	timer := time.NewTimer(within)
+	defer timer.Stop()
+	for i, p := range procs {
+		select {
+		case <-p.exited:
+		case <-timer.C:
+			for _, q := range procs[i:] {
+				if q.alive() {
+					left = append(left, q)
+				}
+			}
+			return left
+		}
+	}
+	return nil
 }
 
 // assistantKeeper holds the conversations between two connections of a resident node.

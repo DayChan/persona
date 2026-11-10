@@ -711,6 +711,9 @@ struct AssistantSidebar: View {
     var onOpenExtension: ((ExtensionNavRoute) -> Void)? = nil
     /// Health: the health space's page (docs/assistant/health.md); nil leaves the row out.
     var openHealth: (() -> Void)? = nil
+    /// Meeting Recording (docs/apple/recording.md「Meeting recordings」): starts recording a meeting and opens Recordings;
+    /// while something records, opens it. nil leaves the row out (the Mac records nothing).
+    var startMeeting: (() -> Void)? = nil
     private var isShell: Bool { openInbox != nil }
     @State private var query = ""
     @State private var searchOpen = false
@@ -925,6 +928,7 @@ struct AssistantSidebar: View {
         if let openInbox, let onMachines {
             // The shell's: the places to go (the main conversation is the row above them, `mainItem`).
             VStack(alignment: .leading, spacing: 0) {
+                meetingRow
                 action(String(localized: "Inbox"), Theme.Icon.inbox, id: "sidebar-inbox", count: InboxStore.shared.actionCount, run: openInbox)
                 if TodoStore.shared.isSupported {
                     action(String(localized: "To-dos"), Theme.Icon.todo, id: "sidebar-todos", count: TodoStore.shared.badgeCount, run: { (openTodos ?? openInbox)() })
@@ -954,11 +958,24 @@ struct AssistantSidebar: View {
     private var phoneActions: some View {
         VStack(alignment: .leading, spacing: 0) {
             action(String(localized: "New Chat [Quick Actions ea4b29]"), Theme.Icon.conversation, id: "sidebar-new", run: newConversation)
+            meetingRow
             action(String(localized: "Scheduled Tasks"), Theme.Icon.schedule, run: openRoutines)
             action(String(localized: "Knowledge"), Theme.Icon.knowledge, run: openKnowledge)
             if let openHealth { action(String(localized: "Health"), Theme.Icon.health, id: "sidebar-health", run: openHealth) }
             extensionRows
         }
+    }
+
+    /// First among the places: one tap from the drawer records the meeting in the room; while a recording runs, the row
+    /// says so and opens it.
+    @ViewBuilder private var meetingRow: some View {
+        #if os(iOS)
+        if let startMeeting {
+            let recording = RecordingCapture.shared.state != .idle
+            action(recording ? String(localized: "Recording… Open") : String(localized: "Meeting Recording"),
+                   Theme.Icon.recording, id: "sidebar-meeting-recording", run: startMeeting)
+        }
+        #endif
     }
 
     /// The extensions' pages on the main navigation (nav_page, docs/extensions/extensions.md「UI slots」): one row each, its icon,

@@ -2,10 +2,11 @@
 // (math, Mermaid, pasted pictures), code cells colored for the kernel's language with their In [n], and each output in
 // the one form lib/notebook.ts picked. HTML outputs (pandas tables, widgets' fallbacks) go into a frame with no scripts
 // and no network, like the Office previews: a notebook is someone else's content.
-import { useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { extendStates, languageOf, lexLine, splitLines, type LexState, type Token } from "../../../lib/files";
 import { languageFile, withAttachmentRefs, type Cell, type Notebook, type Output } from "../../../lib/notebook";
 import { cx } from "../../../ui/atoms";
+import { useDark } from "../../../ui/use-dark";
 import { Markdown } from "../../../ui/Markdown";
 import { TOKEN_CLASS } from "./file-data";
 import { t } from "../../../i18n";
@@ -152,19 +153,6 @@ function OutputView({ o }: { o: Output }) {
     case "html":
       return <HtmlOutput html={o.html} />;
   }
-}
-
-/** Whether the page is in dark mode now (the class views/theme.ts puts on <html>). */
-function useDark(): boolean {
-  return useSyncExternalStore(
-    (on) => {
-      const mo = new MutationObserver(on);
-      mo.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-      return () => mo.disconnect();
-    },
-    () => document.documentElement.classList.contains("dark"),
-    () => false,
-  );
 }
 
 /** An HTML output in a frame with no scripts and no network; sized from what it holds, resizable, in the page's theme

@@ -22,18 +22,16 @@ func codexArgs(bin, key string, windows ...int) []string {
 	return codexArgsForHome(bin, key, "", windows...)
 }
 
+// codexArgsForHome: windows[0] is a compact limit to pass (a managed launcher's declared one, #3066); none or 0 passes
+// none, and Codex compacts by its config or its model's default.
 func codexArgsForHome(bin, key, home string, windows ...int) []string {
-	window := fmt.Sprint(assistantCompactWindow)
-	if len(windows) > 0 {
-		window = fmt.Sprint(windows[0])
-	}
 	q := func(s string) string { b, _ := json.Marshal(s); return string(b) } // a JSON string is a TOML basic string
 	mcpEnv := "{PERSONA_ASSISTANT=" + q("1") + ",PERSONA_SESSION_ID=" + q(key)
 	if home != "" {
 		mcpEnv += ",PERSONA_HOME=" + q(home)
 	}
 	mcpEnv += "}"
-	return compat.CodexMCPAliases([]string{
+	args := []string{
 		"-c", "mcp_servers.persona.command=" + q(bin),
 		"-c", `mcp_servers.persona.args=["mcp"]`,
 		"-c", "mcp_servers.persona.env=" + mcpEnv,
@@ -47,9 +45,11 @@ func codexArgsForHome(bin, key, home string, windows ...int) []string {
 		// The assistant's memory is the one the app's "Memory" page shows, shared with Claude (codexMemoryPrompt); Codex's
 		// own (~/.codex/memories) is one store for every Codex on the machine, so it stays off here.
 		"-c", "features.memories=false",
-		// Compact at about 200K like Claude (assistant.go assistantCompactWindow), not near the model's whole window.
-		"-c", "model_auto_compact_token_limit=" + window,
-	})
+	}
+	if len(windows) > 0 && windows[0] > 0 {
+		args = append(args, "-c", fmt.Sprintf("model_auto_compact_token_limit=%d", windows[0]))
+	}
+	return compat.CodexMCPAliases(args)
 }
 
 // codexShell runs the launcher with `codex` turned into `codex <its flags> app-server <ours>`: the launcher's
@@ -77,7 +77,7 @@ func (n *Node) spawnCodex(id, cwd, launcher string, resume, spare bool, options 
 		return nil, err
 	}
 	compaction := n.assistantCompactionPolicy(launcher, cwd, "", execution)
-	cmd := exec.Command(shell, append([]string{"-ic", codexShell(n.launcherCommand(launcher)), "persona"}, codexArgsForHome(n.bin, key, n.dir, compaction.window)...)...)
+	cmd := exec.Command(shell, append([]string{"-ic", codexShell(n.launcherCommand(launcher)), "persona"}, codexArgsForHome(n.bin, key, n.dir, compaction.codexLimit())...)...)
 	cmd.Dir = root
 	cmd.Env = identity.Environment(os.Environ(), "PERSONA_ASSISTANT=1")
 	gateEnv, releaseGates, nameGates := n.assistantLarkEnvNamed(cwd, id) // its addresses at the gate proxy go with the process

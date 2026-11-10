@@ -624,6 +624,42 @@ class InboxRepositoryTest {
         }
     }
 
+    /** Done's counts per day (#3016): asked in the phone's zone, per manager; an old hub (404) or a zone it doesn't know (400) has none. */
+    @Test fun doneDaysPerManagerAndNoneFromAnOldHub() = runBlocking {
+        val directory = Files.createTempDirectory("inbox-done-days-test").toFile()
+        val owner = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val transport = FakeTransport()
+            val asked = mutableListOf<Pair<String?, String>>()
+            transport.onDoneDays = { manager, tz ->
+                asked += manager to tz
+                buildJsonObject {
+                    put("tz", tz)
+                    put("days", JsonArray(listOf(
+                        buildJsonObject { put("day", "2026-11-10"); put("count", 120) },
+                        buildJsonObject { put("day", "2026-11-03"); put("count", 4) },
+                        buildJsonObject { put("day", "not a day"); put("count", 1) })))
+                }
+            }
+            val repository = repository(transport, directory, owner, FakeHub())
+            val zone = java.time.ZoneId.of("Asia/Shanghai")
+            assertEquals(listOf(persona.feature.inbox.InboxDoneDay(java.time.LocalDate.of(2026, 11, 10), 120),
+                persona.feature.inbox.InboxDoneDay(java.time.LocalDate.of(2026, 11, 3), 4)), repository.doneDays("m-3fa21c", zone))
+            assertEquals(listOf<Pair<String?, String>>("m-3fa21c" to "Asia/Shanghai"), asked)
+            fun refused(code: Int) = object : IOException("hub $code"), persona.core.contracts.api.HubCodedFailure {
+                override val status: Int = code
+                override val code: String? = null
+            }
+            transport.onDoneDays = { _, _ -> throw refused(404) }
+            assertEquals(null, repository.doneDays(null, zone))
+            transport.onDoneDays = { _, _ -> throw refused(400) }
+            assertEquals(null, repository.doneDays(null, zone))
+        } finally {
+            owner.coroutineContext[Job]!!.cancelAndJoin()
+            directory.deleteRecursively()
+        }
+    }
+
     /** A merged list (several managers): each item keeps its manager, and its own requests will name it. */
     @Test fun anotherManagersItemsKeepTheirManager() = runBlocking {
         val directory = Files.createTempDirectory("inbox-managers-test").toFile()
@@ -1357,6 +1393,8 @@ class InboxRepositoryTest {
             put("messages", JsonArray(emptyList())); put("sync_state", "complete")
         } }
         override suspend fun reply(itemId: String?, feedId: String?, text: String, clientId: String) = onReply(clientId)
+        var onDoneDays: suspend (String?, String) -> JsonObject = { _, _ -> throw UnsupportedOperationException() }
+        override suspend fun doneDays(manager: String?, tz: String) = onDoneDays(manager, tz)
         val inboxCalls = java.util.concurrent.atomic.AtomicInteger()
         var onInbox: suspend () -> Unit = {}
         override suspend fun inbox(): JsonObject { inboxCalls.incrementAndGet(); onInbox(); return buildJsonObject { put("items", items) } }

@@ -229,8 +229,8 @@ func providerShaped(l proto.ManagedLauncher) bool {
 		l.TimeoutMS != 0 || l.CompactWindow != 0 || l.MaxContext != 0 || l.Effort != "" || l.Source != ""
 }
 
-// providerEnv is the environment claude runs provider l with, for this model and effort ("" for the provider's own)
-// and the main conversation or not. A "" value means set empty: the variable must not come from anywhere else (the
+// providerEnv is the environment claude runs provider l with, for this model and effort ("" for the provider's own),
+// for an assistant conversation (mainConversation: it switches its own thinking level) or not. A "" value means set empty: the variable must not come from anywhere else (the
 // other credential of the two, which a gateway seeing both refuses with 401). What the shell carries is cleared
 // first (providerEnvClear); settings env cannot unset, so a value here is the only way to override one there.
 //
@@ -277,9 +277,9 @@ func providerEnv(l proto.ManagedLauncher, model, effort string, mainConversation
 	} else if w > standardWindow {
 		env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = strconv.Itoa(w)
 	}
-	if mainConversation {
-		env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = strconv.Itoa(standardWindow)
-	} else if c := cmp.Or(l.CompactWindow, w); c > 0 {
+	// The compact window the provider declares, else its model's window; none when neither is known, and Claude Code
+	// compacts by the model it knows. The same for an assistant conversation, main or not, as for an agent (#3066).
+	if c := cmp.Or(l.CompactWindow, w); c > 0 {
 		env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = strconv.Itoa(c)
 	}
 	// Claude Code puts CLAUDE_CODE_EFFORT_LEVEL above --effort and /effort, which would override the caller's
@@ -309,14 +309,14 @@ func providerEnv(l proto.ManagedLauncher, model, effort string, mainConversation
 	env[k] = v
 	// The launcher's own environment last: it wins over all of the above (#5953); an empty value sets the variable
 	// empty. A proxy variable goes in both spellings unless both are given, or the shell's other spelling would still
-	// count. Not for the main conversation what it decides itself (perStartEnv).
+	// count. Not for an assistant conversation the thinking level, which it switches while it runs.
 	vars := launcherEnvVars(l.Env)
 	given := map[string]bool{}
 	for _, kv := range vars {
 		given[kv[0]] = true
 	}
 	for _, kv := range vars {
-		if mainConversation && slices.Contains(perStartEnv, kv[0]) {
+		if mainConversation && kv[0] == "CLAUDE_CODE_EFFORT_LEVEL" {
 			continue
 		}
 		env[kv[0]] = kv[1]
@@ -324,13 +324,6 @@ func providerEnv(l proto.ManagedLauncher, model, effort string, mainConversation
 			if !given[o] {
 				env[o] = kv[1]
 			}
-		}
-	}
-	if mainConversation {
-		c := compactionLimits(false, providerCapacity(l, model))
-		env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = strconv.Itoa(c.window)
-		if c.capacity > 0 {
-			env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = strconv.Itoa(c.capacity)
 		}
 	}
 	return env
@@ -366,8 +359,9 @@ func envList(env map[string]string) []string {
 	return out
 }
 
-// perStartEnv: what a start decides (the main conversation keeps its 200000 compact window and switches its thinking
-// level while it runs) and so never goes into settings env, which would win over the start's own environment.
+// perStartEnv: what an assistant start decides (its compact window, the launcher's declared one as
+// assistantCompactionPolicy reads it; its thinking level, switched while it runs) and so never goes into settings env,
+// which would win over the start's own environment.
 var perStartEnv = []string{"CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_CODE_EFFORT_LEVEL"}
 
 // pinnedEnv is env without perStartEnv: the part pinned over the user's ~/.claude/settings.json (the gateway, its key,

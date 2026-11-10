@@ -361,3 +361,120 @@ func TestInboxHistoryItemWithoutADatabase(t *testing.T) {
 		t.Fatalf("reopen: %d", code)
 	}
 }
+
+// doneDaysOf reads GET /api/v1/inbox/done/days?query as "day:count" newest first, checking the zone it names.
+func doneDaysOf(t *testing.T, h http.Handler, query string) string {
+	t.Helper()
+	code, out := inboxCall(t, h, "GET", "/api/v1/inbox/done/days?"+query, "")
+	if code != http.StatusOK {
+		t.Fatalf("%s: %d %v", query, code, out)
+	}
+	if tz, _ := url.ParseQuery(query); out["tz"] != tz.Get("tz") {
+		t.Fatalf("%s: tz %v", query, out["tz"])
+	}
+	days, ok := out["days"].([]any)
+	if !ok {
+		t.Fatalf("%s: no days array: %v", query, out)
+	}
+	var got []string
+	for _, d := range days {
+		m := d.(map[string]any)
+		got = append(got, fmt.Sprintf("%s:%v", m["day"], m["count"]))
+	}
+	return strings.Join(got, ",")
+}
+
+// doneDaysItems are done items around one UTC midnight (base, ten days back) and the days they fall on: in UTC and in
+// a zone 8 hours ahead an item done at 17:00 UTC is on different days, and the connector's only counts with sources=all.
+func doneDaysItems(base time.Time) []*InboxItem {
+	at := func(h float64) *time.Time { t := base.Add(time.Duration(h * float64(time.Hour))); return &t }
+	return []*InboxItem{
+		{ID: "mail:a", Source: "mail", Kind: KindMail, UpdatedAt: *at(15), DoneAt: at(15)},
+		{ID: "mail:b", Source: "mail", Kind: KindMail, UpdatedAt: *at(17), DoneAt: at(17)},
+		{ID: "mail:c", Source: "mail", Kind: KindMail, UpdatedAt: *at(-14), DoneAt: at(-14)},
+		{ID: "github:1", Source: "github", UpdatedAt: *at(16.5), DoneAt: at(16.5), Connector: &InboxConnector{Thread: "t"}},
+		{ID: "mail:open", Source: "mail", Kind: KindMail, UpdatedAt: *at(18)},
+	}
+}
+
+// checkDoneDays checks the counts of doneDaysItems in UTC and in Asia/Shanghai, with and without the connectors.
+func checkDoneDays(t *testing.T, h http.Handler, base time.Time) {
+	t.Helper()
+	day := func(n int) string { return base.AddDate(0, 0, n).Format(time.DateOnly) }
+	for query, want := range map[string]string{
+		"tz=UTC":                         day(0) + ":2," + day(-1) + ":1",
+		"tz=UTC&sources=all":             day(0) + ":3," + day(-1) + ":1",
+		"tz=Asia%2FShanghai":             day(1) + ":1," + day(0) + ":1," + day(-1) + ":1",
+		"tz=Asia%2FShanghai&sources=all": day(1) + ":2," + day(0) + ":1," + day(-1) + ":1",
+	} {
+		if got := doneDaysOf(t, h, query); got != want {
+			t.Errorf("%s: %s, want %s", query, got, want)
+		}
+	}
+}
+
+// The history's days count the stored done items per calendar day in the zone asked for (#2967), past what memory
+// holds; a jump to a day is GET /api/v1/inbox/done?before=<its end>, which lists the items done before that moment.
+func TestInboxDoneDays(t *testing.T) {
+	h := newInboxHub(t)
+	ctx := context.Background()
+	base := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -10)
+	for _, it := range doneDaysItems(base) {
+		raw, _ := json.Marshal(it)
+		if err := h.st.PutInboxItem(ctx, it.ID, raw, it.UpdatedAt, it.DoneAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.inboxReady(ctx); err != nil {
+		t.Fatal(err)
+	}
+	mux := h.routes()
+	checkDoneDays(t, mux, base)
+
+	// No before_id: the items done before the moment, not at it (mail:b is done at 17:00).
+	end := url.QueryEscape(base.Add(17 * time.Hour).Format(time.RFC3339))
+	if got, _ := historyIDs(t, mux, "before="+end); strings.Join(got, ",") != "mail:a,mail:c" {
+		t.Errorf("before 17:00: %v", got)
+	}
+	if got, _ := historyIDs(t, mux, "sources=all&before="+end); strings.Join(got, ",") != "github:1,mail:a,mail:c" {
+		t.Errorf("before 17:00 with the connectors: %v", got)
+	}
+}
+
+// Without a database the days count the done items memory holds, the same way.
+func TestInboxDoneDaysFromMemory(t *testing.T) {
+	s := newTestService(t, newFakeHub())
+	if err := s.inboxReady(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -3)
+	s.inbox.mu.Lock()
+	for _, it := range doneDaysItems(base) {
+		s.inbox.items[it.ID] = it
+	}
+	s.inbox.mu.Unlock()
+	checkDoneDays(t, s, base)
+	s.inbox.mu.Lock()
+	clear(s.inbox.items)
+	s.inbox.mu.Unlock()
+	if got := doneDaysOf(t, s, "tz=UTC"); got != "" {
+		t.Fatalf("no done items: %q", got)
+	}
+}
+
+// The zone is required and must be a name the hub knows: not the machine's ("Local"), not empty (UTC by LoadLocation's
+// rule), not an offset.
+func TestInboxDoneDaysZone(t *testing.T) {
+	s := newTestService(t, newFakeHub())
+	if err := s.inboxReady(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"", "tz=", "tz=Local", "tz=Mars%2FOlympus_Mons", "tz=%2B08:00", "tz=" + strings.Repeat("A", 65)} {
+		if code, out := inboxCall(t, s, "GET", "/api/v1/inbox/done/days?"+query, ""); code != http.StatusBadRequest || out["error"] == nil {
+			t.Fatalf("%q: %d %v, want 400", query, code, out)
+		}
+	}
+	if got := doneDaysOf(t, s, "tz=Europe%2FBerlin"); got != "" {
+		t.Fatalf("no done items: %q", got)
+	}
+}

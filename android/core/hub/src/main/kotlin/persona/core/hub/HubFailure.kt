@@ -33,6 +33,7 @@ class HubFailure(
     val body: String? = null,
     /** The node's own words when the hub said [message] in the app's language instead (`detail` of its body, #5514). */
     val original: String? = null,
+    val requestId: String? = null,
 ) : IOException(message, cause), persona.core.contracts.api.HubCodedFailure {
     companion object {
         fun from(error: Throwable): HubFailure {
@@ -62,24 +63,32 @@ class HubFailure(
         internal fun from(response: Response): HubFailure {
             val raw = runCatching { response.peekBody(64 * 1024).string() }.getOrNull()
             val body = raw?.let { runCatching { JsonCodec.decodeFromString<ErrorBody>(it) }.getOrNull() }
+            val path = response.request.url.encodedPath
+            val knowledge = path == "/api/v1/kb" || path.startsWith("/api/v1/kb/") || path == "/api/v1/kb-search" ||
+                path == "/api/v1/recordings" || path.startsWith("/api/v1/recordings/")
+            // Pre-code hubs returned this exact internal refusal. No substring matching or unrelated routes.
+            val code = if (knowledge && response.code == 503 && body?.code == "internal" && body.detail == "the knowledge base is off")
+                "kb_disabled" else body?.code
             val kind = when {
-                body?.code == "tls_required" -> HubError.TlsRequired
+                code == "tls_required" -> HubError.TlsRequired
                 // A coded 403 refuses this request (a read-only device, a grant, `declined`, an expired install preview's
                 // `this_machine_only`, a credential not usable from this source); only 401 says the credential is gone
                 // (#4692). A 403 without a code (an old hub) still ends the pairing.
-                response.code == 403 && body?.code != null -> HubError.Server
+                response.code == 403 && code != null -> HubError.Server
                 response.code == 401 || response.code == 403 -> HubError.PairingExpired
-                body?.code == "incompatible" -> HubError.Incompatible
+                code == "incompatible" -> HubError.Incompatible
                 response.code == 429 -> HubError.RateLimited
                 else -> HubError.Server
             }
-            val terminal = kind in setOf(HubError.PairingExpired, HubError.Incompatible, HubError.TlsRequired)
+            val terminal = kind in setOf(HubError.PairingExpired, HubError.Incompatible, HubError.TlsRequired) ||
+                code in setOf("kb_disabled", "kb_read_only")
             return HubFailure(
-                kind, body?.error ?: "HTTP ${response.code}", response.code, body?.code,
+                kind, body?.error ?: "HTTP ${response.code}", response.code, code,
                 retryable = !terminal && (body?.retryable ?: (response.code >= 500 || response.code in setOf(408, 429))),
                 delivered = body?.delivered,
                 retryAfterSeconds = response.header("Retry-After")?.toLongOrNull()?.coerceAtLeast(0),
                 field = body?.field, detail = body?.message, body = raw, original = body?.detail,
+                requestId = response.header("X-Request-Id"),
             )
         }
     }

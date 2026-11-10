@@ -67,7 +67,8 @@ final class ExtensionManagementUITests: XCTestCase {
     @MainActor func testContributionKeepsDraftAndCascadeNeedsConfirmation() async throws {
         _ = try await state(reset: [:])
         let app = try launch(["-openExtension", "sample-kit"])
-        let title = app.textFields.firstMatch
+        // By its own identifier: Settings is the shell's sheet, and the Assistant's composer under it comes first (#3072).
+        let title = app.textFields["plugin-field-title"]
         XCTAssertTrue(title.waitForExistence(timeout: 15), app.debugDescription)
         title.tap()
         title.typeText("未保存\n")

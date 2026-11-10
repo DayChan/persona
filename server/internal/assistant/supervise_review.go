@@ -31,6 +31,9 @@ func (s *Service) toolTaskReview(ctx context.Context, self string, args json.Raw
 		Reason    string `json:"reason"`
 		Link      string `json:"link"`
 		Recommend string `json:"recommend"`
+		// needs_user's deadline and whether its recommendation can be undone (#3127, decision_deadline.go).
+		Deadline   string `json:"deadline"`
+		Reversible *bool  `json:"reversible"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return "", fmt.Errorf("arguments: %v", err)
@@ -48,6 +51,18 @@ func (s *Service) toolTaskReview(ctx context.Context, self string, args json.Raw
 	}
 	if a.Verdict == reviewRework && a.Note == "" && !slices.ContainsFunc(a.Checks, func(c ReviewCheck) bool { return !c.Met }) {
 		return "", fmt.Errorf("rework: say what is missing (a check that is not met, or note)")
+	}
+	deadline, err := parseDeadline(a.Deadline, time.Now())
+	switch {
+	case err != nil:
+		return "", err
+	case deadline.IsZero():
+	case a.Verdict != reviewNeedsUser:
+		return "", fmt.Errorf("deadline applies to needs_user only")
+	case strings.TrimSpace(a.Recommend) == "":
+		return "", fmt.Errorf("deadline: give recommend, the option taken by default when it passes")
+	case a.Reversible == nil:
+		return "", fmt.Errorf("deadline: say whether the recommendation can be undone (reversible); deleting, sending to other people, spending money and production changes cannot")
 	}
 	if err := s.ensureTodosLoaded(ctx); err != nil {
 		return "", err
@@ -82,11 +97,10 @@ func (s *Service) toolTaskReview(ctx context.Context, self string, args json.Raw
 	}
 	over := false
 	var v Supervision
-	var err error
 	if ledger {
 		v, _, err = s.updateSupervision(ctx, t.ID, func(v *Supervision) bool {
-			if isMain {
-				v.Supervisor = self // the main conversation takes over an old main conversation's task
+			if isMain && !s.isLeader(ctx, v.Supervisor) {
+				v.Supervisor = self // the main conversation takes over an old main conversation's task, not a leader's
 			} else if v.Supervisor == "" {
 				v.Supervisor = t.Origin
 			}
@@ -112,7 +126,7 @@ func (s *Service) toolTaskReview(ctx context.Context, self string, args json.Raw
 	b := &s.supervise
 	b.mu.Lock()
 	b.init()
-	for _, k := range []string{sigReview, sigIdle, sigNeedsYou, sigStalled} {
+	for _, k := range []string{sigReview, sigIdle, sigUnjudged, sigNeedsYou, sigStalled} {
 		delete(b.pending, t.ID+"|"+k) // reviewed: what waited is answered
 	}
 	b.mu.Unlock()
@@ -145,7 +159,9 @@ func (s *Service) toolTaskReview(ctx context.Context, self string, args json.Raw
 			}
 		}
 		if verdict == reviewCancelled {
-			return fmt.Sprintf("Task %s is cancelled and closed; its agent is closed once it stays still. Tell the user only if they need to know.", t.ID), nil
+			s.stopTaskAgents(ctx, t) // its cards stop asking the user (supervise_leader.go)
+			return fmt.Sprintf("Task %s is cancelled and closed; its agents are being closed and archived (archived, not deleted: "+
+				"agent_unarchive brings one back), and the cards they had waiting end. Tell the user only if they need to know.", t.ID), nil
 		}
 		if carded {
 			return fmt.Sprintf("Task %s is accepted and closed; its agent is closed once it stays still. Its conclusion card (the verdict, "+
@@ -156,16 +172,33 @@ func (s *Service) toolTaskReview(ctx context.Context, self string, args json.Raw
 			"if they are waiting for it, and hand out or schedule anything that follows (deploy, TestFlight, closing an issue).", t.ID), nil
 	case reviewNeedsUser:
 		conclusion.Outcome, conclusion.Recommend = outcomeDecide, a.Recommend
+		if !deadline.IsZero() {
+			conclusion.Deadline, conclusion.Reversible = deadline, *a.Reversible
+		}
 		if over && a.Reason == "" { // the note is the rework asked for, written to the agent: not the owner's question
 			conclusion.Reason, conclusion.Note = i18n.T(s.botLang(ctx), "assistant-reports.verdict_over", i18n.Args{"rounds": maxReworkRounds}), ""
+		}
+		if !isMain && s.isLeader(ctx, v.Supervisor) { // a leader's: the main conversation hears of it too (supervise_leader.go)
+			s.escalateToMain(t, v.Round, cmp.Or(conclusion.Reason, note), a.Recommend)
 		}
 		carded := s.askConclusion(ctx, t, conclusion)
 		// A recommendation is also pushed to their phone, whose OK takes it (todo_ask.go), with the bot on or off. The hub
 		// taking the push does not say a device got it, nor that the app shows its OK: without a card the supervisor still
 		// asks, and is told OK may come first.
 		pushed := ""
+		switch {
+		case deadline.IsZero():
+		case *a.Reversible:
+			pushed = fmt.Sprintf(" If the user has not answered by %s, the hub takes the recommendation by default (it goes to the agent and is "+
+				"recorded on the to-do as taken at the deadline). Their answer on the card, the push or the to-do ends that; if they answer you "+
+				"anywhere else (in this chat), review the task with their decision (task_review) before then, or the recommendation is still taken.",
+				deadline.In(s.location(ctx)).Format(toolTimeLayout))
+		default:
+			pushed = fmt.Sprintf(" It cannot be undone: at the deadline (%s) the user is only reminded again, nothing is taken.",
+				deadline.In(s.location(ctx)).Format(toolTimeLayout))
+		}
 		if s.pushDecision(ctx, t.ID) {
-			pushed = " A push with your recommendation also went to their phone; its \"OK\" takes the recommendation and sends it " +
+			pushed += " A push with your recommendation also went to their phone; its \"OK\" takes the recommendation and sends it " +
 				"to the task's agent, which ends the decision too (drop a question of yours about it then)."
 		}
 		if carded {
@@ -297,6 +330,14 @@ func (s *Service) sendToTask(ctx context.Context, t Todo, text string) (string, 
 		return "", errors.New("its machine is offline")
 	}
 	send := func(ctx context.Context) error {
+		// The user may complete or reopen the task during session lookup or before an offline send starts.
+		cur, ok := s.todoNow(t.ID)
+		if !ok {
+			return db.ErrTodoNotFound
+		}
+		if cur.DoneAt != nil || cur.ReopenedAt != nil && (t.ReopenedAt == nil || !cur.ReopenedAt.Equal(*t.ReopenedAt)) {
+			return db.ErrTodoCompleted
+		}
 		if err := s.call(ctx, c.MachineID, DeviceSessionSend, map[string]any{"session_id": c.SessionID, "text": text}, nil); err != nil {
 			return err
 		}

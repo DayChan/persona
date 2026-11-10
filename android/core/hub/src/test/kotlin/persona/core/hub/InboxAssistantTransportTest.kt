@@ -55,6 +55,26 @@ class InboxAssistantTransportTest {
         }
     }
 
+    /** Done's counts per day (#3016) in the phone's zone with every source, per manager; a group's first page is the one before its end, no id. */
+    @Test fun doneDaysAndAGroupsFirstPage() = runBlocking {
+        MockWebServer().use { server ->
+            val transport = HttpInboxAssistantTransport("scope", server.url("/").toString(), "test-token", OkHttpClient())
+            server.enqueue(MockResponse().setBody("""{"tz":"Asia/Shanghai","days":[{"day":"2026-11-10","count":120}]}"""))
+            transport.doneDays("m-3fa21c", "Asia/Shanghai")
+            val days = server.takeRequest().requestUrl!!
+            assertEquals("/api/v1/inbox/done/days", days.encodedPath)
+            assertEquals("Asia/Shanghai", days.queryParameter("tz"))
+            assertEquals("all", days.queryParameter("sources"))
+            assertEquals("m-3fa21c", days.queryParameter(ManagerQuery))
+            server.enqueue(MockResponse().setBody("""{"items":[]}"""))
+            transport.doneHistory(null, "2026-10-11T16:00:00Z", null)
+            val page = server.takeRequest().requestUrl!!
+            assertEquals("/api/v1/inbox/done", page.encodedPath)
+            assertEquals("2026-10-11T16:00:00Z", page.queryParameter("before"))
+            assertNull(page.queryParameter("before_id"))
+        }
+    }
+
     @Test fun bulkPostsTheActionAndAnOldHubGetsDoneTheOldWay() = runBlocking {
         MockWebServer().use { server ->
             val transport = HttpInboxAssistantTransport("scope", server.url("/").toString(), "test-token", OkHttpClient())

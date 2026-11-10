@@ -35,8 +35,11 @@ final class RecordingLibrary {
     nonisolated func audio(_ id: UUID, _ index: Int) -> URL { folder(id).appendingPathComponent(RecordingSegment.fileName(index)) }
     func entry(_ id: UUID) -> RecordingEntry? { entries.first { $0.id == id } }
 
-    @discardableResult func create(source: RecordingEntry.Source, locale: String = "zh-CN") throws -> RecordingEntry {
-        let entry = RecordingEntry(id: UUID(), createdAt: .now, source: source, locale: locale)
+    @discardableResult func create(source: RecordingEntry.Source, locale: String = "zh-CN", title: String = "",
+                                   meeting: RecordingMeeting? = nil) throws -> RecordingEntry {
+        var entry = RecordingEntry(id: UUID(), createdAt: .now, source: source, locale: locale)
+        entry.title = title
+        entry.meeting = meeting
         try save(entry)
         return entry
     }

@@ -96,6 +96,22 @@ export const GIT_OPS = [
   { op: "fetch", label: t("lib-node-actions.git_fetch"), accel: "f", done: "lib-node-actions.git_fetch_done" },
 ] as const;
 
+/** What `panes/git` answers: what came of it (#1888) and the node's own one-line summary, all an older node sends. */
+export interface PaneGitResult {
+  op?: string;
+  outcome?: string;
+  message?: string;
+}
+
+const GIT_OUTCOMES = new Set(["fetched", "up_to_date", "pulled", "nothing_to_push", "pushed"]);
+
+/** What a node menu's Git ▸ Pull / Push / Fetch did, in the app's language; an outcome this app doesn't know (an older
+ *  node sends none) shows the node's own words. */
+export function gitOutcomeText(res: PaneGitResult | undefined): string {
+  if (res?.outcome && GIT_OUTCOMES.has(res.outcome)) return t(`lib-node-actions.git_outcome_${res.outcome}`);
+  return res?.message || t("lib-node-actions.git_done_fallback");
+}
+
 /** The menu items of a node, in groups (a hairline between them): fold and open, rename, make and run, copy, close. */
 export function nodeActions(node: MenuNode, deps: NodeActionDeps, opts: NodeActionOptions = {}): MenuItem[] {
   const { mid } = node;
@@ -186,8 +202,8 @@ export function nodeActions(node: MenuNode, deps: NodeActionDeps, opts: NodeActi
     ...(op.op === "push" ? pushAsk : {}),
     inline: true,
     onSelect: async () => {
-      const res = (await deps.post(mid, "panes/git", { op: op.op, ...gitTarget }).catch((e) => Promise.reject(new Error(errorText(e))))) as { message?: string } | undefined;
-      deps.notify(t(op.done, { message: res?.message ?? t("lib-node-actions.git_done_fallback") }), "ok");
+      const res = (await deps.post(mid, "panes/git", { op: op.op, ...gitTarget }).catch((e) => Promise.reject(new Error(errorText(e))))) as PaneGitResult | undefined;
+      deps.notify(t(op.done, { message: gitOutcomeText(res) }), "ok");
       deps.changed();
     },
   });

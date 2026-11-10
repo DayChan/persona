@@ -14,6 +14,9 @@ import java.io.IOException
 fun failureReasonText(error: Throwable): UiText {
     if (error is IOException) {
         val failure = HubFailure.from(error)
+        if (failure.code in setOf("kb_disabled", "kb_unavailable", "kb_read_only", "assistant_offline") ||
+            failure.code == "internal" && (failure.status ?: 0) >= 500)
+            return operationFeedback(error).text
         if (failure.status != null && failure.kind != HubError.PairingExpired) {
             failure.message.takeIf { it.isNotBlank() && !it.startsWith("HTTP ") }?.let { return UiText.Plain(it) }
         }
@@ -43,9 +46,11 @@ fun failureDetail(error: Throwable): String {
     val failure = generateSequence(error) { it.cause }.take(16).filterIsInstance<HubFailure>().firstOrNull()
     if (failure?.status == null) return error.message?.takeIf(String::isNotBlank) ?: error.toString()
     return buildString {
-        append(failure.message)
-        append("\nHTTP ").append(failure.status)
+        if (failure.code != "internal") append(failure.message)
+        if (isNotEmpty()) append("\n")
+        append("HTTP ").append(failure.status)
         failure.code?.let { append("\n").append(it) }
+        failure.requestId?.let { append("\nRequest: ").append(it) }
     }
 }
 

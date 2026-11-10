@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "operation": "inbox_handoff_memory",
+  "description": "Hand to AI remembers, per source, where the user last handed an item (#2121; docs/assistant/inbox.md \"Item actions\"). Every app derives the same source key, resolves a remembered target the same way and keeps the same number of sources.",
+  "limit": 200,
+  "keys": [
+    {"name": "repo_wins", "source": "github", "mutes": [{"tag": "sender", "value": "octocat", "name": "octocat"}, {"tag": "repo", "value": "example/weather", "name": "example/weather"}], "key": "github|repo:example/weather"},
+    {"name": "chat_when_no_repo", "source": "lark", "mutes": [{"tag": "sender", "value": "ou_sample", "name": "Sample Dev"}, {"tag": "chat", "value": "oc_sample", "name": "Release chat"}], "key": "lark|chat:oc_sample"},
+    {"name": "sender_alone", "source": "mail", "mutes": [{"tag": "sender", "value": "me@example.com", "name": "me@example.com"}], "key": "mail|sender:me@example.com"},
+    {"name": "same_value_other_source", "source": "gitlab", "mutes": [{"tag": "repo", "value": "example/weather", "name": "example/weather"}], "key": "gitlab|repo:example/weather"},
+    {"name": "empty_value_skipped", "source": "github", "mutes": [{"tag": "repo", "value": "", "name": ""}, {"tag": "sender", "value": "octocat", "name": "octocat"}], "key": "github|sender:octocat"},
+    {"name": "no_source_tag", "source": "lark", "mutes": [], "key": null},
+    {"name": "mutes_missing", "source": "lark", "key": null}
+  ],
+  "resolve": [
+    {"name": "nothing_remembered", "remembered": null, "listed": ["macbook/s1"], "target": null, "last_time": false, "gone": false},
+    {"name": "listed_agent", "remembered": "agent:macbook/s1", "listed": ["macbook/s1", "macbook/s2"], "target": "agent:macbook/s1", "last_time": true, "gone": false},
+    {"name": "agent_gone", "remembered": "agent:macbook/s1", "listed": ["macbook/s2"], "target": "main", "last_time": false, "gone": true},
+    {"name": "main_remembered", "remembered": "main", "listed": [], "target": "main", "last_time": true, "gone": false},
+    {"name": "new_chat_remembered", "remembered": "new", "listed": [], "target": "new", "last_time": true, "gone": false, "needs_new_chat": true},
+    {"name": "unreadable_is_nothing", "remembered": "agent:", "listed": [], "target": null, "last_time": false, "gone": false}
+  ],
+  "recency": {
+    "name": "latest_first_one_per_source",
+    "remember": [["github|repo:a/one", "main"], ["lark|chat:oc_two", "new"], ["github|repo:a/one", "agent:macbook/s1"]],
+    "order": ["github|repo:a/one", "lark|chat:oc_two"],
+    "recall": {"github|repo:a/one": "agent:macbook/s1", "lark|chat:oc_two": "new", "mail|sender:none@example.com": null}
+  }
+}

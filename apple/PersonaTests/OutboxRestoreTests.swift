@@ -29,7 +29,6 @@ struct OutboxRestoreTests {
 
     private func clean() {
         try? FileManager.default.removeItem(at: folder)
-        ChatCache.remove(key)
     }
 
     /// The app with `pending` in the chat is ended once its outbox is written (300 ms after a change) and starts again.
@@ -39,7 +38,7 @@ struct OutboxRestoreTests {
         before.chat(key).pending = pending
         before.saveOutbox()
         try await Task.sleep(for: .milliseconds(600))
-        if !cached.isEmpty { ChatCache.save(key, items: cached, hasMore: false) }
+        if !cached.isEmpty { ChatCache.save(key, items: cached, hasMore: false, in: folder) }
         let after = AppModel(stateFolder: folder)
         after.restoreOutbox()
         let restored = after.chat(key).pending

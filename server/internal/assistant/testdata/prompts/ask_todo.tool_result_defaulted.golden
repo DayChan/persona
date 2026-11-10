@@ -1,0 +1,3 @@
+Nobody answered by the deadline (11-08 16:04). You said this can be undone, so your recommended options were taken by default and recorded as decisions on to-do todo_ask_0a1b2c:
+- Merge the release PR now? → Merge
+Go ahead with them. Tell the user in a line which choices were taken by default at the deadline; they can still change them.

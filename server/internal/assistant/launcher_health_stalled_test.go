@@ -127,3 +127,15 @@ func TestUncodedStalledStartKeepsLegacyHealthHandling(t *testing.T) {
 		}
 	})
 }
+
+// A start that ended in the new tab's shell before the launcher ran (#2570) says nothing of the launcher.
+func TestStartTabRefusalsLeaveLauncherHealth(t *testing.T) {
+	for _, code := range []string{proto.CodeShellWaiting, proto.CodeStartLineRejected, proto.CodeAgentStartStalled} {
+		if !startStalled(&rpc.Error{Code: code}) {
+			t.Errorf("%s counted against the launcher", code)
+		}
+	}
+	if startStalled(&rpc.Error{Code: proto.CodeLauncherMissing}) {
+		t.Error("launcher_missing left out")
+	}
+}

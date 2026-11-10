@@ -246,6 +246,9 @@ func TestRPCFailureLocalePreservesOutcomeAndDiagnostics(t *testing.T) {
 		{"peer long", &rpc.Error{Code: "peer_too_long", Message: "node's own words", Data: json.RawMessage(`{"delivered":"none"}`)}, "rpc-errors.peer_too_long"},
 		{"peer command", &rpc.Error{Code: "peer_command", Message: "node's own words", Data: json.RawMessage(`{"delivered":"none"}`)}, "rpc-errors.peer_command"},
 		{"peer unconfirmed", &rpc.Error{Code: "peer_unconfirmed", Message: "node's own words", Data: json.RawMessage(`{"delivered":"unknown"}`)}, "rpc-errors.peer_unconfirmed"},
+		// a mode change the node cannot make (#1843): change it on the computer, or resume the session first
+		{"modes outside", &rpc.Error{Code: proto.CodeModesOnComputer, Message: "node's own words", Data: json.RawMessage(`{"delivered":"none"}`)}, "rpc-errors.modes_on_computer"},
+		{"modes not running", &rpc.Error{Code: proto.CodeModesNotRunning, Message: "node's own words", Data: json.RawMessage(`{"delivered":"none"}`)}, "rpc-errors.modes_not_running"},
 		// queued messages sent now: not a Claude, or a send-now hint the node does not know (#2467)
 		{"send now unsupported", &rpc.Error{Code: "send_now_unsupported", Message: "node's own words", Data: json.RawMessage(`{"delivered":"none"}`)}, "rpc-errors.send_now_unsupported"},
 		{"send now unrecognized", &rpc.Error{Code: "send_now_unrecognized", Message: "node's own words", Data: json.RawMessage(`{"delivered":"none"}`)}, "rpc-errors.send_now_unrecognized"},
@@ -279,6 +282,35 @@ func TestRPCFailureLocalePreservesOutcomeAndDiagnostics(t *testing.T) {
 	rec = httptest.NewRecorder()
 	if body := call(t, langWriter{rec, i18n.Ja}, rec, typed); body["error"] != i18n.T(i18n.Ja, "inbox-errors.no_item") {
 		t.Fatal("typed summary overwritten")
+	}
+}
+
+// The node's Git pull / push / fetch refusals (#1888) are 409s in the request's language, the node's words (git's
+// included) as the detail; a failure git itself explains carries git's words in the summary too.
+func TestGitOpRefusalsSpeakTheClientsLanguage(t *testing.T) {
+	for _, code := range []string{"no_directory", "not_a_repository", "detached_head", "no_upstream", "uncommitted_changes", "not_fast_forward", "push_rejected"} {
+		err := &rpc.Error{Code: code, Message: "node's own words", Data: json.RawMessage(`{"delivered":"none"}`)}
+		for _, lang := range []i18n.Lang{i18n.En, i18n.ZhHans, i18n.Ja} {
+			rec := httptest.NewRecorder()
+			body := call(t, langWriter{rec, lang}, rec, err)
+			if rec.Code != http.StatusConflict || body["code"] != code || body["error"] != i18n.T(lang, "rpc-errors."+code) || body["detail"] != "node's own words" {
+				t.Fatalf("%s %s: %d %v", code, lang, rec.Code, body)
+			}
+			if strings.Contains(body["error"].(string), "{") || strings.HasPrefix(body["error"].(string), "rpc-errors.") {
+				t.Fatalf("%s %s: unfilled %q", code, lang, body["error"])
+			}
+		}
+	}
+	words := "git push: fatal: unable to access 'https://git.example.com/app.git/': Could not resolve host (nothing was forced)"
+	for _, code := range []string{"pull_failed", "push_failed", "fetch_failed"} {
+		for _, lang := range []i18n.Lang{i18n.En, i18n.ZhHans, i18n.Ja} {
+			rec := httptest.NewRecorder()
+			body := call(t, langWriter{rec, lang}, rec, &rpc.Error{Code: code, Message: words})
+			if rec.Code != http.StatusConflict || body["error"] != i18n.T(lang, "rpc-errors."+code, i18n.Args{"reason": words}) ||
+				!strings.HasSuffix(body["error"].(string), words) || body["detail"] != words {
+				t.Fatalf("%s %s: %d %v", code, lang, rec.Code, body)
+			}
+		}
 	}
 }
 
@@ -332,6 +364,24 @@ func TestDescribeKeepsTheSummaryAndTheCause(t *testing.T) {
 	} {
 		if got := Describe([]byte(c.body)); got != c.want {
 			t.Errorf("Describe(%s) = %q, want %q", c.body, got, c.want)
+		}
+	}
+}
+
+// A start's new tab that stopped on its shell (#2570): the hub words it with the machine (or "this computer") and
+// the shell's line, in every language, as a task's start_error and an HTTP refusal.
+func TestStartTabRefusalsAreWorded(t *testing.T) {
+	for _, code := range []string{proto.CodeShellWaiting, proto.CodeStartLineRejected} {
+		for _, lang := range []i18n.Lang{i18n.En, i18n.ZhHans, i18n.Ja} {
+			on := Sentence(lang, code, map[string]any{"machine_name": "Studio", "line": "Update now? [Y/n]"})
+			here := Sentence(lang, code, nil)
+			if !strings.Contains(on, "Studio") || !strings.Contains(on, "Update now? [Y/n]") || here == "" || strings.Contains(here, "{") {
+				t.Errorf("%s %s: %q / %q", code, lang, on, here)
+			}
+			body := LocalizedBody(http.StatusConflict, code, errors.New("node text"), lang)
+			if body["error"] != i18n.T(lang, "rpc-errors."+code) || body["error"] == "" {
+				t.Errorf("%s %s HTTP: %v", code, lang, body)
+			}
 		}
 	}
 }

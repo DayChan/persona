@@ -5,5 +5,8 @@
   "notes_options_multi": "選択肢（複数選択可）：",
   "notes_option": "- {label}",
   "notes_option_described": "- {label}：{description}",
-  "notes_how": "この ToDo に判断を記録すると（またはそのトピックで返信すると）、その会話に送られ、ToDo は閉じられます。判断を記録せずに閉じると、質問は取り下げられたことが会話に伝わります。"
+  "notes_how": "この ToDo に判断を記録すると（またはそのトピックで返信すると）、その会話に送られ、ToDo は閉じられます。判断を記録せずに閉じると、質問は取り下げられたことが会話に伝わります。",
+  "overdue_title": "期限を過ぎても判断待ちです",
+  "option_recommended_default": "おすすめ · {when} までに返信がなければこれで進めます",
+  "option_recommended_irreversible": "おすすめ · 期限 {when}（取り消せないため自動では実行しません）"
 }

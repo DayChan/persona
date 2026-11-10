@@ -1,14 +1,15 @@
 import XCTest
 
-/// Photos picked for the next message stay in the chat's composer (#2626) when the app comes back: iOS takes the app's
-/// snapshots in another width on its way to the background (iPhone Duo open), which builds the whole tree again, and the
-/// composer's own state went with it. `-swapTreeAt` does that on a regular-width simulator; the trip to the home screen
-/// is the real one. Against scripts/mock/mock_hub.py (PERSONA_MOCK_HUB), with pictures in the simulator's library
-/// (`xcrun simctl addmedia`).
+/// Photos picked for the next message stay in the chat's composer (#2626) when the whole tree is built again, as a fold
+/// or an unfold makes it while the app is active (iPhone Duo; iOS's snapshots on the way to the background did it too,
+/// until #2836), and the composer's own state went with it. `-swapTreeAt` does that on a regular-width simulator; the
+/// trip to the home screen is a plain one there. Against scripts/mock/mock_hub.py (PERSONA_MOCK_HUB), with pictures in
+/// the simulator's library (`xcrun simctl addmedia`).
 final class ComposerAttachmentsTests: XCTestCase {
     private var hub = ""
-    /// The app's `probe.tree` (`-probes YES`): how many times `-swapTreeAt` built the tree again.
-    private struct Swaps: Decodable { var count: Int }
+    /// The app's `probe.tree` (`-probes YES`): how many times `-swapTreeAt` flipped the width, and the swaps between the
+    /// shell and the tabs that followed.
+    private struct Swaps: Decodable { var count: Int; var rebuilt: Int }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -25,7 +26,8 @@ final class ComposerAttachmentsTests: XCTestCase {
         shot(app, "composer-photos-before-swap")
         XCTAssertLessThan(Date.now.timeIntervalSince(launched), 40, "the photos were picked too close to the swap: pick sooner")
         sleep(UInt32(max(0, launched.addingTimeInterval(55).timeIntervalSinceNow)))
-        XCTAssertEqual(app.probe("tree", as: Swaps.self)?.count, 1, "the tree was not built again")
+        XCTAssertEqual(app.probe("tree", as: Swaps.self)?.count, 1, "the width did not flip")
+        XCTAssertEqual(app.probe("tree", as: Swaps.self)?.rebuilt, 2, "the tree was not built again")
         XCTAssertTrue(app.buttons["移除图片 \(picked)"].waitForExistence(timeout: 5), "the photos went with the tree:\n\(app.debugDescription)")
         XCTAssertEqual(removeButtons(app).count, picked, "as many photos as were picked")
         shot(app, "composer-photos-after-swap")
@@ -44,7 +46,8 @@ final class ComposerAttachmentsTests: XCTestCase {
         shot(app, "starter-photos-before-swap")
         XCTAssertLessThan(Date.now.timeIntervalSince(launched), 45, "the photos were picked too close to the swap: pick sooner")
         sleep(UInt32(max(0, launched.addingTimeInterval(60).timeIntervalSinceNow)))
-        XCTAssertEqual(app.probe("tree", as: Swaps.self)?.count, 1, "the tree was not built again")
+        XCTAssertEqual(app.probe("tree", as: Swaps.self)?.count, 1, "the width did not flip")
+        XCTAssertEqual(app.probe("tree", as: Swaps.self)?.rebuilt, 2, "the tree was not built again")
         XCTAssertTrue(app.buttons["移除图片 \(picked)"].waitForExistence(timeout: 5), "the photos went with the tree:\n\(app.debugDescription)")
         let again = app.descendants(matching: .any)["shell-composer-field"].firstMatch
         XCTAssertTrue(again.waitForExistence(timeout: 5))

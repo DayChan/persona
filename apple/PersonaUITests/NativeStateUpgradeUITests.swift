@@ -124,10 +124,13 @@ final class NativeStateUpgradeUITests: XCTestCase {
         try requireUpgradeFixture()
         let app = XCUIApplication()
         app.launchArguments = ["-runtimeCLI", "19252", "-tab", "dev"]
+        if let pair = ProcessInfo.processInfo.environment["PERSONA_UPGRADE_PAIR_URL"] {
+            app.launchArguments += ["-pairURL", pair]
+        }
         app.launchPinned()
         allowNotifications()
-        let personal = app.buttons.matching(NSPredicate(format: "label == 'Personal Agents' OR label == '个人 Agent'")).firstMatch
-        XCTAssertTrue(personal.waitForExistence(timeout: 15), app.debugDescription)
+        let personal = app.buttons["agents.personal"]
+        XCTAssertTrue(personal.waitForExistence(timeout: 30), "The upgrade fixture must provide configured accounts and a personal session. " + app.debugDescription)
         personal.tap()
         XCTAssertTrue(app.staticTexts["Upgrade preference fixture"].waitForExistence(timeout: 15), app.debugDescription)
         capture("retained-personal-agent-pin")

@@ -176,6 +176,9 @@ type extensions struct {
 	logf, journal func(string, ...any)
 	// stats are how the extensions run (extension_metrics.go).
 	stats *extensionMetrics
+	// switchMu puts the user's Enabled switches one after another (switchExtension, enableChannel): a pack's switch
+	// reads and writes its record of members (#1830). Taken before any registry operation, never inside one.
+	switchMu sync.Mutex
 
 	h    *Manager
 	ctx  context.Context

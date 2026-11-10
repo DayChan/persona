@@ -782,6 +782,22 @@ func call(t *testing.T, p *rpc.Peer, method string, params, result any) {
 		t.Fatalf("%s: %v", method, err)
 	}
 }
+
+// procState is pid's state and start time (fields 3 and 22 of /proc/<pid>/stat), both "" when it is gone or there is
+// no /proc.
+func procState(pid int) (state, start string) {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return "", ""
+	}
+	s := string(b)
+	f := strings.Fields(s[strings.LastIndexByte(s, ')')+1:])
+	if len(f) < 20 {
+		return "", ""
+	}
+	return f[0], f[19]
+}
+
 func waitFor(t *testing.T, timeout time.Duration, predicate func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -1090,6 +1106,7 @@ func TestDeclaredSupervisorUpdateConfirmsOrRollsBack(t *testing.T) {
 			if p.WatchPID < 2 || p.WatchStart == "" {
 				t.Fatal("the detached watchdog did not record itself")
 			}
+			_, watchBirth := procState(p.WatchPID) // while it runs: the pid names it as long as this start does
 			if outcome != "confirmed" {
 				if err := locked(exe, func() error {
 					p, err := loadPending(markerPath(exe))
@@ -1124,6 +1141,22 @@ func TestDeclaredSupervisorUpdateConfirmsOrRollsBack(t *testing.T) {
 				}
 				if pid, starts := s.current(); pid != firstPID || starts != 1 {
 					t.Fatalf("the supervisor restarted the node (%d starts)", starts)
+				}
+				// The watchdog the old image started is the new image's child, and exits now that the update is confirmed.
+				// Only the new image can reap it (osproc.ReapInherited); unreaped, it stays a zombie as long as the node runs.
+				if runtime.GOOS == "linux" {
+					if watchBirth == "" {
+						t.Fatalf("the watchdog %d did not run", p.WatchPID)
+					}
+					deadline := time.Now().Add(10 * time.Second)
+					tick := time.NewTicker(20 * time.Millisecond)
+					defer tick.Stop()
+					for state, start := procState(p.WatchPID); start == watchBirth; state, start = procState(p.WatchPID) {
+						if time.Now().After(deadline) {
+							t.Fatalf("the watchdog %d was not reaped 10s after the exec: state %s", p.WatchPID, state)
+						}
+						<-tick.C
+					}
 				}
 				data, err := os.ReadFile(next)
 				if err != nil {

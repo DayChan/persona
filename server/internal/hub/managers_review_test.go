@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -435,6 +436,91 @@ func TestDefaultOwnerCache(t *testing.T) {
 	h.owners.mu.Unlock()
 	if kept != "" {
 		t.Fatalf("kept the fallback %q of a failed read", kept)
+	}
+}
+
+// expireOwners ages what ownerCache keeps (the default, the identities) past defaultOwnerTTL.
+func (h *Hub) expireOwners() {
+	h.owners.mu.Lock()
+	h.owners.until, h.owners.identsUntil = time.Time{}, time.Time{}
+	h.owners.mu.Unlock()
+}
+
+// rosterSettings counts the default's reads besides the roster's.
+type rosterSettings struct {
+	*rosterReads
+	settings atomic.Int32
+}
+
+func (r *rosterSettings) Setting(ctx context.Context, key string, out any) (bool, error) {
+	if key == managerDefaultKey {
+		r.settings.Add(1)
+	}
+	return r.DB.Setting(ctx, key, out)
+}
+
+// The roster's identities and the default are read once for the lists of a moment; a token the hub makes or revokes
+// shows at once, and a roster that cannot be read once the moment passed still fails what needs it.
+func TestRosterKeptAMoment(t *testing.T) {
+	h, srv, store := newBusHub(t)
+	busToken(t, h, "m-0b0b0b", "B")
+	reads := &rosterSettings{rosterReads: &rosterReads{DB: store}}
+	h.bus.idents = reads
+	managers := func() (int, []string) {
+		t.Helper()
+		req, _ := http.NewRequest("GET", srv.URL+"/api/v1/managers", nil)
+		req.Header.Set("Authorization", "Bearer "+h.cfg.Token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out struct{ Managers []managerInfo }
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		var ids []string
+		for _, m := range out.Managers {
+			ids = append(ids, m.ID)
+		}
+		return resp.StatusCode, ids
+	}
+	reads.lists.Store(0)
+	for range 5 {
+		if code, ids := managers(); code != 200 || !slices.Contains(ids, "m-0b0b0b") {
+			t.Fatalf("%d %v", code, ids)
+		}
+		if ids, err := h.retainedListManagers(t.Context()); err != nil || !slices.Contains(ids, "m-0b0b0b") {
+			t.Fatalf("%v %v", ids, err)
+		}
+	}
+	if l, s := reads.lists.Load(), reads.settings.Load(); l != 1 || s != 1 {
+		t.Fatalf("10 lists read the identities %d times and the default %d times, want once each", l, s)
+	}
+
+	busToken(t, h, "m-0c0c0c", "C")
+	if _, ids := managers(); !slices.Contains(ids, "m-0c0c0c") {
+		t.Fatalf("a new token: %v", ids)
+	}
+	if _, err := h.revokeBusToken(t.Context(), "m-0b0b0b"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ids := managers(); slices.Contains(ids, "m-0b0b0b") {
+		t.Fatalf("a revoked token: %v", ids)
+	}
+	if ids, _ := h.retainedListManagers(t.Context()); slices.Contains(ids, "m-0b0b0b") {
+		t.Fatalf("a revoked token in the kept lists: %v", ids)
+	}
+
+	reads.away.Store(true)
+	h.expireOwners()
+	if code, _ := managers(); code != http.StatusServiceUnavailable {
+		t.Fatalf("the roster unreadable: %d", code)
+	}
+	if _, err := h.retainedListManagers(t.Context()); err == nil {
+		t.Fatal("the roster unreadable, yet the kept lists' managers")
+	}
+	reads.away.Store(false)
+	if code, ids := managers(); code != 200 || !slices.Contains(ids, "m-0c0c0c") {
+		t.Fatalf("back: %d %v", code, ids)
 	}
 }
 

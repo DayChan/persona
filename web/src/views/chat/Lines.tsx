@@ -26,6 +26,7 @@ export interface LineProps {
   expandFold: (f: Item) => Promise<void>;
   /** "Retry" on an API error card (only on the last line, while the agent is not working). */
   onRetry?: () => void;
+  onEditLastMessage?: () => void;
   /** The hub's word on what to fix for this line's model error (the session's turn_error_code, last line only). */
   fix?: { title: string; detail: string; action: string } | null;
   /** A Persona conversation: a model error's text may name a fix in Persona's settings. Agent sessions keep "Retry". */
@@ -47,7 +48,7 @@ export const ChatLineView = memo(function ChatLineView(props: LineProps) {
   );
 });
 
-function LineBody({ line, mid, sid, streaming, expandFold, onRetry, fix, assistant, limit, trace, offscreen }: LineProps) {
+function LineBody({ line, mid, sid, streaming, expandFold, onRetry, onEditLastMessage, fix, assistant, limit, trace, offscreen }: LineProps) {
   switch (line.kind) {
     case "supervision":
       return <SupervisionLine line={line} mid={mid} sid={sid} streaming={streaming} expandFold={expandFold} assistant={assistant} />;
@@ -75,7 +76,7 @@ function LineBody({ line, mid, sid, streaming, expandFold, onRetry, fix, assista
       if (limit) return <UsageLimitLine text={limit} />;
       // the text-derived fix points at Persona's model settings: only for Persona's own conversations
       const f = assistant ? (fix ?? turnErrorFix(line.info.code)) : null;
-      return <APIErrorCard info={line.info} count={line.count} at={line.item.ts} fix={f} onRetry={onRetry && retryable(line.info) && !f ? onRetry : undefined} />;
+      return <APIErrorCard info={line.info} count={line.count} at={line.item.ts} fix={f} onRetry={onRetry && retryable(line.info) && !f ? onRetry : undefined} onEditLastMessage={!assistant && line.info.code === "safeguards" ? onEditLastMessage : undefined} />;
     }
   }
 }
@@ -165,7 +166,7 @@ function RecapChip({ items }: { items: Item[] }) {
 function RecapDrawer({ items, open, onClose }: { items: Item[]; open: boolean; onClose: () => void }) {
   return (
     <Dialog open={open} onClose={onClose} title={items.length > 1 ? t("chat-lines.recap_title_many", { count: items.length }) : t("chat-lines.recap")} width={600}>
-      <div className="flex max-h-[65vh] flex-col gap-4 overflow-y-auto pr-1">
+      <div className="flex max-h-[65vh] flex-col gap-4 overflow-y-auto pr-1" data-scroll-box>
         {[...items].reverse().map((it, n) => (
           <section key={it.id} className={cx("flex flex-col gap-2", n > 0 && "border-t border-line pt-4")}>
             {it.ts && (
@@ -253,7 +254,7 @@ function UsageLimitLine({ text }: { text: string }) {
 
 /** A model API error: why, whether it passes by itself, the original under the fold, "Retry". One the user must fix (not
  *  signed in, a wrong key, a model that is not there) says so instead, with "Fix it" (docs/assistant/onboarding.md 4.4). */
-function APIErrorCard({ info, count, at, onRetry, fix }: { info: APIErrorInfo; count: number; at?: string; onRetry?: () => void; fix?: { title: string; detail: string; action: string } | null }) {
+function APIErrorCard({ info, count, at, onRetry, onEditLastMessage, fix }: { info: APIErrorInfo; count: number; at?: string; onRetry?: () => void; onEditLastMessage?: () => void; fix?: { title: string; detail: string; action: string } | null }) {
   const [open, setOpen] = useState(false);
   const sub = fix ? fix.detail : info.transient === true ? t("chat-lines.api_transient") : info.transient === false ? t("chat-lines.api_permanent") : "";
   const reason = fix ? fix.title : info.reason;
@@ -297,6 +298,7 @@ function APIErrorCard({ info, count, at, onRetry, fix }: { info: APIErrorInfo; c
           </Button>
         </div>
       )}
+      {onEditLastMessage && <div><Button icon="pencil" onClick={onEditLastMessage}>{t("rewind.edit_last")}</Button></div>}
     </div>
   );
 }

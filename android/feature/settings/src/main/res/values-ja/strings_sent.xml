@@ -49,4 +49,19 @@
     <string name="settings_sent_copy_text">本文をコピー</string>
     <string name="settings_sent_text_cut">ここでは本文を %1$s 文字で切り詰めています。実際のメッセージはもっと長い場合があります。</string>
     <string name="settings_sent_done">完了</string>
+    <string name="settings_sent_recall">取り消す…</string>
+    <string name="settings_sent_recall_title">このメッセージを取り消しますか？</string>
+    <string name="settings_sent_recall_confirm">%1$s 経由で取り消され、表示できるすべての人から削除されます。元に戻せません。</string>
+    <string name="settings_sent_recall_do">取り消す</string>
+    <string name="settings_sent_recalled">取り消し済み</string>
+    <string name="settings_sent_recall_forbidden">メッセージを取り消せるのは、フルアクセスを持つ自分のデバイスだけです。</string>
+    <string name="settings_sent_recall_unsupported">この Hub のバージョンはメッセージの取り消しに対応していません。Hub を更新してから再試行してください。</string>
+    <string name="settings_sent_recall_not_found">この記録は Hub にもうありません。</string>
+    <string name="settings_sent_recall_not_recallable">このメッセージは取り消せません。</string>
+    <string name="settings_sent_recall_too_old">このメッセージは送信から時間が経ちすぎているため、取り消せません。</string>
+    <string name="settings_sent_recall_already">このメッセージはすでに取り消されています。</string>
+    <string name="settings_sent_recall_unavailable">コネクタがオフ、未サインイン、またはオフラインです。オンにするかサインインしてから再試行してください。</string>
+    <string name="settings_sent_recall_no_database">この Hub はデータベースなしで動作しているため、メッセージを取り消せません。</string>
+    <string name="settings_sent_recall_unknown">メッセージが削除されたかどうか分かりません。もう一度試して確認してください。</string>
+    <string name="settings_sent_recall_refused">メッセージは取り消されませんでした：%1$s</string>
 </resources>

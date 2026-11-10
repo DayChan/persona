@@ -26,5 +26,6 @@
   "outcome_pitfall": "つまずいた点",
   "adopt_notes": "監督下に置いた：{agent} · {machine} · {cwd}",
   "adopt_failed": "監督下に置けませんでした：{reason}",
-  "interrupt_summary": "{agent} · {machine} を止める"
+  "interrupt_summary": "{agent} · {machine} を止める",
+  "start_remedy_notice": "開始できませんでした：「{title}」。{reason}"
 }

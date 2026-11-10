@@ -5,7 +5,7 @@ func readPaneEnv(pid int) map[string]string {
 	if pid <= 0 {
 		return nil
 	}
-	p, err := readWinProc(uint32(pid), enginePaneEnvs)
+	p, err := readWinProc(uint32(pid), paneEnvKeys)
 	if err != nil {
 		return nil
 	}

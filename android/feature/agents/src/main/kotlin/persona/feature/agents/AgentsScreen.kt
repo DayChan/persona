@@ -610,6 +610,11 @@ internal fun AgentsScreen(
         // Every group's requests: a notification's card may belong to a group the list is not showing (#4808).
         val current = everyRequest.firstOrNull { it.id == selected.id && it.sessionKey == selected.sessionKey }
         val request = current ?: selected
+        // Answered here: the sheet goes once the answer is delivered, and the page's notice says what was answered.
+        val openedWith = remember(selected.id, selected.sessionKey) { delivery[selected.id] }
+        LaunchedEffect(openedWith, delivery[selected.id]) {
+            if (RequestDeliveries.closesSheet(openedWith, delivery[selected.id])) requestDetail = null
+        }
         RequestDetail(request, metadata, now, reachable(request), delivery[request.id],
             onDismiss = { requestDetail = null }, onOpenChat = {
                 requestDetail = null

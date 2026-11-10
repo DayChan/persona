@@ -652,6 +652,76 @@ class OutboxMessageSenderTest {
         sender.close()
     }
 
+    /** The computer asleep (502 node_unreachable, delivered none): refused at once with its code, and Retry sends it anew. */
+    @Test fun aMessageToASleepingComputerIsRefusedAndRetriedByHand() = runTest {
+        val store = MemoryOutboxStore()
+        val hub = ReplayingHub()
+        val sender = OutboxMessageSender(scope, store, hub, backgroundScope)
+        hub.answers += MessageTransportResult.HubError("node_unreachable", "none", retryable = true)
+        sender.send(session, "电脑睡着时写的", "asleep")
+        runCurrent()
+        advanceTimeBy(60_000); runCurrent()
+        assertEquals(OutboxState.Refused, store.state("asleep"))
+        assertEquals("node_unreachable", store.entries.value.single().error)
+        assertEquals(1, hub.requests.size)
+        hub.answers += MessageTransportResult.Accepted
+        assertTrue(sender.retry("asleep"))
+        runCurrent()
+        val ops = hub.requests.map { it.headers.getValue("X-Persona-Op-Id") }
+        assertEquals(2, ops.size)
+        assertTrue(ops[1] != ops[0])
+        assertEquals(OutboxState.Sent, store.state("asleep"))
+        sender.close()
+    }
+
+    /** Waiting while the link is up (503 assistant_offline): tried again every 10 s, refused after 60 s (iOS OutboxWait). */
+    @Test fun aMessageThatKeepsWaitingWhileTheLinkIsUpGoesAgainThenIsRefused() = runTest {
+        val restarting = MessageTransportResult.HubError("assistant_offline", "none", retryable = true)
+        data class Case(val label: String, val answers: List<MessageTransportResult>, val after: Long,
+            val state: OutboxState, val sends: Int, val error: String?)
+        for (c in listOf(
+            Case("back within 10 s", listOf(restarting, MessageTransportResult.Accepted), 10_000, OutboxState.Sent, 2, null),
+            Case("still restarting after 60 s", List(6) { restarting }, 60_000, OutboxState.Refused, 6, "assistant_offline"),
+        )) {
+            val store = MemoryOutboxStore()
+            val transport = FakeTransport(online = true)
+            val sender = OutboxMessageSender(scope, store, transport, backgroundScope)
+            runCurrent() // the start's own looks at the queue
+            transport.answers += c.answers
+            sender.send(session, "助手重启时写的", "restart")
+            runCurrent()
+            assertEquals(c.label, OutboxState.WaitingForNetwork, store.state("restart"))
+            advanceTimeBy(c.after); runCurrent()
+            assertEquals(c.label, c.state, store.state("restart"))
+            assertEquals(c.label, c.sends, transport.requests.size)
+            assertEquals(c.label, c.error, store.entries.value.single().error)
+            sender.close()
+        }
+    }
+
+    /** A main conversation that cannot start gets a minute on a link that is up; the link dropping starts it again. */
+    @Test fun aMainConversationThatCannotStartIsRefusedWithTheHubsReason() = runTest {
+        val store = MemoryOutboxStore()
+        val transport = FakeTransport(online = true)
+        val resolver = object : MainConversationResolver {
+            override suspend fun findMainConversation(): SessionKey? = null
+            override suspend fun createMainConversation(): SessionKey = throw Refusal(503, "assistant_offline")
+        }
+        val sender = OutboxMessageSender(scope, store, transport, backgroundScope)
+        sender.connectMainConversation(resolver)
+        sender.sendToMain("你好", "main-a")
+        runCurrent()
+        advanceTimeBy(50_000); runCurrent()
+        transport.readyToSend.value = false; runCurrent(); transport.readyToSend.value = true; runCurrent()
+        advanceTimeBy(50_000); runCurrent()
+        assertEquals(OutboxState.WaitingForNetwork, store.state("main-a"))
+        advanceTimeBy(10_000); runCurrent()
+        assertEquals(OutboxState.Refused, store.state("main-a"))
+        assertEquals("assistant_offline", store.entries.value.single().error)
+        assertTrue(transport.requests.isEmpty())
+        sender.close()
+    }
+
     @Test fun refusedMessageRetriedByHandGoesUnderANewOperationId() = runTest {
         val store = MemoryOutboxStore()
         val hub = ReplayingHub()

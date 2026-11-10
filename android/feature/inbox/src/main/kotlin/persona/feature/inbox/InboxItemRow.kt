@@ -17,6 +17,7 @@ internal fun InboxItemRow(record: InboxRecord, repository: InboxRepository, navi
     onHandOff: () -> Unit,
     onMute: (InboxMuteOption) -> Unit = {},
     onRule: (InboxMuteOption) -> Unit = {},
+    selection: InboxRowSelection? = null,
 ) {
     val item = record.item
     val groupEvent = record.feedId != null && record.isGroup != false && item.kind in setOf("group", "mention", "bot")
@@ -32,9 +33,10 @@ internal fun InboxItemRow(record: InboxRecord, repository: InboxRepository, navi
         // What the item can be muted by, the name with each (iOS `rowMenu`): its repository, chat or sender; then a rule for each.
         addAll(muteAndRuleActions(res, record, onMute, onRule))
     })
+    val selecting = selection?.selecting == true
     JSwipeActions(
-        start = if (busy) null else SwipeAction(doneLabel, PhIcons.Check, Status.Unread, onDone),
-        end = SwipeAction(handOffLabel, PhIcons.Robot, Status.Working, onHandOff),
+        start = if (busy || selecting) null else SwipeAction(doneLabel, PhIcons.Check, Status.Unread, onDone),
+        end = if (selecting) null else SwipeAction(handOffLabel, PhIcons.Robot, Status.Working, onHandOff),
     ) {
         MessageItem(sender = item.sender.orEmpty().ifBlank { item.title }, title = if (groupEvent) record.groupName ?: stringResource(R.string.inbox_kind_group)
                 else translated?.subject?.ifBlank { null } ?: item.title,
@@ -58,7 +60,9 @@ internal fun InboxItemRow(record: InboxRecord, repository: InboxRepository, navi
                 pluralStringResource(R.plurals.inbox_messages_count, record.count, record.count).takeIf { record.count > 0 }),
             // An extension may draw the page of its connector's items (inbox_item); the rest open their own page.
             // An event (inbox phase 1) opens its own page; an item from an older hub its source, as always.
-            onClick = { navigator.navigate(inboxRowPage(record, pages)) }, onLongClick = { menu = true }, extra = {
+            checked = selection?.checked?.takeIf { selection.selectable }, dimmed = selecting && selection?.selectable == false,
+            onClick = { selection?.click { navigator.navigate(inboxRowPage(record, pages)) } ?: navigator.navigate(inboxRowPage(record, pages)) },
+            onLongClick = { selection?.longClick { menu = true } ?: run { menu = true } }, extra = {
                 record.localDelivery?.pendingStatus()?.let { PendingBadge(it) }
                     ?: record.localStatus?.let { InboxLocalStatus(it) }
                 if (!done) eventMark(record)?.let { EventRowMark(it) }

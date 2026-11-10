@@ -202,7 +202,8 @@ internal class CapsuleSessions(
                 DeliveryState.WaitingForNetwork -> "\n" + AppText.get(R.string.app_capsule_waiting_network)
                 DeliveryState.Queued -> "\n" + AppText.get(R.string.app_capsule_queued)
                 DeliveryState.Unknown, DeliveryState.NeedsConfirmation, DeliveryState.Verifying -> "\n" + AppText.get(R.string.app_capsule_unconfirmed)
-                DeliveryState.Refused, DeliveryState.Rejected -> "\n" + (it.error ?: AppText.get(R.string.app_capsule_not_sent))
+                // The hub's code is not words: the chat says why and offers Retry (#2821).
+                DeliveryState.Refused, DeliveryState.Rejected -> "\n" + AppText.get(R.string.app_capsule_not_sent)
                 else -> "\n" + AppText.get(R.string.app_capsule_sending)
             }, true) }
         CapsuleContent(entries = target.entries, selectedId = target.id, messages = history + pending,

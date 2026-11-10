@@ -29,6 +29,7 @@ export function errorSignature(e: APIErrorInfo): string {
 const MODEL_MARKERS = ["There's an issue with the selected model", "Failed to authenticate", "OAuth token has expired", "Invalid API key", "Not logged in ·"];
 
 function fixCode(s: string): string | undefined {
+  if (s.includes("safeguards flagged this message") || s.includes("[frontier_llm]")) return "safeguards";
   if (s.trimStart().startsWith("not logged in")) return "not_logged_in";
   if (s.includes("issue with the selected model")) return "model_route";
   if (s.includes("invalid api key") || s.includes("failed to authenticate") || s.includes("oauth token has expired")) return "auth_failed";
@@ -63,6 +64,7 @@ export function parseAPIError(text?: string): APIErrorInfo | null {
 }
 
 function explain(s: string, status?: number): [string, boolean | undefined] {
+  if (fixCode(s) === "safeguards") return [t("lib-api-errors.safeguards"), false];
   if (s.trimStart().startsWith("not logged in")) return [t("lib-api-errors.not_logged_in"), false];
   if (s.includes("invalid api key")) return [t("lib-api-errors.bad_key"), false];
   if (s.includes("issue with the selected model")) return [t("lib-api-errors.bad_model"), false];

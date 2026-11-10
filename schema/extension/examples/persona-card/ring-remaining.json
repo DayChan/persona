@@ -1,0 +1,73 @@
+{
+  "card": {
+    "type": "ring",
+    "title": "今天的热量",
+    "total": {
+      "value": 2000,
+      "unit": "kcal"
+    },
+    "segments": [
+      {
+        "label": "早餐",
+        "value": 480
+      },
+      {
+        "label": "午餐",
+        "value": 720
+      }
+    ],
+    "note": "还能吃 800 kcal"
+  },
+  "view": {
+    "sections": [
+      {
+        "title": "今天的热量",
+        "items": [
+          {
+            "type": "chart",
+            "detail": "还能吃 800 kcal",
+            "kind": "donut",
+            "series": [
+              {
+                "points": [
+                  {
+                    "label": "早餐",
+                    "value": 480,
+                    "display": "480 kcal"
+                  },
+                  {
+                    "label": "午餐",
+                    "value": 720,
+                    "display": "720 kcal"
+                  },
+                  {
+                    "label": "剩余",
+                    "value": 800,
+                    "display": "800 kcal"
+                  }
+                ]
+              }
+            ],
+            "unit": "kcal",
+            "center": "2,000 kcal"
+          },
+          {
+            "type": "row",
+            "value": "480 kcal",
+            "title": "早餐"
+          },
+          {
+            "type": "row",
+            "value": "720 kcal",
+            "title": "午餐"
+          },
+          {
+            "type": "row",
+            "value": "800 kcal",
+            "title": "剩余"
+          }
+        ]
+      }
+    ]
+  }
+}

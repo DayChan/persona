@@ -12,5 +12,9 @@
   "claude_missing_terminal": "{machine} の新しいターミナルタブ（{pane_shell}）では、モデルの入口「{launcher}」の起動に必要な Claude Code（「{missing}」）が見つかりません。ターミナルから見える場所に Claude Code をインストールするか、そのシェルの PATH に追加してください。",
   "claude_missing_terminal_here": "このコンピューターの新しいターミナルタブ（{pane_shell}）では、モデルの入口「{launcher}」の起動に必要な Claude Code（「{missing}」）が見つかりません。ターミナルから見える場所に Claude Code をインストールするか、そのシェルの PATH に追加してください。",
   "terminal_default_shell": "既定のシェル",
-  "assistant_control_failed": "Claudeはこの設定を適用できませんでした：{reason}"
+  "assistant_control_failed": "Claudeはこの設定を適用できませんでした：{reason}",
+  "shell_waiting": "{machine} で新しく開いたターミナルのタブが質問で止まり、エージェントを起動できませんでした：「{line}」。何も実行されていません。質問に答えられるよう、タブはしばらく開いたままです。",
+  "shell_waiting_here": "このコンピューターで新しく開いたターミナルのタブが質問で止まり、エージェントを起動できませんでした：「{line}」。何も実行されていません。質問に答えられるよう、タブはしばらく開いたままです。",
+  "start_line_rejected": "{machine} で新しく開いたターミナルのタブが起動コマンドを2回とも受け付けませんでした（表示：「{line}」）。何も実行されていません。そのシェルの起動時の処理を確認してから、もう一度お試しください。",
+  "start_line_rejected_here": "このコンピューターで新しく開いたターミナルのタブが起動コマンドを2回とも受け付けませんでした（表示：「{line}」）。何も実行されていません。そのシェルの起動時の処理を確認してから、もう一度お試しください。"
 }

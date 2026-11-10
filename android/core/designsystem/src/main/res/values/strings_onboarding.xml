@@ -8,7 +8,7 @@
     <string name="designsystem_feedback_launcher_missing">That computer can\'t find this model. It may have been removed.</string>
     <string name="designsystem_feedback_not_logged_in">Claude Code on that computer isn\'t signed in yet.</string>
     <string name="designsystem_feedback_auth_failed">The model\'s key is wrong or has expired.</string>
-    <string name="designsystem_feedback_assistant_restarting">The assistant is restarting. It\'ll be back in a few seconds.</string>
+    <string name="designsystem_feedback_assistant_restarting">The manager is offline or restarting. Try again shortly.</string>
     <string name="designsystem_readiness_one_more_step">One more step</string>
     <string name="designsystem_readiness_action_add_computer">Add a computer</string>
     <string name="designsystem_readiness_action_confirm_computer">It\'s my computer</string>

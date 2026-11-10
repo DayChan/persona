@@ -118,16 +118,37 @@ extension AppModel {
         }
     }
 
-    nonisolated static func marks(_ drafts: [SessionKey: String], _ contexts: [SessionKey: [ContextRef]]) -> Set<SessionKey> {
-        Set(drafts.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.keys)
-            .union(contexts.filter { !$0.value.isEmpty }.keys)
+    private static let commentsName = "composer-comments"
+
+    static func savedComments() -> [SessionKey: [MessageComment]] {
+        let list = StateCache.load(commentsName, as: [SavedComments].self) ?? []
+        return Dictionary(list.map { ($0.key, $0.comments) }, uniquingKeysWith: { a, _ in a })
     }
 
-    /// `draftMarks` from the drafts and quotes, set only when it differs.
+    func saveComments() {
+        commentWriter.run { [weak self] in
+            guard let self else { return }
+            StateCache.save(Self.commentsName, self.composerComments.filter { !$0.value.isEmpty }.map { SavedComments(key: $0.key, comments: $0.value) })
+        }
+    }
+
+    nonisolated static func marks(_ drafts: [SessionKey: String], _ contexts: [SessionKey: [ContextRef]],
+                                  _ comments: [SessionKey: [MessageComment]] = [:]) -> Set<SessionKey> {
+        Set(drafts.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.keys)
+            .union(contexts.filter { !$0.value.isEmpty }.keys)
+            .union(comments.filter { !$0.value.isEmpty }.keys)
+    }
+
+    /// `draftMarks` from the drafts, quotes and comments, set only when it differs.
     func markDrafts() {
-        let now = Self.marks(drafts, composerContexts)
+        let now = Self.marks(drafts, composerContexts, composerComments)
         if now != draftMarks { draftMarks = now }
     }
+}
+
+private nonisolated struct SavedComments: Codable, Sendable {
+    var key: SessionKey
+    var comments: [MessageComment]
 }
 
 private nonisolated struct SavedContexts: Codable, Sendable {

@@ -131,14 +131,14 @@ Health answers are mostly a set of numbers, and a chart is faster to read than t
 | --- | --- | --- |
 | Per-day trends over the last 7 days (or longer): steps, sleep, weight, resting heart rate | `line` | Steps over the last 7 days |
 | Calories per meal (comparing a few items, calories burned per workout) | `bar` | Calories per meal today |
-| Daily calorie breakdown (how much each part takes of one total) | `stacked_bar` | Today's calories: breakfast / lunch / dinner / remaining |
+| Daily calorie breakdown (how much each part takes of one total) | `ring` (#3069; a `stacked_bar` card draws one bar and reads poorly for one day) | Today's calories: breakfast / lunch / dinner / remaining |
 | A single key metric | `stat` | Steps today |
 | Details (each food, each item on a lab report) | Markdown table | |
 
 - **Instructions**: in the Health space's CLAUDE.md (`server/internal/prompts/assistant/health_claude_md.md`, "讲数字默认配图表"): pick per the table above, put the conclusion and key numbers in the text with the card after it, at most three cards at a time, and do not fill days with no data with 0.
-  `TestHealthClaudeMDTeachesCharts` checks that all four card types have examples and that every example is a card all clients can draw.
+  `TestHealthClaudeMDTeachesCharts` checks that all four card types (`line`, `bar`, `ring`, `stat`) have examples, that none is a `stacked_bar`, and that every example is a card all clients can draw.
 - **Web**: a health chat is the assistant's chat page (`ChatView`); code blocks are drawn as charts via `ui/AssistantCard.tsx` as before, with no separate implementation. What each client draws is governed by the cases in `schema/extension/examples/persona-card/` (web: `lib/assistant-view.test.ts`).
-- **Lark**: cards cannot draw charts, and the JSON in a code block is not an answer either, so before sending, the bot rewrites each `persona-card` as a line or two of numbers (`stat` as one bold number, `line` / `bar` as a ▁▃█ sparkline plus the individual numbers, `stacked_bar` as a small two-column table); see `docs/extensions/bots.md` ("Cards").
+- **Lark**: cards cannot draw charts, and the JSON in a code block is not an answer either, so before sending, the bot rewrites each `persona-card` as a line or two of numbers (`stat` as one bold number, `line` / `bar` as a ▁▃█ sparkline plus the individual numbers, `stacked_bar` / `ring` as a small two-column table); see `docs/extensions/bots.md` ("Cards").
 
 To see it: in the default mock hub (`python3 scripts/mock/mock_hub.py`, numbers are made up), the Health space's three chats "Sleep this week", "Step goal" and "What I ate today" all have charts.
 

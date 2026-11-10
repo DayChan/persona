@@ -10,6 +10,8 @@ import java.io.File
 import persona.core.contracts.Item
 import persona.core.contracts.SessionKey
 import persona.core.contracts.api.EndpointOverrides
+import persona.core.contracts.api.LocalProxyRoute
+import persona.core.contracts.api.SshRoute
 import persona.core.contracts.api.MessageRequest
 import persona.core.contracts.api.MessageTransport
 import persona.core.contracts.api.MessageTransportResult
@@ -92,6 +94,31 @@ class HubDataStoreTest {
                 store.unpair()
                 roots.forEach { assertFalse(it.exists()) }
                 assertNull(store.restore())
+            } finally { store.close() }
+        }
+    }
+
+    @Test fun tunnelsAreKeptWithTheirPairingAndTheDeviceKeyIsMadeOnce() = runBlocking {
+        fixture { context, parent ->
+            var store = newStore(context, parent)
+            try {
+                val first = store.pair(credentials())
+                val ssh = SshRoute("ssh.example.com", user = "me", hostKey = "SHA256:example")
+                val proxy = LocalProxyRoute(port = 7890, username = "me", password = "secret")
+                assertEquals(PairedTunnels(), store.tunnels(first.scope))
+                store.updateTunnels(first.scope) { it.copy(ssh = ssh) }
+                assertEquals(PairedTunnels(ssh, proxy), store.updateTunnels(first.scope) { it.copy(proxy = proxy) })
+                assertTrue(File(first.noBackupDirectory, "tunnels.enc").exists())
+                var made = 0
+                val seed = store.deviceSshKey { made++; ByteArray(32) { 7 } }
+                assertArrayEquals(seed, store.deviceSshKey { made++; ByteArray(32) })
+                assertEquals(1, made)
+                store.close()
+
+                // A cold start reads both back; the registry migrated above, so nothing here waits for a published group.
+                store = newStore(context, parent)
+                assertEquals(PairedTunnels(ssh, proxy), store.tunnels(first.scope))
+                assertArrayEquals(seed, store.deviceSshKey { error("The key was made again") })
             } finally { store.close() }
         }
     }

@@ -12,6 +12,15 @@ export class RpcError extends Error {
   }
 }
 
+/** One message as its line on the wire; throws what JSON.stringify throws (a BigInt, a cycle). */
+function encode(m) {
+  return JSON.stringify(m) + '\n'
+}
+
+function messageOf(err) {
+  return err instanceof Error ? err.message : String(err)
+}
+
 export class Peer {
   /**
    * @param {import('node:net').Socket} socket - connected stream.
@@ -26,7 +35,8 @@ export class Peer {
     this.next = 0
     this.pending = new Map()
     this.closed = false
-    this.buffer = ''
+    this.partial = [] // the line read so far, as the pieces it arrived in
+    this.partialLength = 0
     this.donePromise = new Promise((resolve) => { this.resolveDone = resolve })
     socket.setEncoding('utf8')
     socket.on('data', (chunk) => this.read(chunk))
@@ -40,14 +50,26 @@ export class Peer {
   }
 
   read(chunk) {
-    this.buffer += chunk
+    // Only what just arrived is searched for newlines, and a line's pieces are joined once, when its newline comes: a
+    // long line (a phone's images, a runtime package, both base64) costs time linear in its length however it is cut.
+    const text = String(chunk)
+    let start = 0
     let nl
-    while ((nl = this.buffer.indexOf('\n')) >= 0) {
-      const line = this.buffer.slice(0, nl)
-      this.buffer = this.buffer.slice(nl + 1)
+    while (!this.closed && (nl = text.indexOf('\n', start)) >= 0) {
+      let line = text.slice(start, nl)
+      if (this.partial.length > 0) {
+        this.partial.push(line)
+        line = this.partial.join('')
+        this.partial = []
+        this.partialLength = 0
+      }
+      start = nl + 1
       if (line.trim() !== '') this.dispatch(line)
     }
-    if (this.buffer.length > this.maxLine) this.close(new Error('line too long'))
+    if (this.closed || start === text.length) return
+    this.partial.push(start === 0 ? text : text.slice(start))
+    this.partialLength += text.length - start
+    if (this.partialLength > this.maxLine) this.close(new Error('line too long'))
   }
 
   dispatch(line) {
@@ -81,17 +103,31 @@ export class Peer {
       const result = await this.onRequest(m.method, m.params ?? {})
       out = { id: m.id, result: result === undefined ? null : result }
     } catch (err) {
-      const error = { message: err instanceof Error ? err.message : String(err) }
+      const error = { message: messageOf(err) }
       if (err && typeof err.code === 'string') error.code = err.code
       if (err && err.data !== undefined && err.data !== null && typeof err.data === 'object') error.data = err.data
       out = { id: m.id, error }
     }
-    this.write(out)
+    let line
+    try {
+      line = encode(out)
+    } catch (err) {
+      // An answer JSON cannot carry (a BigInt, a cycle): the caller still gets one, and the throw does not end the
+      // host process as an unhandled rejection.
+      line = encode({ id: m.id, error: { message: `the answer could not be encoded: ${messageOf(err)}`, code: 'internal' } })
+    }
+    this.writeLine(line)
   }
 
   write(m) {
     if (this.closed) return false
-    this.socket.write(JSON.stringify(m) + '\n')
+    return this.writeLine(encode(m))
+  }
+
+  /** Write a message already encoded by encode(). */
+  writeLine(line) {
+    if (this.closed) return false
+    this.socket.write(line)
     return true
   }
 
@@ -99,6 +135,13 @@ export class Peer {
   call(method, params = {}, { timeoutMs = 30_000, signal } = {}) {
     if (this.closed) return Promise.reject(new RpcError('connection closed', 'closed'))
     const id = `${this.prefix}${++this.next}`
+    let line
+    try {
+      line = encode({ id, method, params })
+    } catch (err) {
+      // Encoded before anything is registered: nothing is left pending until the timeout.
+      return Promise.reject(new RpcError(`${method}: the params could not be encoded: ${messageOf(err)}`, 'internal'))
+    }
     return new Promise((resolve, reject) => {
       let timer
       const cleanup = () => {
@@ -126,7 +169,7 @@ export class Peer {
         if (signal.aborted) return onAbort()
         signal.addEventListener('abort', onAbort, { once: true })
       }
-      this.write({ id, method, params })
+      this.writeLine(line)
     })
   }
 

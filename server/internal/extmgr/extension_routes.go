@@ -37,6 +37,12 @@ type ExtensionDetail struct {
 	Contributions []ContributionView          `json:"contributions,omitempty"`
 	Depends       []extension.DependencyState `json:"depends,omitempty"`
 	ExtensionPack []extension.PackMember      `json:"extension_pack,omitempty"`
+	// PackMembersFollow, on a pack, says its Enabled switch switches its installed members too (#1830); a hub without it
+	// switches the pack alone. PackOff are the members switching it off switched off, the ones switching it on turns on;
+	// PackOn the installed members that are on, the ones switching it off would switch off.
+	PackMembersFollow bool            `json:"pack_members_follow,omitempty"`
+	PackOff           []string        `json:"pack_off,omitempty"`
+	PackOn            []DependentView `json:"pack_on,omitempty"`
 	// NodeMachines is the field of Form that picks the computers its program runs on (an extension with one,
 	// docs/extensions/extensions.md "Programs that run on computers"): the apps show that program's state on each (Nodes) in the
 	// field's rows.
@@ -62,6 +68,15 @@ type ExtensionSecretView struct {
 	Hint string `json:"hint,omitempty"`
 }
 
+// switched is the detail a switch answers, with what did not follow it (switchExtension).
+func (ps *extensions) switched(ctx context.Context, id string, warnings []string) ExtensionDetail {
+	d := ps.detail(ctx, ps.reg.Get(id))
+	if len(warnings) > 0 {
+		d.Warnings = append(slices.Clone(d.Warnings), warnings...)
+	}
+	return d
+}
+
 func (ps *extensions) detail(ctx context.Context, p *extension.Extension) ExtensionDetail {
 	m := p.Full
 	l := ps.h.contextLang(ctx)
@@ -69,6 +84,13 @@ func (ps *extensions) detail(ctx context.Context, p *extension.Extension) Extens
 	d := ExtensionDetail{ExtensionView: ps.view(ctx, p), Publisher: m.Publisher, Homepage: m.Homepage, Origin: p.Record.Origin,
 		PreviousVersion: p.Record.PreviousVersion, ReadOnly: p.ReadOnly(), Form: form, Permissions: extension.ExplainWith(l, m, ps.reg.Config(p)),
 		Contributions: ps.contributionViews(p), Depends: ps.reg.DependenciesContext(ctx, m), ExtensionPack: m.ExtensionPack}
+	if m.IsPack() {
+		d.PackMembersFollow = true
+		if cur := ps.reg.Snapshot(p.Record.ID); cur != nil {
+			d.PackOff = cur.Record.PackOff
+		}
+		d.PackOn = ps.packMembersOn(p)
+	}
 	if d.Permissions == nil {
 		d.Permissions = []extension.PermissionLine{}
 	}
@@ -216,14 +238,11 @@ func (h *Manager) extensionRoutes(api *http.ServeMux) {
 		if !readExtensionJSON(w, r, &in) {
 			return
 		}
-		if !in.Enabled && !h.takeDependents(w, r, p.Record.ID, in.Cascade) {
+		warnings, ok := h.switchExtension(w, r, p, in.Enabled, in.Cascade, actor(r))
+		if !ok {
 			return
 		}
-		if err := ps().reg.SetEnabled(r.Context(), p.Record.ID, in.Enabled, actor(r)); err != nil {
-			writeExtensionChangeError(w, r, http.StatusConflict, "read_only", err)
-			return
-		}
-		writeExtensionJSON(w, r, detailOut(r, ps().detail(r.Context(), ps().reg.Get(p.Record.ID))))
+		writeExtensionJSON(w, r, detailOut(r, ps().switched(r.Context(), p.Record.ID, warnings)))
 	}))
 	api.HandleFunc("PUT /api/v1/extensions/{id}/-/config", full(func(w http.ResponseWriter, r *http.Request, p *extension.Extension) {
 		var in struct {

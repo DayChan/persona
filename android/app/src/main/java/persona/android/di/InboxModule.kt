@@ -1,5 +1,6 @@
 package persona.android.di
 
+import kotlinx.serialization.builtins.ListSerializer
 import persona.android.AppText
 import persona.android.R
 import android.app.Application
@@ -200,6 +201,20 @@ class InboxDataOwner @Inject constructor(
         }
         override suspend fun savePreferences(value: InboxPreferences) = use { repositories ->
             repositories.data.listPreferences.edit { it[stringPreferencesKey("inbox")] = JsonCodec.encodeToString(InboxPreferences.serializer(), value) }
+            Unit
+        }
+        // Its own key: the list's filters are saved from a copy the screen holds, which must not write an older memory back.
+        override val handOffMemory = current.flatMapLatest { repositories ->
+            repositories?.data?.listPreferences?.data?.map { saved ->
+                saved[stringPreferencesKey("inbox.handOff")]?.let {
+                    runCatching { JsonCodec.decodeFromString(ListSerializer(HandOffMemoryEntry.serializer()), it) }.getOrNull()
+                } ?: emptyList()
+            } ?: flowOf(emptyList())
+        }
+        override suspend fun saveHandOffMemory(value: List<HandOffMemoryEntry>) = use { repositories ->
+            repositories.data.listPreferences.edit {
+                it[stringPreferencesKey("inbox.handOff")] = JsonCodec.encodeToString(ListSerializer(HandOffMemoryEntry.serializer()), value)
+            }
             Unit
         }
         override suspend fun refresh() = use { it.inbox.refresh() }

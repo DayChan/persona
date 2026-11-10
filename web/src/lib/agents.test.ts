@@ -101,6 +101,11 @@ describe("arrangeSessions", () => {
 });
 
 describe("setupHints", () => {
+  it("gives a failing source's own reason, and prefers a setup hint", () => {
+    expect(setupHints([{ source: "a", enabled: true, error: "Not configured yet" }])).toEqual(["Not configured yet"]);
+    expect(setupHints([{ source: "b", enabled: true, setup: "no_accounts", error: "x" }])).not.toContain("x");
+  });
+
   it("says what to do for each source that is not set up, nothing for a ready one", () => {
     const h = setupHints([
       { source: "a", enabled: false, setup: "disabled" },

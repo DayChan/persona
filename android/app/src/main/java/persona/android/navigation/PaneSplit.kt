@@ -25,6 +25,8 @@ internal object PaneSplits {
     const val CollapseDrag = 64f
     /** How far one accessibility action moves the divider. */
     const val Step = 64f
+    /** The widest the shared sidebar's column gets: the drawer's width on a phone. */
+    const val SidebarMax = 380f
 }
 
 /**
@@ -57,13 +59,32 @@ internal fun defaultLeft(width: Float): Float = (width * PaneSplits.DefaultShare
  * would be narrower than its least width there) do not count.
  */
 internal fun paneSplit(width: Float, hinges: List<PaneHinge>, share: Float?): PaneSplit {
-    val lo = PaneSplits.MinLeft
-    val hi = maxLeft(width)
-    val usual = if (share != null && share > 0f) (width * share).coerceIn(lo, hi) else defaultLeft(width)
-    val fits = hinges.filter { it.left >= lo && width - it.right >= PaneSplits.MinRight }
-    fits.filter { it.separating }.minByOrNull { abs(it.center - usual) }?.let { return PaneSplit(it.left, fixed = true, snaps = emptyList()) }
-    val flat = fits.map { it.center }
+    val usual = if (share != null && share > 0f) (width * share).coerceIn(PaneSplits.MinLeft, maxLeft(width)) else defaultLeft(width)
+    separatingFold(width, hinges, usual)?.let { return PaneSplit(it.left, fixed = true, snaps = emptyList()) }
+    val flat = fittingFolds(width, hinges).map { it.center }
     return PaneSplit(nearFold(usual, flat) ?: usual, fixed = false, snaps = flat)
+}
+
+/** Folds with room for a pane on each side. */
+private fun fittingFolds(width: Float, hinges: List<PaneHinge>): List<PaneHinge> =
+    hinges.filter { it.left >= PaneSplits.MinLeft && width - it.right >= PaneSplits.MinRight }
+
+/** The separating fold that fixes the split, the one nearest [usual] when there are two. */
+private fun separatingFold(width: Float, hinges: List<PaneHinge>, usual: Float): PaneHinge? =
+    fittingFolds(width, hinges).filter { it.separating }.minByOrNull { abs(it.center - usual) }
+
+/** The shared sidebar's column in a regular window: [sidebar] dp wide, the page beside it from [page] on. */
+internal data class SidebarSplit(val sidebar: Float, val page: Float)
+
+/**
+ * Where the sidebar's column ends beside the Assistant page: as wide as a list beside its detail, at most
+ * [PaneSplits.SidebarMax]; with a separating fold, up to the fold and the page past it, as an open iPhone Duo keeps both
+ * columns clear of its crease. Flat folds are barely there and do not move it.
+ */
+internal fun sidebarSplit(width: Float, hinges: List<PaneHinge>): SidebarSplit {
+    val usual = defaultLeft(width).coerceAtMost(PaneSplits.SidebarMax)
+    separatingFold(width, hinges, usual)?.let { return SidebarSplit(it.left, it.right) }
+    return SidebarSplit(usual, usual)
 }
 
 /** The flat fold within [PaneSplits.Snap] of [at], if any. */

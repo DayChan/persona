@@ -49,4 +49,19 @@
     <string name="settings_sent_copy_text">Copy text</string>
     <string name="settings_sent_text_cut">The text is cut at %1$s characters here. The message itself may be longer.</string>
     <string name="settings_sent_done">Done</string>
+    <string name="settings_sent_recall">Recall…</string>
+    <string name="settings_sent_recall_title">Recall this message?</string>
+    <string name="settings_sent_recall_confirm">It is taken back through %1$s and removed for everyone who can see it. This can\'t be undone.</string>
+    <string name="settings_sent_recall_do">Recall</string>
+    <string name="settings_sent_recalled">Recalled</string>
+    <string name="settings_sent_recall_forbidden">Only one of your own devices with full access can recall a message.</string>
+    <string name="settings_sent_recall_unsupported">This hub\'s version can\'t recall messages. Update the hub and try again.</string>
+    <string name="settings_sent_recall_not_found">This record is no longer on the hub.</string>
+    <string name="settings_sent_recall_not_recallable">This message can\'t be recalled.</string>
+    <string name="settings_sent_recall_too_old">This message is too old to recall now.</string>
+    <string name="settings_sent_recall_already">This message was already recalled.</string>
+    <string name="settings_sent_recall_unavailable">The connector is off, signed out or offline. Turn it on or sign in, then try again.</string>
+    <string name="settings_sent_recall_no_database">This hub runs without a database, so it can\'t recall messages.</string>
+    <string name="settings_sent_recall_unknown">It isn\'t known whether the message was removed. Try again to check.</string>
+    <string name="settings_sent_recall_refused">The message was not recalled: %1$s</string>
 </resources>

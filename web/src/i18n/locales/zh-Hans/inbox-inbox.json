@@ -6,5 +6,7 @@
   "compose_no_account": "写邮件（先在设置 › 连接器里加一个邮箱）",
   "refresh": "刷新（立刻采集飞书和邮件）",
   "list": "收件箱列表",
-  "detail": "详情"
+  "detail": "详情",
+  "select": "选择",
+  "select_done": "完成"
 }

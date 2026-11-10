@@ -73,10 +73,11 @@ one, is more specific).
 - **node**: a `TodoWrite` is often far back in a long turn, so the plan is read by the same `bgScan` as the goal. Its
   markers are the call lines (`"name":"TodoWrite"`, `"TaskCreate"`, `"TaskUpdate"`, `"TaskList"`); a result line does
   not name its tool, so the scan also parses lines holding the id of a call still waiting for its result
-  (`Meta.PlanPending`). Big first reads stay in `scanBackgroundLater`. `Session.plan` is set for agents in panes, Claude
-  background sessions and runtime sessions whose conversation is a Claude transcript here (#5809), not for other
-  runtimes; the list's key has done, total and current, so a step is pushed when
-  it happens.
+  (`Meta.PlanPending`). Big first reads stay in `scanBackgroundLater`; a resident node's next hub connection goes on
+  with the last one's scans (`server/internal/node/carry.go`), so its first list already has the plan. `Session.plan` is
+  set for agents in panes, Claude background sessions and runtime sessions whose conversation is a Claude transcript
+  here (#5809), not for other runtimes; the list's key has done, total and current, so a step is pushed when it
+  happens.
 - **Snapshot** (`prompts/assistant/snapshot_plan.md`): a task's line and the agents' rows say "计划 3/5：<current>";
   a task whose agent reported to the supervisor after the plan last changed shows only the report.
 - **Web**: the task card has a line "3/5 · current" under the step (`data-plan-line`, `lib/plan.ts`) unless a newer

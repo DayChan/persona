@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+
+	"github.com/nwverse/persona/server/internal/sessionlist"
 )
 
 // memSource is an agents.Source held in memory, as a plugin's would be.
@@ -97,7 +99,7 @@ func TestAddAndRemoveSources(t *testing.T) {
 }
 
 // A source that fails (its plugin crashed, timed out) is left out of the lists of all of them so the others are still
-// there; asked for by name, or when it is the only one, its error is the answer.
+// there; asked for by name its error is the answer, and so it is for a lone source that has listed before.
 func TestFailingSourceDoesNotHideOthers(t *testing.T) {
 	f := &fakeBridge{sessions: []AgentSession{{SessionKey: key, Provider: "grok_bot", CanSend: true}}}
 	s, _ := newSvc(f, nil)
@@ -113,9 +115,94 @@ func TestFailingSourceDoesNotHideOthers(t *testing.T) {
 	if _, err := s.Sessions(ctx, "broken", ""); !errors.Is(err, down) {
 		t.Fatalf("asked by name: %v", err)
 	}
+	if st := s.Statuses(ctx); st[1].Error != down.Error() {
+		t.Fatalf("its status says why: %+v", st[1])
+	}
+}
+
+// A lone source that has never listed (an extension waiting for its settings) does not fail the lists of all of them,
+// and its status says why. Once it has listed, a failure is an outage: the error is the answer and its rows stay.
+func TestLoneSourceFailure(t *testing.T) {
+	s, changes := newSvc(&fakeBridge{}, nil)
 	s.Remove(testSource)
-	if _, err := s.Sessions(ctx, "", ""); !errors.Is(err, down) {
-		t.Fatalf("the only source: %v", err)
+	ctx := context.Background()
+	notSet := errors.New("not configured yet")
+	lone := &memSource{name: "lone", fail: notSet, sessions: []AgentSession{{SessionKey: "s1", CanSend: true}}}
+	s.Add(lone)
+
+	opts := sessionlist.Options{Limit: 50}
+	if list, err := s.Sessions(ctx, "", ""); err != nil || len(list) != 0 {
+		t.Fatalf("listing all: %+v %v", list, err)
+	}
+	if hits, err := s.Search(ctx, "", "x"); err != nil || len(hits) != 0 {
+		t.Fatalf("searching all: %+v %v", hits, err)
+	}
+	if page, err := s.ListPage(ctx, opts); err != nil || len(page.Sessions) != 0 {
+		t.Fatalf("paged: %+v %v", page, err)
+	}
+	if counts, err := s.ListCounts(ctx, opts); err != nil || counts.Total != 0 {
+		t.Fatalf("counts: %+v %v", counts, err)
+	}
+	if _, err := s.Sessions(ctx, "lone", ""); !errors.Is(err, notSet) {
+		t.Fatalf("asked by name: %v", err)
+	}
+	if _, err := s.Search(ctx, "lone", "x"); !errors.Is(err, notSet) {
+		t.Fatalf("searched by name: %v", err)
+	}
+	if _, err := s.ListPage(ctx, sessionlist.Options{Limit: 50, Source: "lone"}); !errors.Is(err, notSet) {
+		t.Fatalf("paged by name: %v", err)
+	}
+	if st := s.Statuses(ctx); st[0].Error != notSet.Error() {
+		t.Fatalf("status: %+v", st[0])
+	}
+
+	lone.fail = nil
+	n := len(*changes)
+	if page, err := s.ListPage(ctx, opts); err != nil || len(page.Sessions) != 1 {
+		t.Fatalf("set up: %+v %v", page, err)
+	}
+	if len(*changes) != n+1 {
+		t.Fatal("the apps are told it is back")
+	}
+	if st := s.Statuses(ctx); st[0].Error != "" {
+		t.Fatalf("status after it answered: %+v", st[0])
+	}
+
+	lone.fail = context.Canceled
+	s.cache.invalidate("lone", nil)
+	_, _ = s.Sessions(ctx, "", "")
+	if st := s.Statuses(ctx); st[0].Error != "" {
+		t.Fatalf("a request that went away is not the source's failure: %+v", st[0])
+	}
+
+	down := errors.New("gateway unreachable")
+	lone.fail = down
+	s.cache.invalidate("lone", nil)
+	if _, err := s.ListPage(ctx, opts); !errors.Is(err, down) {
+		t.Fatalf("an outage is the answer: %v", err)
+	}
+	if _, err := s.ListCounts(ctx, opts); !errors.Is(err, down) {
+		t.Fatalf("counts in an outage: %v", err)
+	}
+	lone.fail = nil
+	if page, err := s.ListPage(ctx, opts); err != nil || len(page.Sessions) != 1 {
+		t.Fatalf("rows kept through the outage: %+v %v", page, err)
+	}
+
+	s.Remove("lone")
+	lone.fail = notSet
+	s.Add(lone)
+	if _, err := s.Sessions(ctx, "", ""); err != nil {
+		t.Fatalf("added again, it has not listed: %v", err)
+	}
+
+	// what an old registration answers late says nothing of the one added since
+	stale := &memSource{name: "lone"}
+	s.Remove("lone")
+	s.Add(stale)
+	s.noteListing(lone, notSet)
+	if st := s.Statuses(ctx); st[0].Error != "" {
+		t.Fatalf("a late failure of the old registration: %+v", st[0])
 	}
 }
 

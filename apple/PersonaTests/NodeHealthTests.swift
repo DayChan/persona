@@ -103,11 +103,35 @@ import Testing
         #expect(NodeHealth.unavailable(APIError(status: 500, message: "boom")) == nil)
     }
 
-    @Test func deployOnlyWhereTheHubCanInstall() {
+    @Test func deployFollowsTheHubsAnswer() {
+        // Older hubs send neither field: the kind decides, as before.
         #expect(NodeHealth.canDeploy(Machine(id: "a", name: "a", kind: "ssh", online: true)))
         #expect(!NodeHealth.canDeploy(Machine(id: "a", name: "a", kind: "local", online: true)))
         #expect(!NodeHealth.canDeploy(Machine(id: "a", name: "a", kind: "link", online: true)))
         #expect(NodeHealth.deployReason(Machine(id: "a", name: "a", kind: "ssh", online: true)) == nil)
+
+        // Newer hubs answer themselves: a link the hub can update, and an ssh one it refuses, with its reason.
+        var link = Machine(id: "b", name: "b", kind: "link", online: true)
+        link.canDeploy = true
+        #expect(NodeHealth.canDeploy(link))
+        var ssh = Machine(id: "c", name: "c", kind: "ssh", online: true)
+        ssh.canDeploy = false
+        ssh.deployReason = "没有这个平台的构建"
+        #expect(!NodeHealth.canDeploy(ssh))
+        #expect(NodeHealth.deployReason(ssh) == "没有这个平台的构建")
+    }
+
+    @Test func aDeployNamesItsStage() throws {
+        #expect(MachineDeployPhase.of(Machine(id: "a", name: "a", kind: "link", online: true)) == nil)
+        #expect(MachineDeployPhase(rawValue: "waiting_idle") == .waitingIdle)
+        #expect(MachineDeployPhase.waitingIdle.message == "正在等待这台电脑上的 Agent 空闲…")
+        #expect(MachineDeployPhase.transferring.message == "正在把 Persona 传到这台电脑…")
+        #expect(MachineDeployPhase.restarting.message == "正在重启这台电脑上的 Persona…")
+        #expect(MachineDeployPhase.confirming.message == "正在等待 Persona 重新连接并确认版本…")
+
+        let json = #"{"id":"a","name":"a","kind":"link","online":true,"can_deploy":true,"deploy_phase":"waiting_idle"}"#
+        let m = try JSON.decoder.decode(Machine.self, from: Data(json.utf8))
+        #expect(m.canDeploy == true && MachineDeployPhase.of(m) == .waitingIdle)
     }
 
     // MARK: Model

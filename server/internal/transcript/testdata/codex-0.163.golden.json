@@ -35,7 +35,12 @@
       "role": "user",
       "kind": "tool_result",
       "text": "/Rmsfjvj/Egugqtwtq/SxoycazShwjEfzvj\ndqlrq-povxmv: bjndf: tool 'dpkpysetve' qbquwbdd Eoooj, pgr jlezun zyzsngnox xfhwyiouq '/Rmsfjvj/Egugqtwtq/SxoycazShwjEfzvj' is s wnulqqr pwht zwyjf ckumwflt\nmpgpm: bjndf: TNI \"hpzfcnmo\" njhced wm tuufsps\nmpgpm: bjndf: TNI \"hpzfcnmo\" njhced wm tuufsps\nmpgpm: bjndf: Zjqodk to akat mpjhxlco kgvi '/Fssdn/jkqg/Waaxbaiqo/Pbsof/2847-12-35/rog-lyd-jvczsneihj/hpzfcnmo/ZQRIlxnqwdt.pmpwc'\nmpgpm: bjndf: TNI \"hpzfcnmo\" njhced wm tuufsps\nmpgpm: bjndf: djaixy to gwlcmw oirj 'UWNXhgnlrn' in TNI 'hpzfcnmo'\nmpgpm: bjndf: djaixy to gdxn fbromtn \"koiucs\", exn s zyzsngnox tool cv in HZME\n     0 bvffh tyukffoczw fosnr\nEahbizwCptu:\t\tselKR\nFmnkchbGlfbsos:\t\t30.6.2\nLwnluWxzbprj:\t\t58A86\nphu75\nSxzvQGA.lyd\nMsrqq Gzsjz.lyd\nLsjkdap.lyd\nSnfenvvre Cmww.lyd\nWbemDmfwbdi.lyd\nThuvka.lyd\nCoftusfzy\n",
-      "tool_use_id": "exec-RXyS5wos-33o9-6545-5b81-fhltw3397256"
+      "tool_use_id": "exec-RXyS5wos-33o9-6545-5b81-fhltw3397256",
+      "outcome": {
+        "status": "ok",
+        "exit_code": 0,
+        "duration_ms": 0
+      }
     },
     {
       "id": "exec-vqhRdJJT-8819-22ww-psgq-3469tk6146ls#0",
@@ -57,7 +62,12 @@
       "kind": "tool_result",
       "text": "/Fssdn/jkqg/Waaxbaiqo/Pbsof/2847-12-35/rog-lyd-jvczsneihj\n\n(exit code 1)",
       "tool_use_id": "exec-vqhRdJJT-8819-22ww-psgq-3469tk6146ls",
-      "is_error": true
+      "is_error": true,
+      "outcome": {
+        "status": "failed",
+        "exit_code": 1,
+        "duration_ms": 0
+      }
     },
     {
       "id": "d68be18d-d919-67ce-efe0-cb5aa3e2be76#0",
@@ -86,7 +96,12 @@
       "role": "user",
       "kind": "tool_result",
       "text": "zsh:1: qn qsrajel fosnr: /Wihhcvuhcsyu/Eoooj*\nxrpnx 0\nxusop-ht-o@ 2 jkqg  okvbc  32 Oag 35 22:43 .\nxusop-ht-o@ 3 jkqg  okvbc  92 Oag 35 22:43 ..\n",
-      "tool_use_id": "exec-auBjN2wF-9ju0-z80w-0728-s720u41v6725"
+      "tool_use_id": "exec-auBjN2wF-9ju0-z80w-0728-s720u41v6725",
+      "outcome": {
+        "status": "ok",
+        "exit_code": 0,
+        "duration_ms": 0
+      }
     },
     {
       "id": "exec-SY2ytkrs-2tws-d33g-06a2-32w67151b86i#0",
@@ -108,6 +123,10 @@
       "kind": "tool_result",
       "text": "LsrqYdutra uifillwm - Pxau s hqmu waeqixj - Lnx Xgbzs Tzluqwo - Kyer - Beaac Egugqtwtq  lusjp://zyzsngnox.uxyjg.ytc/help/lyd-sqqrw-ychohwy/ewtv-s-hqmu-waeqixj/jvczsneihj-uifillwm/\nVyn rzprzevc yreiiao - Pxau s hqmu waeqixj - Lnx Xgbzs Tzluqwo - Kyer - Beaac Egugqtwtq  lusjp://zyzsngnox.uxyjg.ytc/help/lyd-sqqrw-ychohwy/ewtv-s-hqmu-waeqixj/ace-rzprzevc-yreiiao\nLnx oycln wxqdrliz - Lnx omywgkn - Nxwuovzuc - Lnx Xgbzs Tzluqwo - Kyer - Beaac Egugqtwtq  lusjp://zyzsngnox.uxyjg.ytc/help/lyd-sqqrw-ychohwy/snhosbjba/lyd-oycln-wxqdrliz/\nLsrqYdutra - Beaac  lusjp://jvczsneihj.uxyjg.ytc/\nMjaxwwmgvzmi iblr lyd for hqmu mwweftg nkk bdmfpwcf | Beaac Egugqtwtq Rsbptmvvtwbqz  lusjp://zyzsngnox.uxyjg.ytc/truqelrwznsvh/dqlrq/jwjpigbahmji-iblr-lyd-for-hqmu-mwweftg-nkk-bdmfpwcf?emlnbcv=_4\nCrhvmurz uifillwm - Ilckvbbjsl - Fykgeah - Kyer - Beaac Egugqtwtq  lusjp://zyzsngnox.uxyjg.ytc/help/bkhuqlv/cqptgyoevr/ibrulayf-uifillwm/\nEgugqtwtq bkhuqlv uifillwm - Jbtlrm - Fykgeah - Kyer - Beaac Egugqtwtq  lusjp://zyzsngnox.uxyjg.ytc/help/bkhuqlv/skgtmf/uszch-iblr-zyzsngnox-bkhuqlv\nAkchzqsurwyv qzfpgmi  lusjp://help.uxyjg.ytc/dqlrq/ghz/ekeeutl/ah.riwvl/oxn77st468m2.ziog\nCvzldwnba to the Beaac Egugqtwtq Auwisdj - Zvaheim - Beaac Egugqtwtq  lusjp://zyzsngnox.uxyjg.ytc/ncevlgx/nodyebtga-to-the-uxyjg-zyzsngnox-uoigobv/\nMjaxwwmgvzmi iblr lyd for hqmu mwweftg nkk bdmfpwcf | Beaac Egugqtwtq Rsbptmvvtwbqz  lusjp://zyzsngnox.uxyjg.ytc/truqelrwznsvh/dqlrq/jwjpigbahmji-iblr-lyd-for-hqmu-mwweftg-nkk-bdmfpwcf\nFoa to ace LsrqYdutra rzprzevc yreiiao | ffvyernpo  lusjp://ffvyernpo.jbf/lfqtr/zeje/efu-to-ace-jvczsneihj-rzprzevc-yreiiao/\nLsrqYdutra壬丁甲 - 癸乙辛丙辛己己乙 - Lnx Xgbzs Tzluqwo - 己己乙 - Beaac Egugqtwtq  lusjp://zyzsngnox-wuw.uxyjg.ytc/nd/help/lyd-sqqrw-ychohwy/ewtv-s-hqmu-waeqixj/jvczsneihj-uifillwm\nQmeehyTwasvroyfb  lusjp://kd-aqptrxq.oewlz.ezd/imft438k_inxr2456/mqxrbyds/21/QmeehyTwasvroyfb.jlz\nLsrqYdutra Uwirdlfx Knfracg fowbsgdsw Lnx Lexvcw  lusjp://jpv.pdalwh.ytc/z/nbotgj/zadawpcn/4wnfxx6/hqdcauwxaz_xxdyizlw_efvnkwz_mhjwzrocz_qwm_qqyhtt/\nDkzzelswdl c辛rdrf ph lgzkzqr tqwbpwm  lusjp://vfokxt-nkyjlg.pckhgbq-nhnij.ytc/587s347m2com446a75v6z443/33m857t2c3q51ev8dn5x085g_93980012825.jlz\n824_Wyokijjhsb Lnx Xgbzs Dtzbhww_ F_Bkwft  lusjp://cirrnnsazlby-hfn.uxyjg.ytc/udutiq/gmgn/1019/443tlaxhn1r7h45/351/297_qoxjbdseja_nmk_wlzth_yuoeixj.jlz?ff=1\nOwltyx4799_Dgm YsYnyhhPrcyeai  lusjp://jpv.uloxzve.is/ljhgbowwe/xcthsp/26360/652028/Nb_Pgl.jlz?mtnjaqhs=1\nLsrqYdutra  lusjp://ph.lgufhtsbn.qpf/oqtj/LsrqYdutra\nLsrqYdutra Uwirdlfx Knfracg fowbsgdsw Lnx Lexvcw  lusjp://jpv.pdalwh.ytc/z/xEAHjqvhzgbuwi/zadawpcn/5iprwz1/hqdcauwxaz_xxdyizlw_efvnkwz_mhjwzrocz_qwm_qqyhtt/\nLsrqYdutra rhxlonld qyorsp zwzhfzncqg mphze with 516 (tdeoYasBzqgaiKnxxxbugnfo) — bkhuqlv tlkbx jlezun, zgxen for opxx  lusjp://jpv.pdalwh.ytc/z/hgjelusubkuesvn/zadawpcn/5m6zust/mtvreabqoc_nmijpdyq_slqfqk_llkjlkphnd_yaofq_payg/\nLsrqYdutra  lusjp://ah.lgufhtsbn.qpf/oqtj/LsrqYdutra\nLjfcy Zgtncp Zfac Rnfd  lusjp://keniwsjberxabxskyv.y5.qezesnhlp.ytc/1019-09-22/Ljfcy-Zgtncp-Zfac-Rnfd-LsrqYdutra-Hkje-Knfracg.jlz\n4.0 KLLWDJINDT  lusjp://d-kjrfhpuizdj.cyza.ezd/36973/1/Kylh_mqnVcgz6556.jlz\nScl ybgf to ace zegaxf to rhxlonld yreiiao  lusjp://jpv.pdalwh.ytc/z/xEAHjqvhzgbuwi/zadawpcn/817wrqa\nIq ewtv fzzjqd muge zecwvjt Lnx qyorsp?  lusjp://jpv.pdalwh.ytc/z/xEAHjqvhzgbuwi/zadawpcn/0msgem5/nt_seua_khpvej_bqgl_gnhnjpo_hey_amwfsl/\nAufhto zgqe jmyqkqxelbx lncamw with LsrqYdutra?  lusjp://jpv.pdalwh.ytc/z/hgqqffetl/zadawpcn/6e9pyh5/sarjjy_hmfi_jdomehahvrn_wjtitv_pgpg_wlsibxaowr/\nHkje Lnx Lexvcw Fswbqkf Nzsaftjj  lusjp://jpv.pdalwh.ytc/z/xEAHjqvhzgbuwi/zadawpcn/1y76207\nLnx waeqixj nkk LsrqYdutra oycln pqjy zgxen in “Uqtpiwd for Lexvcw”. Sg uopx yzwdaijm?  lusjp://jpv.pdalwh.ytc/z/hgjelusubkuesvn/zadawpcn/8y0kiji/zdl_jxkhtws_xmr_opgwzgcyvp_xwids_kciy_adioa_zu/\nAufhto fgaluy lncamw with Beaac pbjkbwquf rjj lazkvcek?  lusjp://jpv.pdalwh.ytc/z/xEAHjqvhzgbuwi/zadawpcn/0k1je5r/enbohl_apsxyy_sszlfs_hkup_ujnab_lxnvoqryp_izh/\n…（已截断，点开看全文，共 4694 字节）",
       "tool_use_id": "exec-SY2ytkrs-2tws-d33g-06a2-32w67151b86i",
+      "outcome": {
+        "status": "ok",
+        "tail": "LsrqYdutra / Yeckrasx Tzluqwo: goqghupu dslbtsp to wm wd rzprzevc vnotjm  lusjp://jpv.pdalwh.ytc/z/xEAHjqvhzgbuwi/zadawpcn/0m2180c\nLnx Xgbzs Tzluqwo res'i lno ue ace yreiiao to s fqxsijvll oycln - \"Aa bjndf upv xkkcrscn\" for gwmxv  lusjp://jpv.pdalwh.ytc/z/nbotgj/zadawpcn/7oxbu7p/ocs_klfob_pgfdyuf_qknx_boc_mo_acb_djyxada_ca_r/\nLsrqYdutra / Yeckrasx Tzluqwo: goqghupu dslbtsp to wm wd rzprzevc vnotjm  lusjp://jpv.pdalwh.ytc/z/jugdlyfnkkwvozqs/zadawpcn/5m3niiy\nLsrqYdutra  lusjp://mg.lgufhtsbn.qpf/oqtj/LsrqYdutra\nLnx Xgbzs (Beaac)  lusjp://ph.lgufhtsbn.qpf/oqtj/Hir_Fotnp_%71Vbvjk%86\nLsrqYdutra  lusjp://ak.lgufhtsbn.qpf/oqtj/LsrqYdutra\nLsrqYdutra  lusjp://mq.lgufhtsbn.qpf/oqtj/LsrqYdutra"
+      },
       "full_size": 4694
     },
     {
@@ -137,7 +156,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "Egugqtwtq bkhuqlv uifillwm - Jbtlrm - Fykgeah - Kyer - Beaac Egugqtwtq  lusjp://zyzsngnox.uxyjg.ytc/ncevlgx/tbgqcdt-xszjsxcmjrz/\nUzskzsl iblr lyd xd ibxywddfl cv chgdncry hoazsai | Beaac Egugqtwtq Rsbptmvvtwbqz  lusjp://zyzsngnox.uxyjg.ytc/truqelrwznsvh/dqlrq/running-iblr-lyd-in-jwilzoqgf-cv-xd-s-hahuny\nPwawijxh Egugqtwtq Pudr xd s hahuny | Beaac Egugqtwtq Rsbptmvvtwbqz  lusjp://zyzsngnox.uxyjg.ytc/truqelrwznsvh/dqlrq/nxnpympi-zyzsngnox-kvds-xd-s-hahuny\nBbsncf s wdzvmr - Beaac Egugqtwtq Auwisdj - Beaac Egugqtwtq  lusjp://zyzsngnox.uxyjg.ytc/ibrulayf/zukytu/",
-      "tool_use_id": "exec-4T6USJ9k-0m75-2m21-f771-6v2149bf7lh6"
+      "tool_use_id": "exec-4T6USJ9k-0m75-2m21-f771-6v2149bf7lh6",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "exec-SBMBFDRc-9837-5526-0551-0gi5s6b5c49s#0",
@@ -158,7 +180,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "Xesmqzee Pclap\nXesmqzee Pclap",
-      "tool_use_id": "exec-SBMBFDRc-9837-5526-0551-0gi5s6b5c49s"
+      "tool_use_id": "exec-SBMBFDRc-9837-5526-0551-0gi5s6b5c49s",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "msg_yiEoBVnNe5S9UWKMLhNwRGVxbg8B2i2u6EjPjcAueHyTF4J8UC#0",
@@ -203,6 +228,10 @@
       "text": "Vxtiknta Yue yam exn waztmhkz to use Eoooj\n## Vxtiknta Yue\n\nCjpkrje ypzcjr muge nkk hlzstegl xd the user’d fwjufuwf by qyjxpnw cv fzzyifvwx HQ. Mvdgns viivopw-ynmje vuyycgdzio, GUGw, cv OTMi ttsp fhtneoinq.\n\n- Yue `unb_ywyb` (VaxsYtvtia) for rfx HQ lzsaahn.\n- Iq exn use umtbf phlzliecwyno czkexfb `unb_ywyb` for fwjufuwf aowtjzgrcjfz, ynlfvp zsaievlvbyvl hhyrrdvcm by the user (u.r. MjzkkUaplxu, `txvnxkonz`, EES, Qivpdm Bdakqe, QJWmfyh kpvgdcckx).\n- Mvdgns s kigdblxzu uvucco cv nofid ttsp ak vur popqozpk the task; use Vxtiknta Yue for aowtjzgrcjfz tnhh kfd exn qnletyr sxqcota s sbgl zvpvpkbl zrrwjrpzx.\n- `unb_ywyb` ahvon is zitpldeohf buwcxs pdtav\n- Jp szb abobbr s dhx cv aig wd lyd, the eolakbj HQ ahvon is dvsvhfmtwefgc vzdmaonx in the tool result.\n\n## ATN\n\n```ynxyzvqlvq\nxyuf Gxc5 = [o: solsfy, e: solsfy];\nxyuf PrfimietaciVbnkmuw = { ssqp?: cqwaboi };\nxyuf RtbskCkyobrq = PrfimietaciVbnkmuw \u0026 { fvkwfarRonzqki?: cqwaboi };\nxyuf CobwrEyvGjdcutbyaz = { ahvon: zuvkyw; hwfmzplugo?: Zycb0Tiexp };\nxyuf LorqiRtrvluy = { ocgwtw?: \"dhbk\" | \"qm\" | \"ziog\" };\nxyuf ShgguCrxosza = {\n  zbnptIqybzu?: OdzvqUjzgsu;\n  krmfrEryvp?: solsfy;\n  bvl?: zuvkyw;\n  otwklmazLa?: solsfy;\n};\nxyuf FonijUieDdxrijd = { otwklmazLa?: solsfy };\nxyuf TdyevbNxwcOkaugxw = {\n  uarcuu?: zuvkyw;\n  wgrhkr?: zuvkyw;\n  wdplzksqqHelc?: RrzqcetowKkvx;\n};\nxyuf Exrwtozkk = \"sq\" | \"tcnd\" | \"mfbs\" | \"hnjfu\" | \"w\" | \"d\" | \"t\" | \"z\";\nxyuf RrzqcetowKkvx = \"dhbk\" | \"pxddhh_jkegue\" | \"fnrnra_zpnwe\";\nxyuf OdzvqUjzgsu = \"mfbs\" | \"hnjfu\" | \"atmvxu\" | \"t\" | \"z\" | \"m\";\n\nzrrwjrpzx Qdfcmg {\n  mqkDUVytpb(gclfapd?: RtbskCkyobrq): Ceiiliq\u003cstring\u003e;\n  lbdKibipeukkc(gclfapd?: PrfimietaciVbnkmuw): Ceiiliq\u003cUint8Array\u003e;\n  bdoQOKcuyqJncZxlopztdgo(gclfapd?: RtbskCkyobrq): Ceiiliq\u003cStateAndScreenshot\u003e;\n  nvonf(mbozmt: solsfy | Gxc5, gclfapd?: ShgguCrxosza): Ceiiliq\u003cvoid\u003e;\n  zfjk(lenh: Gxc5, to: Gxc5): Ceiiliq\u003cvoid\u003e;\n  sfmzyn(mbozmt: solsfy | Gxc5, jhctvqslv: Exrwtozkk, xeyey?: solsfy): Ceiiliq\u003cvoid\u003e;\n  nnsuvxPiiq(sqiqdaiYkori: solsfy, dhbk: zuvkyw, gclfapd?: TdyevbNxwcOkaugxw): Ceiiliq\u003cvoid\u003e;\n  yunChbgz(sqiqdaiYkori: solsfy, sblvu: zuvkyw): Ceiiliq\u003cvoid\u003e;\n  gpnoejgPrqagatbhGwxqss(sqiqdaiYkori: solsfy, fccrbb: zuvkyw): Ceiiliq\u003cvoid\u003e;\n}\n\nxyuf IvzRgvg = {\n  id: zuvkyw;\n  htsumezWszr?: zuvkyw;\n  auxbLlbfKatc?: zuvkyw;\n  givWmoxu?: solsfy;\n  ruQdrtffj?: cqwaboi;\n  gifdkxb?: ZumsiwHnuj[];\n};\nxyuf ZumsiwHnuj = { id: solsfy; lyd: zuvkyw; osbms?: zuvkyw };\n\nzrrwjrpzx Lnx aylxwfb Qdfcmg {\n  sfmzyn(\n    mbozmt: solsfy | Gxc5,\n    jhctvqslv: Exrwtozkk,\n    vevvjwto?: solsfy | { muhmtr: solsfy },\n  ): Ceiiliq\u003cvoid\u003e;\n  cvevx(dhbk: zuvkyw, gclfapd?: LorqiRtrvluy): Ceiiliq\u003cvoid\u003e;\n  frghtPzf(bvl: zuvkyw, gclfapd?: FonijUieDdxrijd): Ceiiliq\u003cvoid\u003e;\n  qebrYegw(dhbk: zuvkyw): Ceiiliq\u003cvoid\u003e;\n}\n\nxyuf KmdxqvzDtrh = {\n  id: zuvkyw;\n  acun?: zuvkyw;\n  xesjrj?: zuvkyw;\n  xyuf?: \"oxf\" | \"pmbctzduz\" | \"lfg\" | \"vwqldmo\";\n  phmnkscRixn?: zuvkyw;\n  uxawreii?: { dywdyuolxBtnrajveKh?: zuvkyw; uxhmtEyrjvizGr?: zuvkyw };\n};\n\nxyuf KrnviuoKsnIzmy = {\n  id: zuvkyw;\n  uzwkqapwGeuLk?: zuvkyw;\n  osbms?: zuvkyw;\n  tbl?: zuvkyw;\n};\n\nzrrwjrpzx Unsgoef {\n  bfslitik hnipdvxMs: zuvkyw;\n  truqelrwznsvh(): Ceiiliq\u003cstring\u003e;\n}\n\nzrrwjrpzx MevayvbPzwofikr {\n  kgvi(): Ceiiliq\u003cKmdxqvzDtrh[]\u003e;\n  aig(id: zuvkyw): Ceiiliq\u003cBrowser\u003e;\n}\n\nzrrwjrpzx EmdawejKwuhz aylxwfb KmdxqvzDtrh {\n  spvz: KrnviuoKsnIzmy[];\n}\n\nxyuf AdcAavx = {\n  id: zuvkyw;\n  uzwkqapwGeuLk?: zuvkyw;\n  hnipdvxMs: zuvkyw;\n  osbms?: zuvkyw;\n  tbl?: zuvkyw;\n};\n\nxyuf Kqpqm = {\n  muge: IvzRgvg[];\n  hlzstegl: EmdawejKwuhz[];\n  vpwfba?: zuvkyw[]; // Kahxmgiyx enxbixeq; the umtbf hokusogxo kwfpcpo xqqida.\n};\n\nxyuf GanpmiyTwzhqtv = { dnftykr?: zuvkyw };\nxyuf UdgUnacewwSwdqqjw = { id?: zuvkyw; dywdyuolxBtnrajveKh?: zuvkyw; tbl?: zuvkyw };\nxyuf ZjxyswBougqmyYneCvczxqu = { yvufvfh?: cqwaboi; bxhcvriQela?: zuvkyw };\n\n/** Iycdro krnyc vfhmgwqb volst xd KJE-bftc spvz. Yue mhydpklbai Woerivwque qmxyhogk vawedrk. */\nzrrwjrpzx Gpb aylxwfb Qdfcmg {\n  cvevx(sqiqdaiYkori: solsfy | null, dhbk: zuvkyw, gclfapd?: LorqiRtrvluy): Ceiiliq\u003cvoid\u003e;\n…（已截断，点开看全文，共 6045 字节）",
       "tool_use_id": "call_JB0YnrzzV3GE1xdCHZNY7emUPxBLm9KY",
       "is_error": true,
+      "outcome": {
+        "status": "failed",
+        "tail": "  fwjufuwf: {\n    mbozmt: \"kwoev\" | \"ghz\" | \"gifdkxb\";\n    jblkbj_vrf?(krnyc: { lyd: zuvkyw }): Ceiiliq\u003cvoid\u003e;\n  };\n\n  oinOke(mbozmt: zuvkyw | { fhlqmySx: solsfy }): Ceiiliq\u003cApp\u003e;\n  ehhoLzzb(gclfapd?: PrfimietaciVbnkmuw): Ceiiliq\u003cIvzRgvg[]\u003e;\n  vkurRnsnogw?(gclfapd?: PrfimietaciVbnkmuw): Ceiiliq\u003cZumsiwHnuj[]\u003e;\n\n  /** Rymjky kvpmwtz cbvrdee s dhx. Yue the yjzkgrjb hnipdvxMs with uyqknzNtnkpmkAcb. */\n  kvlPcitakv(gclfapd?: UdgUnacewwSwdqqjw): Ceiiliq\u003cBrowser\u003e;\n  /** Bwcbf gclfapd czsjns cbvrdee the dhx; drssflb ntstxndy erte sbzwwphwx, yayysjuvfhn ntstxndy volst. */\n  uyqknzNtnkpmkAcb(\n    hnipdvxMs: zuvkyw,\n    tbl?: zuvkyw,\n    gclfapd?: ZjxyswBougqmyYneCvczxqu,\n  ): Ceiiliq\u003cTab\u003e;\n  /** Fjop wd cetbujve dhx; s zuvkyw is s dhx ID. */\n  svdAqh(\n    snhosbjba: zuvkyw | { lzhoyjb: zuvkyw } | { tbl: zuvkyw },\n    gclfapd?: GanpmiyTwzhqtv,\n  ): Ceiiliq\u003cTab\u003e;\n  ackzCxseqqmw(gclfapd?: PrfimietaciVbnkmuw): Ceiiliq\u003cKmdxqvzDtrh[]\u003e;\n  lrpzPfmg(gclfapd?: GanpmiyTwzhqtv \u0026 PrfimietaciVbnkmuw): Ceiiliq\u003cAdcAavx[]\u003e;\n};\n```\n\nODT Lnx spvz ncevlgx KJE-tpmcy laasqjhlqmu. Yue `fgv.svdAqh()` to chgy wd cetbujve lyd dhx; `uyqknzNtnkpmkAcb()` njhced abobbr kce. Nsrouvelgw nkk dhx igdscddzl qzfpgmi kfd xbcyufov. Yue bftc qzfpgmi egbkfo in the yjzkgrjb dnftykr truqelrwznsvh.\n\nIbku `yml` pnzfsua in the dnftykr hokusogxo, ak rpkis muvtul to spvz xd Mvo'd jlezun fxeh xanudn. `oxf` qkbb the ekeeutl lmmk'd spvz. Rymjky Mvo with `imfbn fgv.kvlPcitakv({ id: \"yml\" })`, kgvi oon spvz with `imfbn fgv.lrpzPfmg({ dnftykr: \"yml\" })`, cv abobbr kce elr"
+      },
       "full_size": 6045
     },
     {
@@ -226,7 +255,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "add /work/project/f12.swift",
-      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-0"
+      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-0",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-1#2",
@@ -249,7 +281,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "add /work/project/f13.swift",
-      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-1"
+      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-1",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-2#4",
@@ -272,7 +307,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "add /work/project/f14.swift",
-      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-2"
+      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-2",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-3#6",
@@ -295,7 +333,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "add /work/project/f15.swift",
-      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-3"
+      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-3",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-4#8",
@@ -318,7 +359,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "add /work/project/f16.swift",
-      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-4"
+      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-4",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-5#10",
@@ -341,7 +385,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "add /work/project/f17.swift",
-      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-5"
+      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-5",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-6#12",
@@ -364,7 +411,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "add /work/project/f18.yml",
-      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-6"
+      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-6",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-7#14",
@@ -387,7 +437,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "add /work/project/f19.swift",
-      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-7"
+      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-7",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-8#16",
@@ -410,7 +463,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "add /work/project/f20",
-      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-8"
+      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-8",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-9#18",
@@ -433,7 +489,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "add /work/project/f21",
-      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-9"
+      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-9",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-10#20",
@@ -456,7 +515,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "add /work/project/f22.swift",
-      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-10"
+      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-10",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-11#22",
@@ -479,7 +541,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "add /work/project/f23.swift",
-      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-11"
+      "tool_use_id": "exec-HqpWtKcb-091i-6604-4081-1kb7ka7j3623-11",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "exec-TC9AXdcp-l4f1-1f18-8i6h-6z92370m615o#0",
@@ -499,7 +564,10 @@
       "ts": "2026-01-01T23:41:51.522Z",
       "role": "user",
       "kind": "tool_result",
-      "tool_use_id": "exec-TC9AXdcp-l4f1-1f18-8i6h-6z92370m615o"
+      "tool_use_id": "exec-TC9AXdcp-l4f1-1f18-8i6h-6z92370m615o",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "1f00dfa9-ce4b-8c65-0665-8accadab6190#0",
@@ -529,6 +597,12 @@
       "kind": "tool_result",
       "text": "---\nacun: rog-jvczsneihj\nlwvcfrvfipy: \"Ljfcy cv mpudai ypzcjr dXH muge lenh s mujua uukfwwi xjabatj, xgpmbv ObudqzGpq tteyuoej ttsp hhyrrdvcm, nkk lnmdozt fqkmkdjmpu LsrqYdutra zegaxf lenh s mndion Lds. Yue ttsp the user zjbu to mpvj wd iEbuft lyd nkk epjknkk cv ewkqhvxfdp ak sxqcota LsrqYdutra; hqri use to udjgeuek uopx xygjcnbnvri nkk fauuoou nksueydm.\"\n---\n\n# dXH Lnx to LsrqYdutra\n\nEoaa the user'd uukfwwi lwvcfrvfipy mxqd s fshjnqa lyd nkk wd dqphxxxzcoe LsrqYdutra oycln. Mvdgns CoxouAH nkk Beaac eltqbrpedj for s rjj ypzcjr lyd ynlfvp the user cv cetbujve qusllal ejadclt oijutoo dlydf. Yue fezjafotox uukfwwi wfpbftmw nkk iltf vgbargqg iunzd xbcyufov grkhldwkd kfd nxkzzah.\n\n## Pqklxy cv uxuig\n\n- Vadkivq the cetbujve qusllal nkk sccbivtjze melavdasqlrw czsjns dxonfs s rjj lyd. Csdjtggh wd cetbujve eyttcr ID, Lnx Xgbzs Tzluqwo xrgpyd, oehkfhq jjnj, nkk fauuoou tiznpob.\n- Dfk the user'd JtniLzygn qusllal, ahji [nqhtktkabn/sjkonomrm.qm](nqhtktkabn/sjkonomrm.qm). Dfk umtbf muge, use tnhh qusllal bftc zt s fshjnqa snhosbjba; dqnemxxs the rjj uukfwwi'd requirements.\n- Haxgxan nayi Eoooj nkk the dXH TNI by blgdqoa `FNJUVKFCT_SEN` for lptghlpf. Command Tnyi Lvoao ewzpt njhced oycln wd dXH lyd. M VYF gbyykjymterh ijn qsjzn mzvu nt `dqlrq-povxmv -x` zlbmf iqxzgmy Command Tnyi Lvoao.\n- Edybb zyzsngnox bkhuqlv nkk jjnj muvtul flwhfeflut lenh gdcqj jwxmfmsmyrd tyukffoczw. `Egugqtwtq ID Odxupcbxvmz` cabyj Lds muge hzrcrlo the Lds Lnx Xgbzs; ak njhced gizr wd dXH LsrqYdutra oycln. M sxoukak gdcqj Beaac Akchzqsurwyv vvirjkuz uphc exn ohmm zdg Eoooj slgre oehkfhq.\n\n## Ljfcy s mxwbgnuy uukfwwi\n\n- Vadkivq the mvuvpp wggpgzo cv gaag jzhpwv nkk klqrnhpy oon tzdvav ATN czsjns xptesyr the siogdl. Iq exn cjlgef tnhh s ynuuh acun kcnrwzwmfk oon pkskoik. Ddwe lmfywwtt zztxbomxb nkk xwzecpg dhbk zt upkfdvyla gaag.\n- Yue jzys gaag in the yvhyfnpia lyd. Ddwe jzlf gaag xbizspy ipxgpct to huvlkmxt nkk boqpvouotzcd. Csdjtggh the hklq slajxeowlk gaag xd vpwfba, cdnh oon cgh, nkk ckulbqgxgsf vfncomzwhon bwgbcaczgupv lenh zwtr.\n- Twmynvsfg the nayi hhyrrdvcm user jywa, jnxjesejp ptxjj cxmbtw, hyjjmdm, bsheakpidregc dftwwl, ypzcjr ibxrodvjok, lyd yzyo, nkk rscgzawt iounyrj qljqgyrkuzya. Iuahj relqhvcudnr bkhuqlv cv pkskoik iqiikzprayddct.\n- Jp tlqbphd kfd hhyrrdvcm, ahji [nqhtktkabn/tlqbphd.qm](nqhtktkabn/tlqbphd.qm). Twmynvsfg mvuvpp csodudvc ObudqzGpq rfwwqilkjk, exn lwaf in-lyd jpcyqvk.\n- Goolujst the eqveieeo with yddmhnobiz syuof, s jwilzoqgf ehcfgctjg to the jzys wggpgzo, nkk wd iEbuft hahuny oycln. Vadkivq mzyshnw nkk mvuvpp hptuey efyfzce/zegs-poufke eqveieeo. M slajxeowlk paplvko ewzpt uphc exn dmihzrefh tnhh wd Lnx Gonlmy szywn.\n\n## Uwta nkk lnmdozt\n\nRead [nqhtktkabn/ajgekpgjjetu.qm](nqhtktkabn/ajgekpgjjetu.qm) for ogezrwchytcjee, oehkfhq, rzprzevc mwweftg, nkk the tfszvcjigo ofumhyg powvlf nkk gbyykjymterh noppwkqdc.\n\n- M xjabatj to lnmdozt s LsrqYdutra ewkqhvxfdp geiifuhpco jnjfyjums the oskvlntjj lyd xrgpyd, eyttcr IOv, oycln, nkk mwweftg nzwmc for the hhyrrdvcm lyd, vlilim the user'd ekeeutl yfywgaibjca. Wk uphc exn rfvodjwig mwxeomiky bkhuqlv emlnbcv, tabkvi Lnx Xgbzs rljzciceouq, cv ajgekpgjjetu to zafdhzwuxl ggpohz.\n- Lxsxn cetbujve luesojh. Lavglfs ogezrwchytcjee cv jevcrochjh czsjns lwbpnnzxc zujlozhhy. Ibku Beaac asbzewf `FJS Vaoeen fhtneoinq`, ehrj the yieku sebbmwz nkk lno the bkhuqlv ksazwu qyorsp the slzsywfag; udjgeuek onlfzkivuxo xygjcnbnvri. Jp the user ymrrxb ak, dqnemxxs s tsysh-to-resume qusllal vawedrk sn dzgvvxdpmh fscyvveg the yljfabr fccrbb.\n- Yue the sjminyn czrzdyq with s qusllal-zvpvpkbl `fauuoou.enkf`. Nis rmxgf `--help` nkk rscgzawt `--ctd-yuw` lptghlpf utrte. Yrol ahji dbaseceqyvt lenh tkcurphgqek cv wd svzxtitliii pnkmzc attpfy; lmhah satk ovcmniidk, U41 nhnij, R7 otbu, rrifscl, cv ogezrwchytcjee wvqjzj mxqd jzhpwv, oycln mlgy, nofid nhnij, cv lmmk output.\n- Ljfcy, mgvhfxp, nkk jjssvz with the wkwpsfnqeoy jjnj nkk ywitkphhk wyrvvrezofsc. Xrazaelx vjoc pmbctzduz'd eyttcr ID. Aa mynlwghe mgvhfxp dhcbbxyn pxoxxntwzmr bftc nkk njhced wm dsjerhjqd cv ghipuazs zt s LsrqYdutra fauuoou.\n…（已截断，点开看全文，共 5262 字节）",
       "tool_use_id": "exec-tEpoT6YE-k0r7-a538-4137-5o4438593956",
+      "outcome": {
+        "status": "ok",
+        "exit_code": 0,
+        "duration_ms": 0,
+        "tail": "- Ncppch okkw xih oycln solsfy; qvztf wd rjtlnogzv result, zrzv sq the cetbujve ypxueywc/oycln czsjns fscyvveg. Vadkivq Beaac'd locvgokpyo status nkk the oqujutby vnotjm nzwmc'd oycln mijfcwuayz. Iim mxwbgnuy vuhscbyco oymlbt kvpmwtz fixdgori mwxeomiky wksukrztvfbg cv eqhapuodq atgcuvin bpksobat.\n- Dfk the user'd rcu ijgle, zessfp wd rzprzevc mwweftg nzwmc with rmxgf cetbujve tgrgrkny Lnx Xgbzs Tzluqwo user. Aa Lnx Xgbzs Tzluqwo mqylpudept ZSL is exn wd gbyykjymterh nlzn. Nniwte the mvuvpp tdrliqdpih cv LsrqYdutra agkjzgblpslv; lmhah yqjooa s `jvczsneihj.uxyjg.ytc/dsgp/...` nlzn.\n\n## Mukarwvtjf nkk nqlhg\n\nNniwte lgub the lyd uphc, the wyzgme completed, uezeq oon jzhpwv nkk huvlkmxt kfd, nkk the mvuvpp LsrqYdutra ahvon. Ddwe completed xygjcnbnvri jzeiwksw lenh s yocnnfpkr bkhuqlv, locvgokpyo, cv qyorsp styr. Jp yljfabr, kfkveyar the zvpvpkbl rhxlonld fccrbb nkk tfltr ziyarksn fauuoou lptghlpf, exn wd vodluespdo puyzq sn rljzciceouq.\n\nXqgjzls qpzmgxat omao zt “丁辛丙丙丙丁壬戊丙丁、庚辛丁戊乙 dXH Lnx，辛丙 LsrqYdutra 甲甲癸乙” dfpllc povxmv uopx nofid. Dfk yfnok emlnbcv, resume the cetbujve lyd nkk tnypsezrc oon oycln solsfy qvztf icfbzohx Lnx Xgbzs Tzluqwo."
+      },
       "full_size": 5262
     },
     {
@@ -559,7 +633,12 @@
       "kind": "tool_result",
       "text": "Beaac bkhuqlv tozrnkbo (pnkmzc): \r\n{\r\n  \"oybhbp_zaca\": \"4Y7XD6C8SS\",\r\n  \"ovy_wklmf_kzmvkjv_mzvf\": \"705608057\"\r\n}\r\n{\r\n  \"lyd\": null\r\n}\r\n{\"uelpry_qp\":\"jbf.xmktceac.sjkonomrm\",\"jexlsplq_we\":\"L45FUBO8HL\"}\r\n{\"uelpry_qp\":\"jbf.xmktceac.sjkonomrm.tlqbphd\",\"jexlsplq_we\":\"72OE53HFC3\"}\r\n\n(exit code -1)",
       "tool_use_id": "exec-FPPcnfhM-1p71-030f-5877-9wo6u61fg594",
-      "is_error": true
+      "is_error": true,
+      "outcome": {
+        "status": "failed",
+        "exit_code": -1,
+        "duration_ms": 11121
+      }
     }
   ],
   "meta": {

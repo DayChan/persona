@@ -144,14 +144,15 @@ struct ChatLines {
                 }
                 let segments = Self.segments(t.ordered)
                 for (k, seg) in segments.enumerated() {
-                    // Once the answer is in and a background task woke the agent, the new work runs behind the chip.
-                    let live = t.id == liveID && k == segments.count - 1 && t.tail.isEmpty
+                    // Once the answer is in, its wake continues in the same summary while new words stream.
+                    let afterWake = k > 0 && t.id == liveID && t.hasPendingWake
+                    let live = t.id == liveID && k == segments.count - 1 && (t.tail.isEmpty || afterWake)
                     // Photos sent with the message (Claude inlines a pasted image path as an image block) sit above
                     // its text, as they did while it was being sent — not in the agent's work.
                     let photos = Self.photos(seg.rows)
                     if !photos.isEmpty { out.append(.userImages(id: "img-" + photos[0].id, items: photos)) }
                     if let u = seg.user { out.append(.row(u)) }
-                    let last = live && streaming ? nil : seg.rows.lastIndex { if case .assistant = $0 { true } else { false } }
+                    let last = t.hasPendingWake || live && streaming ? nil : seg.rows.lastIndex { if case .assistant = $0 { true } else { false } }
                     // Only an idle compaction with no later work belongs after the answer. A running turn's
                     // latest narration is not its final answer, and tools can follow it before compaction.
                     let idleCompaction = !live && last.map { index in
@@ -181,8 +182,6 @@ struct ChatLines {
                     if let last { out.append(.row(seg.rows[last])) }
                     out += after.sorted().map { .row(seg.rows[$0]) }
                 }
-                // After the answer: one small line for the background tasks; what they led to opens in a drawer.
-                if !t.wakes.isEmpty { out.append(.wakes(t, live: t.id == liveID && !t.tail.isEmpty)) }
                 out += t.trailing.map { .row($0) }
             }
         }
@@ -295,8 +294,6 @@ struct ChatLines {
     func isOpen(_ work: String, live: Bool) -> Bool {
         openWork.contains(work) != openAll
     }
-    /// The id prefix of the wake drawer's work line (`ChatView.wakeLines`).
-    static let drawerWork = "dw-"
 
     /// The subagents a work line launched one after another (in parallel), each run in the order they were launched.
     static func agentRuns(_ items: [WorkItem]) -> [[ToolCall]] {

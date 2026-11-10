@@ -40,10 +40,9 @@ func (m *Machine) setLiveReplies(ctx context.Context, on bool) error {
 	}
 	call, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	// What is stored when this goes out, not on: of two flips at once, the node ends on the one kept. The directories
-	// go with it: a node.configure without them (and without keep_sessions) would forget the ones it was given.
-	params := map[string]any{"claude_live_replies": m.liveReplies(call), "claude_dirs": m.claudeDirs(call)}
-	if err := m.call(call, "node.configure", params, nil); err != nil {
+	// What is stored when this goes out, not on: of two flips at once, the node ends on the one kept. m.call adds the
+	// directories (withClaudeDirs), so the node keeps the ones it was given.
+	if err := m.call(call, "node.configure", map[string]any{"claude_live_replies": m.liveReplies(call)}, nil); err != nil {
 		m.d.logf("[%s] configure live replies: %v", m.cfg.ID, err)
 	}
 	return nil

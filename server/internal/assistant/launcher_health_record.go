@@ -333,9 +333,12 @@ func startRefused(err error) bool {
 	return startRequestErr.MatchString(re.Message)
 }
 
-// startStalled is a node's coded timeout after opening the agent. Text from older nodes deliberately keeps the
-// previous failure handling; guessing from translated messages could suppress genuine launcher failures.
+// startStalled is a node's coded timeout after opening the agent, or a start that ended in the new tab's shell before
+// the launcher ran (a startup question, a start line the shell did not take; node/shellsettle.go, #2570): none says
+// anything of the launcher. Text from older nodes deliberately keeps the previous failure handling; guessing from
+// translated messages could suppress genuine launcher failures.
 func startStalled(err error) bool {
 	var re *rpc.Error
-	return errors.As(err, &re) && re.Code == proto.CodeAgentStartStalled
+	return errors.As(err, &re) && (re.Code == proto.CodeAgentStartStalled || re.Code == proto.CodeShellWaiting ||
+		re.Code == proto.CodeStartLineRejected)
 }

@@ -11,6 +11,14 @@ function labelOf(tick: NavRailTick): string {
   return tick.preview || (tick.attachmentsOnly ? t("chat-navrail.attachments", { count: tick.attachmentsOnly }) : tick.ordinal ? t("chat-navrail.input", { index: tick.ordinal }) : "");
 }
 
+/** Where the chat's line wrappers (ChatLineView's `[data-line]` boxes) are: the content element's own children, or the
+ *  scroller's when it has no content element. A measure reads those children instead of querying the whole transcript
+ *  subtree, which grows with every message's markup. */
+function lineParent(scroller: HTMLElement): Element {
+  for (const el of scroller.children) if (el instanceof HTMLElement && el.dataset.chatContent !== undefined) return el;
+  return scroller;
+}
+
 export function NavRail({ ticks, total, scroller, onJump, reset }: {
   ticks: NavRailTick[];
   total?: number;
@@ -65,9 +73,9 @@ export function NavRail({ ticks, total, scroller, onJump, reset }: {
       setHeight(Math.max(0, scroller.clientHeight - M.padding * 2));
       setRight(Math.max(0, scroller.offsetWidth - scroller.clientWidth));
       const rows = new Map<string, HTMLElement>();
-      for (const el of scroller.querySelectorAll<HTMLElement>("[data-line]")) {
+      for (const el of lineParent(scroller).children) {
         const child = el.firstElementChild;
-        if (child instanceof HTMLElement) rows.set(el.dataset.line ?? "", child);
+        if (el instanceof HTMLElement && el.dataset.line !== undefined && child instanceof HTMLElement) rows.set(el.dataset.line, child);
       }
       const top = scroller.getBoundingClientRect().top;
       offsets.current = list.current.flatMap((tick, index) => {

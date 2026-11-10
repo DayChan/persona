@@ -19,9 +19,16 @@ export class AgyAcpClient extends EventEmitter {
     this.availableModels = null
     this.agentVersion = ''
     this.closed = false
+    this.initTimeoutMs = options.initTimeoutMs ?? 60_000
+    // How long a stopped agy gets to exit on SIGTERM before it is killed.
+    this.killGraceMs = options.killGraceMs ?? 3_000
+    // Kills in flight: each resolves once its agy is gone. stop() waits for all of them, so an agy dropped earlier (a
+    // failed initialize, a stdin error) that ignores SIGTERM cannot outlive the companion.
+    this.dying = new Set()
   }
 
   async ensureStarted() {
+    if (this.closed) throw stoppedError()
     if (this.proc && this.readyPromise) return this.readyPromise
     this.readyPromise = this._start()
     return this.readyPromise
@@ -36,6 +43,11 @@ export class AgyAcpClient extends EventEmitter {
     })
     this.proc = child
     this.loadedSessions.clear()
+    // A missing binary ('exit' never comes then) or a failed kill: without a listener the companion would crash.
+    child.on('error', (err) => {
+      this.log(`agy acp process error: ${err.message}`)
+      this._forget(child, err)
+    })
 
     const rl = createInterface({ input: child.stdout, crlfDelay: Infinity })
     rl.on('line', (line) => {
@@ -47,7 +59,7 @@ export class AgyAcpClient extends EventEmitter {
       } catch {
         return
       }
-      this._onMessage(msg)
+      this._onMessage(msg, child)
     })
 
     child.stderr.on('data', (chunk) => {
@@ -55,30 +67,99 @@ export class AgyAcpClient extends EventEmitter {
       if (s) this.log(`agy acp stderr: ${s}`)
     })
 
+    // EPIPE: agy closed its stdin or exited before 'exit' arrived. It cannot take requests any more.
+    child.stdin.on('error', (err) => {
+      this.log(`agy acp stdin error: ${err.message}`)
+      if (this._forget(child, err)) void this._kill(child)
+    })
     child.on('exit', (code, sig) => {
       this.log(`agy acp exited (code=${code}, sig=${sig})`)
-      this.proc = null
-      this.readyPromise = null
-      this.loadedSessions.clear()
-      const err = new Error(`agy acp exited (${code ?? sig})`)
-      for (const [, p] of this.pending) p.reject(err)
-      this.pending.clear()
+      this._forget(child, new Error(`agy acp exited (${code ?? sig})`))
     })
 
-    const init = await this._rawCall('initialize', {
-      protocolVersion: 1,
-      clientCapabilities: {},
-      clientInfo: { name: 'persona', version: '0.1.0' },
-    })
+    let init
+    try {
+      init = await this._rawCall('initialize', {
+        protocolVersion: 1,
+        clientCapabilities: {},
+        clientInfo: { name: 'persona', version: '0.1.0' },
+      }, this.initTimeoutMs)
+    } catch (err) {
+      // An agy that did not initialize is of no use: end it, and let the next call start a fresh one. (Already
+      // forgotten: it exited, failed to spawn, or stop() or a stdin error ended it.)
+      if (this._forget(child, err)) void this._kill(child)
+      throw err
+    }
     this.agentVersion = init?.agentInfo?.version || ''
     return init
   }
 
+  /**
+   * Drop `child` when it is still the current process: later calls start a new one and every pending call fails with
+   * `err`. A process that is not the current one any more (replaced, stopped) changes nothing. True when it was dropped.
+   */
+  _forget(child, err) {
+    if (this.proc !== child) return false
+    this.proc = null
+    this.readyPromise = null
+    this.loadedSessions.clear()
+    const pending = [...this.pending.values()]
+    this.pending.clear()
+    for (const p of pending) p.reject(err)
+    return true
+  }
+
+  /** End `child`: close its stdin, SIGTERM, and SIGKILL when it is still there after the grace period. */
+  _kill(child) {
+    try {
+      child.stdin?.end()
+    } catch {}
+    // No pid: the spawn failed, there is nothing to signal.
+    if (!child.pid || child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
+    const gone = new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        if (child.exitCode !== null || child.signalCode !== null) return
+        this.log(`agy acp did not exit ${this.killGraceMs}ms after SIGTERM, killing it`)
+        try {
+          child.kill('SIGKILL')
+        } catch {}
+      }, this.killGraceMs)
+      timer.unref?.()
+      child.once('exit', () => {
+        clearTimeout(timer)
+        resolve()
+      })
+      try {
+        child.kill('SIGTERM')
+      } catch {}
+    })
+    this.dying.add(gone)
+    void gone.then(() => this.dying.delete(gone))
+    return gone
+  }
+
   _send(obj) {
+    if (this.closed) throw stoppedError()
     if (!this.proc || !this.proc.stdin.writable) {
       throw new Error('agy acp process is not writable')
     }
     this.proc.stdin.write(`${JSON.stringify(obj)}\n`)
+  }
+
+  /**
+   * Answer a request `child` made. Never throws: when that process is gone (it exited while the phone decided), the
+   * answer has nobody to go to and is dropped.
+   */
+  _reply(child, obj) {
+    try {
+      if (child && child === this.proc && child.stdin.writable) {
+        child.stdin.write(`${JSON.stringify(obj)}\n`)
+        return
+      }
+      this.log(`agy acp: dropped the answer to request ${obj.id}, the agy process that asked is gone`)
+    } catch (err) {
+      this.log(`agy acp: could not answer request ${obj.id}: ${err?.message || err}`)
+    }
   }
 
   _rawCall(method, params, timeoutMs = 60_000) {
@@ -102,12 +183,24 @@ export class AgyAcpClient extends EventEmitter {
     })
   }
 
+  /** Send a JSON-RPC notification (no id, no answer). False when no agy process is running to take it. */
+  notify(method, params) {
+    if (!this.proc || !this.proc.stdin.writable) return false
+    try {
+      this._send({ jsonrpc: '2.0', method, params })
+      return true
+    } catch (err) {
+      this.log(`agy acp: could not send ${method}: ${err.message}`)
+      return false
+    }
+  }
+
   async call(method, params, timeoutMs = 60_000) {
     await this.ensureStarted()
     return this._rawCall(method, params, timeoutMs)
   }
 
-  _onMessage(msg) {
+  _onMessage(msg, child) {
     if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined)) {
       const entry = this.pending.get(msg.id)
       if (!entry) return
@@ -123,7 +216,7 @@ export class AgyAcpClient extends EventEmitter {
     }
 
     if (msg.id !== undefined && msg.method) {
-      void this._onServerRequest(msg.id, msg.method, msg.params)
+      void this._onServerRequest(msg.id, msg.method, msg.params, child)
       return
     }
 
@@ -132,27 +225,33 @@ export class AgyAcpClient extends EventEmitter {
     }
   }
 
-  async _onServerRequest(id, method, params) {
+  /** Answer a request from the agy process `child`. Never throws: the reply may find that process gone. */
+  async _onServerRequest(id, method, params, child) {
+    if (child !== this.proc) {
+      // It came from a process already dropped (exited, stopped): nobody is left to answer, so don't ask the phone.
+      this._reply(child, { jsonrpc: '2.0', id, error: { code: -32000, message: 'agy acp process is gone' } })
+      return
+    }
     try {
       if (method === 'session/request_permission' && this.onPermissionRequest) {
         const result = await this.onPermissionRequest(params)
-        this._send({ jsonrpc: '2.0', id, result })
+        this._reply(child, { jsonrpc: '2.0', id, result })
         return
       }
       // Default fallback for unhandled permission requests: select allow_once if available
       if (method === 'session/request_permission') {
         const opts = Array.isArray(params?.options) ? params.options : []
         const allow = opts.find((o) => o.kind === 'allow_once' || o.kind === 'allow_always') || opts[0]
-        this._send({
+        this._reply(child, {
           jsonrpc: '2.0',
           id,
           result: allow ? { outcome: { outcome: 'selected', optionId: allow.optionId } } : { outcome: { outcome: 'cancelled' } },
         })
         return
       }
-      this._send({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } })
+      this._reply(child, { jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } })
     } catch (err) {
-      this._send({ jsonrpc: '2.0', id, error: { code: -32000, message: err.message || 'Internal error' } })
+      this._reply(child, { jsonrpc: '2.0', id, error: { code: -32000, message: err?.message || 'Internal error' } })
     }
   }
 
@@ -201,8 +300,11 @@ export class AgyAcpClient extends EventEmitter {
     return this.call('session/prompt', { sessionId, prompt: promptBlocks }, 0)
   }
 
+  // ACP's session/cancel is a notification: the agent ends the running session/prompt with stopReason 'cancelled' and
+  // answers nothing else (sent as a request, an agent that follows the spec rejects it and keeps running). With no agy
+  // process there is no turn to cancel.
   async cancel(sessionId) {
-    return this.call('session/cancel', { sessionId }, 10_000)
+    this.notify('session/cancel', { sessionId })
   }
 
   async closeSession(sessionId) {
@@ -214,13 +316,22 @@ export class AgyAcpClient extends EventEmitter {
     }
   }
 
+  /**
+   * Stop for good: pending and later calls fail at once and agy is never started again. agy gets its stdin closed and
+   * SIGTERM, and SIGKILL when it is still running after the grace period. Resolves once it is gone, and so is every agy
+   * dropped earlier that was still inside its grace period.
+   */
   stop() {
     this.closed = true
-    if (this.proc) {
-      try {
-        this.proc.kill('SIGTERM')
-      } catch {}
-      this.proc = null
+    const child = this.proc
+    if (child) {
+      this._forget(child, stoppedError())
+      void this._kill(child)
     }
+    return Promise.all([...this.dying]).then(() => {})
   }
+}
+
+function stoppedError() {
+  return new Error('agy acp client stopped')
 }

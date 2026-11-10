@@ -15,16 +15,19 @@ internal fun listFixtures(domain: String): List<Array<Any>> {
     check(directory.isDirectory) { "Missing fixtures: $directory" }
     val files = directory.listFiles { file -> file.extension == "json" }!!.sortedBy { it.name }
     check(files.isNotEmpty()) { "No fixtures: $directory" }
-    return files.flatMap { file ->
-        val document = JsonCodec.parseToJsonElement(file.readText()).jsonObject
-        check(document.getValue("schema_version").jsonPrimitive.int == 1)
-        val cases = document.objects("cases")
-        check(cases.isNotEmpty()) { "No cases: $file" }
-        cases.map { case -> arrayOf<Any>(ListFixture(
-            "${file.name}/${case.string("name")}", document.string("operation"),
-            case.getValue("input").jsonObject, case.getValue("expected"),
-        )) }
-    }
+    // Only list fixtures ({schema_version, operation, cases}); the directory also holds other shared rules that their own
+    // tests read (spec/fixtures/inbox/handoff_memory.json, #2725).
+    return files.mapNotNull { file -> JsonCodec.parseToJsonElement(file.readText()).jsonObject.takeIf { "cases" in it }?.let { file to it } }
+        .also { check(it.isNotEmpty()) { "No list fixtures: $directory" } }
+        .flatMap { (file, document) ->
+            check(document.getValue("schema_version").jsonPrimitive.int == 1)
+            val cases = document.objects("cases")
+            check(cases.isNotEmpty()) { "No cases: $file" }
+            cases.map { case -> arrayOf<Any>(ListFixture(
+                "${file.name}/${case.string("name")}", document.string("operation"),
+                case.getValue("input").jsonObject, case.getValue("expected"),
+            )) }
+        }
 }
 
 internal fun JsonObject.optional(key: String): String? = (get(key) as? JsonPrimitive)?.contentOrNull

@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -49,12 +50,15 @@ func (s *Service) refreshListIndex(ctx context.Context, opts sessionlist.Options
 			continue
 		}
 		_, err := s.sessionsOf(ctx, src, false)
-		if err != nil && opts.Source == "" && s.many() {
-			s.logf("agents: %s: paginated sessions: %v", src.Name(), err)
-			s.listIndex.RemoveSource(src.Name()) // match legacy aggregate behavior: unavailable sources are omitted
-			continue
+		if errors.Is(err, context.Canceled) {
+			return err
 		}
 		if err != nil {
+			s.logf("agents: %s: paginated sessions: %v", src.Name(), err)
+			if opts.Source == "" && s.skipsFailed(src.Name()) {
+				s.listIndex.RemoveSource(src.Name()) // match legacy aggregate behavior: unavailable sources are omitted
+				continue
+			}
 			return err
 		}
 	}

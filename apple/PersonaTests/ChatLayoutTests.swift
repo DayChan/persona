@@ -182,6 +182,25 @@ struct ChatLayoutTests {
         #expect(ExchangeText.linked("没有链接").runs.allSatisfy { $0.link == nil }) // i18n-ignore
     }
 
+    /// An Agent's words show their Markdown, not its marks (#2363): bold without `**`, code without backticks, a
+    /// heading without `#`s, lines kept, a Markdown link and a bare link both links.
+    @Test func anExchangeRendersInlineMarkdown() {
+        let text = "## Result\n**Status**: memory capped at `180 MB`.\n- see [the PR](https://github.com/example/weather/pull/45)\n- log https://example.com/log"
+        let linked = ExchangeText.linked(text)
+        let plain = String(linked.characters)
+        #expect(plain == "Result\nStatus: memory capped at 180 MB.\n- see the PR\n- log https://example.com/log")
+        #expect(linked.runs.contains { $0.inlinePresentationIntent?.contains(.stronglyEmphasized) == true })
+        #expect(linked.runs.contains { $0.inlinePresentationIntent?.contains(.code) == true })
+        #expect(linked.runs.compactMap(\.link) == [URL(string: "https://github.com/example/weather/pull/45")!, URL(string: "https://example.com/log")!])
+        #expect(ExchangeText.withoutHeadingMarks("#123 is a PR, not a heading") == "#123 is a PR, not a heading")
+        // A folded line's header: the words without the marks.
+        #expect(ExchangeText.plain("**Fix** the `cache` first") == "Fix the cache first")
+        // A report's heading after its kind's prefix ("Says it is done: ## Result") loses its marks too.
+        let report = ReviewText.reportLine(kind: "done", text: ExchangeText.withoutHeadingMarks("## Result\n**Done**"))
+        #expect(!String(ExchangeText.linked(report).characters).contains("#"))
+        #expect(String(ExchangeText.linked(report).characters).hasSuffix("Result\nDone"))
+    }
+
     /// The boxes' words are the primary color: black on the light boxes, white on the dark ones, both well past 4.5:1;
     /// and each box stands apart from the page (white / black) and from the other box.
     @Test func boxesReadWellInBothModes() {

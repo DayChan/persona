@@ -34,6 +34,8 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import persona.core.designsystem.icons.PhIcon
 import persona.core.designsystem.icons.PhIcons
@@ -363,6 +365,33 @@ fun DecisionOption(
             JIcon(PhIcons.Sparkle, null, size = 14.dp, tint = if (style == AppStyle.Board) palette.accent else ink, selected = true)
             Spacer(Modifier.width(3.dp))
             Text(stringResource(R.string.designsystem_decision_recommended), style = type.micro.copy(fontWeight = FontWeight.Bold), color = if (style == AppStyle.Board) palette.accent else ink, maxLines = 1)
+        }
+    }
+}
+
+/** A single action line. Alternatives move into a menu before their labels would be truncated. */
+@Composable
+fun DecisionActions(primary: JAction?, alternatives: List<JAction>, overflowLabel: String, modifier: Modifier = Modifier, busy: Boolean = false) {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val type = PersonaTheme.type.labelSmall
+    val size = JButtonSize.Small
+    var menu by remember { mutableStateOf(false) }
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val actions = alternatives + listOfNotNull(primary)
+        val labels = actions.sumOf { measurer.measure(it.label, style = type, maxLines = 1, softWrap = false).size.width }
+        val required = with(density) { (size.padding * (actions.size * 2) + Tokens.Space.s * (actions.size - 1).coerceAtLeast(0)).toPx() } + labels
+        val overflow = required > with(density) { maxWidth.toPx() }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Tokens.Space.s), verticalAlignment = Alignment.CenterVertically) {
+            if (overflow && alternatives.isNotEmpty()) Box {
+                JIconButton(PhIcons.DotsThree, overflowLabel, { menu = true }, enabled = !busy)
+                JMenu(menu && !busy, { menu = false }, alternatives.map { it.copy(enabled = it.enabled && !busy) })
+            } else alternatives.forEach { action ->
+                JButton(action.label, action.onClick, kind = JButtonKind.Secondary, size = size, enabled = action.enabled && !busy)
+            }
+            primary?.let { action ->
+                JButton(action.label, action.onClick, Modifier.weight(1f, fill = false), size = size, enabled = action.enabled && !busy)
+            }
         }
     }
 }

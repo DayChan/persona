@@ -12,6 +12,28 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class OperationFeedbackTest {
+    @Test fun knowledgeCodesOverrideServerWordingAndKeepDiagnosticsOutOfFeedback() {
+        for ((code, resource, action) in listOf(
+            Triple("kb_disabled", R.string.designsystem_knowledge_disabled, FailureAction.None),
+            Triple("kb_unavailable", R.string.designsystem_knowledge_unavailable, FailureAction.Retry),
+            Triple("kb_read_only", R.string.designsystem_knowledge_read_only, FailureAction.None),
+        )) {
+            val error = HubFailure(HubError.Server, "Request failed: private diagnostic", status = 503, code = code,
+                retryable = true, requestId = "request-1")
+            val feedback = operationFeedback(error)
+            assertEquals(UiText.Res(resource), feedback.text)
+            assertEquals(feedback.text, failureReasonText(error))
+            assertEquals(action, feedback.action)
+            assertFalse(feedback.offline)
+            assertNull(feedback.hubWords)
+            assertTrue(failureDetail(error).contains("Request: request-1"))
+        }
+        val internal = HubFailure(HubError.Server, "private internal exception", status = 503, code = "internal", requestId = "request-1")
+        assertEquals(operationFeedback(internal).text, failureReasonText(internal))
+        assertFalse(failureDetail(internal).contains("private internal exception"))
+        assertTrue(failureDetail(internal).contains("HTTP 503"))
+    }
+
     @Test fun codeOverridesWordingAndOfflineNoticesAreLimitedPerKind() = runTest {
         val input = HubFailure(HubError.Server, "超时失败", code = "input_draft", delivered = "none", retryable = true)
         val changed = HubFailure(HubError.Server, "完全不同的文字", code = "input_draft", delivered = "none", retryable = true)

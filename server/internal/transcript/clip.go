@@ -25,11 +25,17 @@ func clipTo(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	cut := n
+	cut, note := clipParts(s, n)
+	return s[:cut] + note
+}
+
+// clipParts is where clipTo cuts s (len(s) > n) and the note it adds.
+func clipParts(s string, n int) (cut int, note string) {
+	cut = n
 	for cut > 0 && (s[cut]&0xC0) == 0x80 {
 		cut--
 	}
-	return s[:cut] + fmt.Sprintf("\n…（已截断，共 %d 字节）", len(s))
+	return cut, fmt.Sprintf("\n…（已截断，共 %d 字节）", len(s))
 }
 
 // light is the copy of an item that pages and pushes carry; cut says something was left out (fetch it with Full).
@@ -47,13 +53,7 @@ func light(it proto.Item, keepImage bool) (_ proto.Item, cut bool) {
 		}
 	}
 	if len(it.Text) > limit {
-		end := limit
-		for end > 0 && (it.Text[end]&0xC0) == 0x80 {
-			end--
-		}
-		if nl := strings.LastIndexByte(it.Text[:end], '\n'); nl > end-512 { // end on a whole line when one is near
-			end = nl
-		}
+		end := pageCut(it.Text, limit)
 		it.FullSize = len(it.Text)
 		it.Text = it.Text[:end] + fmt.Sprintf(note, len(it.Text))
 		cut = true
@@ -63,6 +63,20 @@ func light(it proto.Item, keepImage bool) (_ proto.Item, cut bool) {
 		cut = true
 	}
 	return it, cut
+}
+
+// pageCut is where light cuts text longer than limit: s[:pageCut] is what the page keeps. It ends on a character, at
+// most limit bytes in, and on a whole line (before its newline) when one ends in the last 512 bytes of that. An
+// outcome's tail picks up from here (outputTail).
+func pageCut(s string, limit int) int {
+	end := limit
+	for end > 0 && (s[end]&0xC0) == 0x80 {
+		end--
+	}
+	if nl := strings.LastIndexByte(s[:end], '\n'); nl > end-512 { // end on a whole line when one is near
+		end = nl
+	}
+	return end
 }
 
 const (
@@ -109,15 +123,21 @@ func clipJSON(raw json.RawMessage) json.RawMessage {
 
 // clipIfShorter is clipTo(s, n) if that is shorter as JSON, which is what a tool input carries, and s if not. A string
 // more than clipNoteRoom over n always is: every byte cut costs at least one byte of JSON and the note at most
-// clipNoteRoom. Closer to n it depends on escapes: a plain-text tail costs less than the note, but json.Marshal writes
-// < > & as six bytes each, so an HTML tail of the same length may cost more.
+// clipNoteRoom. An unescaped ASCII string stays whole up to the note's JSON content length beyond n (37 bytes with
+// a three-digit original size). Escapes change that threshold: json.Marshal writes < > & as six bytes each, so an
+// HTML tail of the same raw length may cost more than the note.
 func clipIfShorter(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	c := clipTo(s, n)
-	if len(s) > n+clipNoteRoom || jsonLen(c) < jsonLen(s) {
-		return c
+	if len(s) > n+clipNoteRoom {
+		return clipTo(s, n)
+	}
+	cut, note := clipParts(s, n)
+	// The cut is on a UTF-8 boundary, so JSON encodes the shared prefix identically in both strings, even next to
+	// an escape. That prefix and the surrounding quotes cancel: only the dropped tail and note need marshalling.
+	if jsonLen(s[cut:]) > jsonLen(note) {
+		return s[:cut] + note
 	}
 	return s
 }

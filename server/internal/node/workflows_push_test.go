@@ -14,7 +14,7 @@ import (
 // Workflow progress must reach the hub even when only its journal grows and the main turn stays stopped.
 func TestWorkflowPollPushesJournalProgress(t *testing.T) {
 	n, f, home := herdrNode(t)
-	const cwd = "/tmp/workflow-poll"
+	cwd := pollRepo(t)
 	sess := workflowPollSession(t, n, f, home, cwd, nil)
 	pushes, stop := pollNode(t, n)
 	defer stop()
@@ -37,7 +37,7 @@ func TestWorkflowPollPushesJournalProgress(t *testing.T) {
 // same tool called again included.
 func TestWorkflowPollPushesAgentTools(t *testing.T) {
 	n, f, home := herdrNode(t)
-	const cwd = "/tmp/workflow-poll-tools"
+	cwd := pollRepo(t)
 	call := func(id, tool, input string) string {
 		return edgeReply(id, time.Now().UTC().Format(time.RFC3339), "model-a", `[{"type":"tool_use","id":"`+id+`","name":"`+tool+`","input":`+input+`}]`,
 			`{"input_tokens":10,"output_tokens":1}`)
@@ -75,7 +75,7 @@ func TestWorkflowPollPushesAgentTools(t *testing.T) {
 // replaced attempt otherwise.
 func TestWorkflowPollPushesRetriedAgent(t *testing.T) {
 	n, f, home := herdrNode(t)
-	const cwd = "/tmp/workflow-poll-retry"
+	cwd := pollRepo(t)
 	sess := workflowPollSession(t, n, f, home, cwd, nil)
 	pushes, stop := pollNode(t, n)
 	defer stop()
@@ -105,8 +105,9 @@ func workflowPollSession(t *testing.T, n *Node, f *fakeHerdr, home, cwd string, 
 	t.Helper()
 	at := time.Now().Add(-time.Minute)
 	stamp := at.UTC().Format(time.RFC3339)
+	cwdJSON, _ := json.Marshal(cwd)
 	tp := writeTranscript(t, home, cwd, sidA, at,
-		`{"type":"user","timestamp":"`+stamp+`","cwd":"`+cwd+`","message":{"role":"user","content":"Review this project"}}`,
+		`{"type":"user","timestamp":"`+stamp+`","cwd":`+string(cwdJSON)+`,"message":{"role":"user","content":"Review this project"}}`,
 		`{"type":"assistant","uuid":"a1","timestamp":"`+stamp+`","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Workflow","input":{"name":"review"}}]}}`,
 		`{"type":"user","uuid":"u1","timestamp":"`+stamp+`","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":"Workflow launched in background. Task ID: wt1\nSummary: Review\nRun ID: wf_poll\n"}]}}`,
 		`{"type":"system","subtype":"turn_duration","durationMs":1000,"pendingWorkflowCount":1,"timestamp":"`+stamp+`"}`)

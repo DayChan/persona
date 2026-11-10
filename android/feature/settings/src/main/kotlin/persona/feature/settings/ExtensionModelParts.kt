@@ -12,12 +12,13 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import persona.core.contracts.api.ExtensionDependency
+import persona.core.contracts.api.ExtensionDetail
 import persona.core.contracts.api.ExtensionPreview
 import persona.core.contracts.api.ExtensionSandbox
 import persona.core.designsystem.*
 
 internal object ExtensionModelText {
-    fun dependency(res: Resources, d: ExtensionDependency): String = listOfNotNull(
+    fun dependency(res: Resources, d: ExtensionDependency, installed: Boolean = false): String = listOfNotNull(
         d.name?.ifBlank { null } ?: d.id,
         d.version?.ifBlank { null },
         when (d.state) {
@@ -26,7 +27,7 @@ internal object ExtensionModelText {
             "disabled" -> res.getString(R.string.settings_ext_dep_disabled)
             "not_ready" -> res.getString(R.string.settings_ext_dep_not_ready)
             "old" -> res.getString(R.string.settings_ext_dep_old, d.installed.orEmpty())
-            else -> res.getString(R.string.settings_ext_dep_unknown)
+            else -> res.getString(if (installed) R.string.settings_ext_dep_unknown_installed else R.string.settings_ext_dep_unknown)
         },
     ).joinToString(" · ")
 
@@ -38,6 +39,31 @@ internal object ExtensionModelText {
         s.active -> res.getString(R.string.settings_ext_sandbox_active)
         s.enabled -> res.getString(R.string.settings_ext_sandbox_inactive)
         else -> res.getString(R.string.settings_ext_sandbox_off)
+    }
+}
+
+internal fun LazyListScope.installedExtensionModel(detail: ExtensionDetail) {
+    if (detail.depends.isNotEmpty()) {
+        item("dependencies-title") { JSectionHeader(stringResource(R.string.settings_ext_depends)) }
+        detail.depends.forEachIndexed { index, dependency ->
+            item("dependency-$index") {
+                JGroupItem(GroupPosition.of(index, detail.depends.size)) {
+                    JInlineStatus(ExtensionModelText.dependency(LocalResources.current, dependency, installed = true),
+                        tone = if (dependency.state == "ok") InlineTone.Done else InlineTone.Caution)
+                }
+            }
+        }
+    }
+    if (detail.extensionPack.isNotEmpty()) {
+        item("pack-members-title") { JSectionHeader(stringResource(R.string.settings_ext_pack_members)) }
+        detail.extensionPack.forEachIndexed { index, member ->
+            item("pack-member-$index") {
+                JGroupItem(GroupPosition.of(index, detail.extensionPack.size)) {
+                    JRow(member.id, subtitle = listOfNotNull(member.version, member.market).joinToString(" · ").ifBlank { null },
+                        subtitleLines = Int.MAX_VALUE, chevron = false)
+                }
+            }
+        }
     }
 }
 

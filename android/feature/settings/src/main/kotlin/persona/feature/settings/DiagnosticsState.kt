@@ -61,6 +61,8 @@ internal fun ConnectionCandidate.probeMeasurement(resources: Resources): String 
     "lan" -> R.string.settings_route_lan
     "ipv4" -> R.string.settings_route_ipv4
     "unknown" -> R.string.settings_route_unknown
+    "ssh" -> R.string.settings_tunnel_ssh
+    "proxy" -> R.string.settings_tunnel_proxy
     else -> null
 }
 

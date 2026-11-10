@@ -117,11 +117,36 @@ func errExists(name string) error {
 	return &rpc.Error{Code: proto.CodeExists, Message: fmt.Sprintf("%s already exists", name), Data: data}
 }
 
-// renameIfFree is renameExcl where the system has no such rename: a check just before (a file appearing in between
-// would be replaced).
+// renameIfFree is renameExcl where the system has no such rename. A file is first linked at the new name, which fails
+// if the name is taken, and then removed at the old one, so a file appearing meanwhile is never replaced. Where a link
+// cannot be made (another disk, a file system without links), the old name cannot be removed, and for folders, links
+// and the like, it is a check just before the rename: racy, a file appearing in between would be replaced.
 func renameIfFree(from, to string) error {
+	exists := &os.LinkError{Op: "rename", Old: from, New: to, Err: os.ErrExist}
 	if _, err := os.Lstat(to); err == nil {
-		return &os.LinkError{Op: "rename", Old: from, New: to, Err: os.ErrExist}
+		return exists
+	}
+	if renameFreeCheckedHook != nil {
+		renameFreeCheckedHook()
+	}
+	if st, err := os.Lstat(from); err == nil && st.Mode().IsRegular() {
+		err := os.Link(from, to)
+		if errors.Is(err, os.ErrExist) {
+			return exists
+		}
+		if err == nil {
+			if os.Remove(from) == nil {
+				return nil
+			}
+			// The old name cannot be removed (a read-only file on Windows, which a rename still moves): take the
+			// link back, so the file is not left in both places, and rename it as before.
+			if err := os.Remove(to); err != nil {
+				return err
+			}
+		}
 	}
 	return os.Rename(from, to)
 }
+
+// renameFreeCheckedHook, when set (by tests), runs in renameIfFree between the check and the move.
+var renameFreeCheckedHook func()

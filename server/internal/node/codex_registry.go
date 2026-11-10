@@ -406,11 +406,12 @@ func heldRecently(m quickMeta, path string, pass *codexListPass) bool {
 	return time.Since(at) < codexHeldIdle
 }
 
-// codexListPass holds what one codexSessions pass looks up once instead of once per thread. The list is rebuilt every
-// second, and with a few hundred rollouts each thread resolved its directory's symlinks (a stat per part of the path,
-// a readlink per link), stat'ed its rollout up to three times, looked for the Codex App's socket and rebuilt the
-// assistant's project name with a regexp: about 19 stat calls per rollout per pass. It lives for one pass of one caller,
-// so nothing in it is shared or needs invalidating. A nil pass looks everything up each time.
+// codexListPass holds what one session-list rebuild (sessionList, codexSessions) looks up once instead of once per row.
+// The list is rebuilt every second, and with a few hundred rollouts each thread resolved its directory's symlinks (a
+// stat per part of the path, a readlink per link), stat'ed its rollout up to three times, looked for the Codex App's
+// socket and rebuilt the assistant's project name with a regexp: about 19 stat calls per rollout per pass. Every Claude
+// row's decoration (ultracodeRow) also resolved the data directory and rebuilt that name. It lives for one pass of one
+// caller, so nothing in it is shared or needs invalidating. A nil pass looks everything up each time.
 type codexListPass struct {
 	real    map[string]string    // directory → realPath
 	stats   map[string]codexStat // rollout path → os.Stat

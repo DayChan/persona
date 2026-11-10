@@ -38,6 +38,7 @@ type hookTurn struct {
 	stopAt    time.Time // the last Stop
 	pid       int       // the claude process the hooks run under, 0 when unknown
 	start     string    // that process' start ("linux:<starttime>", "windows:<creation time>"), "" when the platform cannot tell
+	bypass    bool      // that process can be switched to Allow All while it runs (claudeCanBypass), read once per process
 	touched   time.Time
 }
 
@@ -94,7 +95,21 @@ func (h *hookTurns) agent(id string, pid int, start string, now time.Time) {
 	if t.pid != 0 && (t.pid != pid || t.start != start) {
 		*t = hookTurn{touched: now}
 	}
+	if t.pid == 0 {
+		t.bypass = claudeCanBypass(pid) // its arguments, read once (no exec): this runs on every hook
+	}
 	t.pid, t.start = pid, start
+}
+
+// canBypass: the session's claude was started so that Allow All is in its shift+tab cycle (#1379).
+func (h *hookTurns) canBypass(id string) bool {
+	if h == nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	t := h.m[id]
+	return t != nil && t.bypass
 }
 
 // prompt counts a UserPromptSubmit.

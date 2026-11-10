@@ -29,6 +29,9 @@
     <string name="chat_tray_draft_changed">下書きが更新されました。最新の内容を確認してから送信してください。</string>
     <string name="chat_tray_caught_up">すべて対応済み</string>
     <string name="chat_tray_accept">受け入れる</string>
+    <string name="chat_tray_finish_now">ここで完了</string>
+    <string name="chat_tray_follow_recommendation">推奨に従う</string>
+    <string name="chat_tray_finish_failed">タスクを完了できませんでした。もう一度お試しください。</string>
     <string name="chat_tray_recommended">推奨：%1$s</string>
     <string name="chat_tray_accept_changed">確認依頼が更新されました。最新の内容を確認してください。</string>
     <string name="chat_tray_cancelled">キャンセル済み</string>

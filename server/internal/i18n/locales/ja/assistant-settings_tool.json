@@ -14,6 +14,10 @@
   "change_recording_days": "録音をナレッジベースに保存：{before} → {after} 日",
   "title_done_needs_delivery": "リリースして確認できたら完了",
   "change_done_needs_delivery": "「リリースして確認できたら完了」：{before} → {after}",
+  "title_leaders": "リーダー会話",
+  "change_leaders": "リーダー会話（自分が出したタスクを監督する）：{before} → {after}",
   "title_model_tiers": "Agent プリセット",
-  "change_model_tier": "{profile} · {tier}：{before} → {after}"
+  "change_model_tier": "{profile} · {tier}：{before} → {after}",
+  "title_review_sample_percent": "抜き取りで確認する完了タスクの割合",
+  "change_review_sample_percent": "抜き取りで確認する完了タスクの割合：{before}% → {after}%"
 }

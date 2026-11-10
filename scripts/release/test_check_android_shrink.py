@@ -29,6 +29,8 @@ MANIFEST = '''N: android=http://schemas.android.com/apk/res/android (line=2)
 
 
 BRIDGE = "persona.core.designsystem.MarkdownRenderer$Bridge"
+SSH_ALGORITHMS = ("persona.core.hub.tunnel.TinkX25519", "persona.core.hub.tunnel.TinkEd25519", "com.jcraft.jsch.DH25519",
+                  "com.jcraft.jsch.UserAuthPublicKey", "com.jcraft.jsch.jce.AES128GCM")
 
 # The shapes of R8's seeds.txt (classes, then `Class: member`) and usage.txt (`Class` removed whole, `Class:` then the
 # members removed from a kept one).
@@ -56,6 +58,7 @@ def kept_release():
         BRIDGE: DexClass("java.lang.Object", methods=set(shrink.REQUIRED_MEMBERS[BRIDGE])),
         "persona.core.hub.HubFailure": DexClass(
             "java.io.IOException", methods=set(shrink.REQUIRED_MEMBERS["persona.core.hub.HubFailure"])),
+        **{name: DexClass("java.lang.Object", methods=set(init)) for name in SSH_ALGORITHMS},
         "androidx.room.RoomDatabase": DexClass("java.lang.Object", access=shrink.ACC_ABSTRACT),
         "persona.core.data.ItemsDatabase": DexClass("androidx.room.RoomDatabase", access=shrink.ACC_ABSTRACT),
         "persona.core.data.ItemsDatabase_Impl": DexClass("persona.core.data.ItemsDatabase", methods=set(init)),
@@ -94,6 +97,8 @@ class ShrinkGuardTests(unittest.TestCase):
                             f"{BRIDGE}.done(ILjava/lang/String;)V: removed"),
             "hub failure status": (lambda c: c["persona.core.hub.HubFailure"].methods.discard(
                 ("getStatus", "()Ljava/lang/Integer;")), "HubFailure.getStatus()Ljava/lang/Integer;: removed"),
+            "ssh algorithm": (lambda c: c.pop("persona.core.hub.tunnel.TinkX25519"),
+                              "persona.core.hub.tunnel.TinkX25519.<init>()V: removed"),
             "activity": (lambda c: c.pop("persona.android.MainActivity"), "activity persona.android.MainActivity"),
             "initializer": (lambda c: c["androidx.work.WorkManagerInitializer"].methods.clear(),
                             "startup initializer androidx.work.WorkManagerInitializer: no-argument constructor"),

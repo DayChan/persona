@@ -111,18 +111,32 @@ services:
             export POSTGRES_PASSWORD
           fi
         fi
+        # wal_compression=auto (the default): lz4 when this postgres takes it (15 or later, built with lz4), else off.
+        # PERSONA_POSTGRES_IMAGE can name any image, and postgres does not start with a value it does not know.
+        for a in "$$@"; do
+          shift
+          if [ "$$a" = wal_compression=auto ]; then
+            a=wal_compression=off
+            major=$$(postgres -V 2>/dev/null | sed -n 's/^[^0-9]*\([0-9][0-9]*\).*/\1/p')
+            if [ "$${major:-0}" -ge 15 ] && pg_config --configure 2>/dev/null | grep -q -- --with-lz4; then
+              a=wal_compression=lz4
+            fi
+          fi
+          set -- "$$@" "$$a"
+        done
         exec docker-entrypoint.sh "$$@"
       - postgres-entrypoint
-    # PostgreSQL's own defaults unless .env says otherwise (docs/operations/docker.md "Disk writes"). Settings given
-    # here win over ALTER SYSTEM and postgresql.conf.
+    # PostgreSQL's own defaults unless .env says otherwise, except wal_compression (auto, which the entrypoint above
+    # resolves) and checkpoint_timeout (15min; docs/operations/docker.md "Disk writes"). Settings given here win over
+    # ALTER SYSTEM and postgresql.conf.
     command:
       - postgres
       - -c
       - synchronous_commit=${PERSONA_POSTGRES_SYNCHRONOUS_COMMIT:-on}
       - -c
-      - wal_compression=${PERSONA_POSTGRES_WAL_COMPRESSION:-off}
+      - wal_compression=${PERSONA_POSTGRES_WAL_COMPRESSION:-auto}
       - -c
-      - checkpoint_timeout=${PERSONA_POSTGRES_CHECKPOINT_TIMEOUT:-5min}
+      - checkpoint_timeout=${PERSONA_POSTGRES_CHECKPOINT_TIMEOUT:-15min}
       - -c
       - wal_writer_delay=${PERSONA_POSTGRES_WAL_WRITER_DELAY:-200ms}
     logging: *logging

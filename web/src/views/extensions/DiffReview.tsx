@@ -20,6 +20,7 @@ import { useMedia } from "../../lib/viewport";
 import { t } from "../../i18n";
 import { Button, cx, Dialog, Spinner } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
+import { scrollBehavior } from "../../ui/stream/motion";
 import { Pill } from "../settings/SettingsParts";
 import { Avatar, Box, card, LH, LoadLine, MARK, PILL, type CodeHandlers } from "./CodeViews";
 import { ViewMarkdown } from "./ViewBody";
@@ -115,9 +116,9 @@ export function ReviewProvider({ view, page, fetch, children, local, nativeCache
   return <ReviewContext.Provider value={api}>{children}</ReviewContext.Provider>;
 }
 
-/** Scrolls to an element, under the sticky file head. */
+/** Scrolls to an element, under the sticky file head (straight there under reduced motion). */
 function goTo(el: Element | undefined) {
-  el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  el?.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
 }
 
 /** The elements of a kind on the page, and the one after or before the top of the screen. */
@@ -154,11 +155,11 @@ export function useReviewKeys(on: boolean, help: () => void) {
           break;
         case "next-change":
         case "prev-change":
-          step("[data-change]", cmd === "next-change")?.scrollIntoView({ behavior: "smooth", block: "center" });
+          step("[data-change]", cmd === "next-change")?.scrollIntoView({ behavior: scrollBehavior(), block: "center" });
           break;
         case "next-thread":
         case "prev-thread":
-          step("[data-unresolved]", cmd === "next-thread")?.scrollIntoView({ behavior: "smooth", block: "center" });
+          step("[data-unresolved]", cmd === "next-thread")?.scrollIntoView({ behavior: scrollBehavior(), block: "center" });
           break;
         case "whitespace":
           setWhitespace(!whitespace);
@@ -262,7 +263,9 @@ export function ReviewToolbar({ view, onHelp }: { view: UIView; onHelp: () => vo
       {open > 0 && (
         <button
           type="button"
-          onClick={() => step("[data-unresolved]", true)?.scrollIntoView({ behavior: "smooth", block: "center" }) ?? document.querySelector("[data-unresolved]")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+          // the next one, past the last the first: picked, then scrolled to once (scrollIntoView answers undefined, so
+          // `a?.scrollIntoView() ?? b?.scrollIntoView()` would run both and always end on the first)
+          onClick={() => (step("[data-unresolved]", true) ?? document.querySelector("[data-unresolved]"))?.scrollIntoView({ behavior: scrollBehavior(), block: "center" })}
           className="flex h-7 items-center gap-1.5 rounded-[8px] px-2 whitespace-nowrap text-orange transition-colors hover:bg-hover"
           title={t("extensions-review.next_open")}
         >

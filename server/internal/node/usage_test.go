@@ -15,6 +15,16 @@ func claudeReply(ts time.Time, id, model string, in, write1h, read, out int) str
 		ts.Format(time.RFC3339Nano), id, model, in, write1h, read, out, write1h)
 }
 
+// scanFile scans path the way a sweep does, with the stat usageFiles takes of it.
+func scanFile(t *testing.T, m *usageMeter, path string, cutoff time.Time) {
+	t.Helper()
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.scan(path, st, cutoff)
+}
+
 func TestUsageMeterClaude(t *testing.T) {
 	now := time.Date(2026, 10, 29, 12, 0, 30, 0, time.UTC)
 	cutoff := now.Add(-usageWindow)
@@ -30,7 +40,7 @@ func TestUsageMeterClaude(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := newUsageMeter()
-	m.scan(p, cutoff)
+	scanFile(t, m, p, cutoff)
 	if len(m.buckets) != 2 {
 		t.Fatalf("buckets = %d, want 2: %+v", len(m.buckets), m.buckets)
 	}
@@ -46,7 +56,7 @@ func TestUsageMeterClaude(t *testing.T) {
 	f.WriteString(now.Add(time.Minute).Format(time.RFC3339Nano) + `","message":{"id":"m4","model":"claude-sonnet-5-5","usage":{"output_tokens":3}}}` + "\n")
 	f.Close()
 	m.dirty = map[usageKey]bool{}
-	m.scan(p, cutoff)
+	scanFile(t, m, p, cutoff)
 	s := m.buckets[usageKey{now.Unix()/60*60 + 60, "claude-sonnet-5-5", ""}]
 	if s == nil || s.Output != 10 || s.Requests != 2 || len(m.dirty) != 1 {
 		t.Fatalf("sonnet bucket = %+v, dirty %v", s, m.dirty)
@@ -76,7 +86,7 @@ func TestUsageMeterCodex(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "rollout-2026-10-29T10-00-00-0199a213-81c0-7800-8aa1-bbab2a035a53.jsonl")
 	os.WriteFile(p, []byte(body), 0o600)
 	m := newUsageMeter()
-	m.scan(p, now.Add(-time.Hour))
+	scanFile(t, m, p, now.Add(-time.Hour))
 	b := m.buckets[usageKey{now.Unix() / 60 * 60, "gpt-6-codex", ""}]
 	if b == nil || b.Requests != 2 || b.Input != 150 || b.CacheRead != 1200 || b.Output != 150 {
 		t.Fatalf("codex bucket = %+v", b)
@@ -100,7 +110,7 @@ func TestUsageStartOffset(t *testing.T) {
 		t.Fatalf("start offset = %d, want inside the old part (%d bytes)", off, old)
 	}
 	m := newUsageMeter()
-	m.scan(p, cutoff)
+	scanFile(t, m, p, cutoff)
 	if b := m.buckets[usageKey{now.Unix() / 60 * 60, "claude-opus-5-5", ""}]; b == nil || b.Output != 9 {
 		t.Fatalf("bucket = %+v", b)
 	}
@@ -133,7 +143,7 @@ func TestUsageMeterCountsAForkOnce(t *testing.T) {
 	m := newUsageMeter()
 	m.launcherOf = func(s string) string { return map[string]string{"s-orig": "claude", "s-fork": "sonnetcc"}[s] }
 	for _, p := range []string{orig, fork, sub} {
-		m.scan(p, now.Add(-time.Hour))
+		scanFile(t, m, p, now.Add(-time.Hour))
 	}
 	minute := now.Unix() / 60 * 60
 	if b := m.buckets[usageKey{minute, "claude-opus-5-5", "claude"}]; b == nil || b.Requests != 2 || b.Output != 10 {
@@ -147,7 +157,7 @@ func TestUsageMeterCountsAForkOnce(t *testing.T) {
 	}
 	// Rewritten from the start (the file shrank): read again, nothing counted twice.
 	os.WriteFile(orig, []byte(claudeReply(now, "m1", "claude-opus-5-5", 10, 0, 100, 5)), 0o600)
-	m.scan(orig, now.Add(-time.Hour))
+	scanFile(t, m, orig, now.Add(-time.Hour))
 	if b := m.buckets[usageKey{minute, "claude-opus-5-5", "claude"}]; b.Requests != 2 {
 		t.Fatalf("after the rewrite = %+v", b)
 	}
@@ -180,8 +190,8 @@ func TestUsageMeterCountsACodexForkOnce(t *testing.T) {
 	m := newUsageMeter()
 	sessions := map[string]bool{}
 	m.launcherOf = func(s string) string { sessions[s] = true; return "codex" }
-	m.scan(a, now.Add(-time.Hour))
-	m.scan(b, now.Add(-time.Hour))
+	scanFile(t, m, a, now.Add(-time.Hour))
+	scanFile(t, m, b, now.Add(-time.Hour))
 	got := m.buckets[usageKey{now.Unix() / 60 * 60, "gpt-6-codex", "codex"}]
 	if got == nil || got.Requests != 2 || got.Output != 200 {
 		t.Fatalf("bucket = %+v, want the shared request once and the fork's own", got)

@@ -116,4 +116,23 @@ class HttpHubSentTest {
         server.enqueue(MockResponse().setResponseCode(404).setBody("""{"error":"no such thing","code":"not_found"}"""))
         assertEquals("not_found", (runCatching { api.page() }.exceptionOrNull() as HubFailure).code)
     } }
+
+    @Test fun aRecallPostsTheConfirmationAndReadsTheRowBack() { withHub { server, api ->
+        server.enqueue(MockResponse().setBody("""{"ok":true,"item":{"id":9,"connector":"github","recalled_at":"2026-11-05T12:01:00Z","can_recall":false}}"""))
+        val row = api.recall(9)
+        val asked = server.takeRequest()
+        assertEquals("POST", asked.method)
+        assertEquals("/api/v1/connectors/sent/9/recall", asked.path)
+        assertEquals("""{"confirm":true}""", asked.body.readUtf8())
+        assertEquals(9L, row?.id)
+        assertEquals("2026-11-05T12:01:00Z", row?.recalledAt)
+        assertFalse(row!!.canRecall)
+        // can_recall is true only as a JSON true
+        server.enqueue(MockResponse().setBody("""{"items":[{"id":2,"can_recall":true},{"id":1,"can_recall":"true"}]}"""))
+        assertEquals(listOf(true, false), api.page().items.map { it.canRecall })
+        server.enqueue(MockResponse().setResponseCode(409).setBody("""{"error":"too old","code":"too_old"}"""))
+        val refused = runCatching { api.recall(9) }.exceptionOrNull() as HubFailure
+        assertEquals(409, refused.status)
+        assertEquals("too_old", refused.code)
+    } }
 }

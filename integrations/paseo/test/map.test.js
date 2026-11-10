@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  agentRoot, agentRow, defaultProvider, interactionOf, launchersOf, linkedWorktree, providerRoots, responseOf, rowStatus,
-  projectSpaces, sessionIdOf, slotNameOf, spaceIdOf, strayRecord, timelineItems, toolCall, transcriptOf,
+  agentRoot, agentRow, defaultProvider, interactionOf, launchersOf, linkedWorktree, paseoMode, providerRoots, responseOf,
+  rowStatus, projectSpaces, sessionIdOf, slotNameOf, spaceIdOf, strayRecord, timelineItems, toolCall, transcriptOf,
 } from '../lib/map.js'
 import { agentSnapshot, entry } from './fake-paseo.js'
 
@@ -87,6 +87,17 @@ test('a row: its space, the agent the apps know, model, modes and transcript', (
   assert.equal(g.permission_mode, undefined, "a mode Persona does not have is not shown")
   assert.equal(g.last_text, '出错了：boom')
   assert.equal(agentRow(agentSnapshot({ provider: 'grok', archivedAt: '2026-01-01T00:00:00Z' }), { roots }), undefined)
+})
+
+test("a Codex row: Paseo's full-access is Persona's bypassPermissions, the other Codex modes are not reported", () => {
+  const roots = providerRoots(CONFIG)
+  const row = (currentModeId) => agentRow(agentSnapshot({ provider: 'my-codex', cwd: '/w/x', currentModeId }), { roots })
+  assert.equal(row('full-access').permission_mode, 'bypassPermissions')
+  assert.equal(row('auto').permission_mode, undefined)
+  assert.equal(row('auto-review').permission_mode, undefined)
+  assert.deepEqual([paseoMode('codex', 'bypassPermissions'), paseoMode('codex', 'auto'), paseoMode('claude', 'bypassPermissions')],
+    ['full-access', undefined, 'bypassPermissions'])
+  assert.equal(paseoMode('acp', 'bypassPermissions'), undefined)
 })
 
 test("spaces: a project's checkout and its worktrees are one space, Paseo's workspaces its slots", () => {

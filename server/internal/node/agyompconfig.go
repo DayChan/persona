@@ -12,7 +12,7 @@ import (
 
 var agySettings = []ClaudeSetting{
 	{Key: "model", Title: "默认模型", Detail: "没指定模型时 Antigravity 用哪个，比如 Gemini 4 Argon (High)", Type: "string", Default: "Gemini 4 Argon (High)"},
-	{Key: "agentMode", Title: "执行模式", Detail: "改文件、跑命令时的默认模式；选 bypassPermissions 或 auto 会自动放行所有权限检查", Type: "enum", Options: []string{"default", "accept-edits", "auto", "plan", "bypassPermissions"}, Default: "default"},
+	{Key: "agentMode", Title: "执行模式", Detail: "改文件、跑命令时的默认模式；选 auto 会自动放行所有权限检查", Type: "enum", Options: []string{"default", "accept-edits", "auto", "plan"}, Default: "default"},
 	{Key: "toolPermission", Title: "工具权限", Detail: "调用工具或跑命令前要不要问你；选 always-proceed 会自动放行所有权限检查（全部放行）", Type: "enum", Options: []string{"ask", "always-proceed"}, Default: "ask"},
 	{Key: "modelProvider", Title: "模型接入方式", Detail: "oauth 走 Google / Antigravity 登录；填了 GOOGLE_GEMINI_BASE_URL + GEMINI_API_KEY 时选 gemini", Type: "enum", Options: []string{"oauth", "gemini"}, Default: "oauth"},
 	{Key: "showFeedbackSurvey", Title: "显示反馈问卷", Detail: "在终端里偶尔弹出反馈调查", Type: "bool", Default: true},
@@ -44,6 +44,9 @@ func (n *Node) getAgySettings() ([]ClaudeSetting, error) {
 }
 
 func (n *Node) setAgySetting(key string, value any) error {
+	if key == "agentMode" && value == "bypassPermissions" {
+		value = "auto" // older clients used Persona's permission name in the native settings field
+	}
 	var def *ClaudeSetting
 	for i := range agySettings {
 		if agySettings[i].Key == key {

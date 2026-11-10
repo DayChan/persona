@@ -49,6 +49,10 @@ func seedSettings(t *testing.T, content string) string {
 		if err := os.WriteFile(path, []byte(content), 0o640); err != nil {
 			t.Fatal(err)
 		}
+		// WriteFile applies the umask; the mode an install must keep is 0640 under any umask.
+		if err := os.Chmod(path, 0o640); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return path
 }

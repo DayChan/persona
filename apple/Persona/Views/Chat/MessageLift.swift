@@ -4,7 +4,8 @@ import SwiftUI
 
 // As Telegram does: a long press dims and blurs the chat, draws the pressed message again above it, and puts the bar of
 // actions right next to it. Lightly: the chat's words still show through, faintly (`Theme.Lift`). A message taller than the screen shows the part around the press, its ends faded, and scrolls
-// inside; the bar always stays on screen, so a long answer never has to be scrolled to reach Copy.
+// inside; the bar always stays on screen, so a long answer never has to be scrolled to reach Copy. A second long press on
+// it, or Select Text, selects its words where they are (`LiftSelection.swift`).
 
 /// What a message's row offers in its bar (`messageActionBar`), for the pressable part inside it (`messageLongPress`).
 struct MessageBarInfo {
@@ -116,6 +117,8 @@ private struct LiftedMessage: View {
     /// The layer's frame, global.
     var space: CGRect
     @State private var fade = Fade()
+    /// The drawn message's height, which its words take again while they are selected (laid out by a text view).
+    @State private var height: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct Fade: Equatable {
@@ -140,11 +143,14 @@ private struct LiftedMessage: View {
         return safe.offsetBy(dx: -space.minX, dy: -space.minY)
     }
 
+    /// Its words are being selected (`MessageMenu.inPlace`).
+    private var selecting: Bool { menu.inPlace != nil }
+
     var body: some View {
         let bounds = bounds
         let f = lift.frame.offsetBy(dx: -space.minX, dy: -space.minY)
         let message = CGRect(x: f.minX - pad.leading, y: f.minY - pad.top, width: f.width + pad.leading + pad.trailing,
-                             height: f.height + pad.top + pad.bottom)
+                             height: selecting && height > 0 ? height : f.height + pad.top + pad.bottom)
         let count = MessageActionBar.count(id: lift.bar.id, isUser: lift.bar.isUser, menu: menu, pending: lift.bar.pending)
         let barWidth = min(MessageActionBar.width(count: count), bounds.width - 2 * Theme.Space.s)
         let p = LiftLayout.place(message: message, press: lift.press.y + pad.top, bar: CGSize(width: barWidth, height: MessageActionBar.height),
@@ -154,21 +160,25 @@ private struct LiftedMessage: View {
             preview(p, whole: message.height)
                 .frame(width: p.preview.width, height: p.preview.height)
                 .position(x: p.preview.midX, y: p.preview.midY)
-            MessageActionBar(id: lift.bar.id, text: lift.bar.text, isUser: lift.bar.isUser, date: lift.bar.date, menu: menu,
-                             pending: lift.bar.pending, itemWidth: MessageActionBar.itemWidth(barWidth, count: count))
-                .position(x: p.bar.midX, y: p.bar.midY)
-                .transition(.scale(scale: 0.85, anchor: p.below ? .top : .bottom).combined(with: .opacity))
+            // Out of the way of the edit menu while the words are selected.
+            if !selecting {
+                MessageActionBar(id: lift.bar.id, text: lift.bar.text, isUser: lift.bar.isUser, date: lift.bar.date, menu: menu,
+                                 pending: lift.bar.pending, itemWidth: MessageActionBar.itemWidth(barWidth, count: count))
+                    .position(x: p.bar.midX, y: p.bar.midY)
+                    .transition(.scale(scale: 0.85, anchor: p.below ? .top : .bottom).combined(with: .opacity))
+            }
         }
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape) { menu.close() }
     }
 
-    /// Dims the chat behind, which `liftBlur` blurs; a tap or a pull down puts the message back.
+    /// Dims the chat behind, which `liftBlur` blurs; a tap or a pull down puts the message back. While its words are
+    /// selected, a tap ends that and brings the bar back.
     private var backdrop: some View {
         Rectangle()
             .fill(Theme.Lift.scrim)
             .contentShape(.rect)
-            .onTapGesture { menu.close() }
+            .onTapGesture { if selecting { menu.endSelection() } else { menu.close() } }
             .gesture(DragGesture(minimumDistance: Theme.Space.l).onEnded { if $0.translation.height > Theme.Size.tapTarget { menu.close() } })
             .accessibilityElement()
             .accessibilityLabel(String(localized: "Close"))
@@ -181,10 +191,16 @@ private struct LiftedMessage: View {
         let shape = RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
         ScrollView(.vertical) {
             lift.preview
+                .environment(\.liftSelect, menu.inPlace)
+                .environment(menu)
                 .frame(width: lift.frame.width, alignment: .leading)
                 .padding(pad)
-                .allowsHitTesting(false)
+                .allowsHitTesting(selecting)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         }
+        #if os(iOS)
+        .gesture(LiftPress(enabled: !selecting) { menu.selectInPlace(at: $0) })
+        #endif
         .scrollDisabled(!cut)
         .scrollIndicators(.hidden)
         // Opens at the part that was pressed (the same place on screen).
@@ -203,7 +219,7 @@ private struct LiftedMessage: View {
         .clipShape(lift.card ? AnyShape(shape) : AnyShape(Rectangle()))
         .overlay { if lift.card { shape.stroke(Theme.cardStroke, lineWidth: 0.5) } }
         .shadow(color: Theme.Fill.scrim, radius: Theme.Space.l, y: Theme.Space.xs)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: selecting ? .contain : .combine)
     }
 
     /// Opaque, fading over the fade's width at an end with more of the message beyond it.

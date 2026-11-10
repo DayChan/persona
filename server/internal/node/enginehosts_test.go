@@ -203,7 +203,8 @@ func TestEmptySetStartsNothing(t *testing.T) {
 	if err := n.useEngineChoice(context.Background(), proto.EngineChoice{Hosts: []string{}}); err != nil {
 		t.Fatal(err)
 	}
-	if len(n.hosts.All()) != 0 || n.defaultKind() != "" || n.defaultHost() != nil || n.engine() != "herdr" {
+	// tmux stays: an empty set still reads and answers the dialogs of a claude the user started in tmux (#2562).
+	if len(n.hosts.All()) != 1 || n.hosts.All()[0].Kind() != host.Tmux || n.defaultKind() != "" || n.defaultHost() != nil || n.engine() != "herdr" {
 		t.Fatalf("hosts %v default %q", n.hosts.All(), n.defaultKind())
 	}
 	_, err := hostCap[host.Launcher](n)

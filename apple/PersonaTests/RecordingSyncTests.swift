@@ -11,6 +11,8 @@ private final class FakeRecordingHub: @unchecked Sendable {
     private var _calls: [String] = []
     var down = false
     var days = 14
+    var refusal: APIError?
+    var writesOnly = false
 
     var stored: [String: Int64] { lock.withLock { _stored } }
     var calls: [String] { lock.withLock { _calls } }
@@ -21,6 +23,7 @@ private final class FakeRecordingHub: @unchecked Sendable {
         try lock.withLock {
             _calls.append("\(r.method) \(r.path)")
             if down { throw APIError(status: 503, message: "知识库暂时不可用") }
+            if let refusal, !writesOnly || r.method != "GET" { throw refusal }
             if r.method == "GET", r.path == "/api/v1/recordings" {
                 let list = _stored.map { ["id": $0.key, "revision": $0.value, "complete": true, "started_at": "2026-11-05T00:00:00Z"] as [String: Any] }
                 return try JSONSerialization.data(withJSONObject: ["days": days, "recordings": list, "deleted": Array(_deleted)])
@@ -97,6 +100,85 @@ private final class FakeRecordingHub: @unchecked Sendable {
         await sync.syncNow()
         #expect(sync.status(entry) == .synced)
         #expect(sync.problem == nil)
+    }
+
+    @Test func configurationRefusalsPauseWithoutLosingPendingUploads() async throws {
+        for (status, fields) in [
+            (503, ["code": "kb_disabled"]),
+            (403, ["code": "kb_read_only"]),
+            (503, ["code": "internal", "detail": "the knowledge base is off"])
+        ] {
+            let (lib, sync, hub, root) = setup()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let entry = try transcribed(lib)
+            hub.refusal = APIError(status: status, message: "Request failed", fields: fields)
+            await sync.syncNow()
+            #expect(sync.automaticRetryPaused)
+            #expect(sync.status(entry) == .pending)
+            #expect(hub.stored.isEmpty)
+            #expect(sync.problem?.contains("hub") == false)
+            let before = hub.calls.count
+            lib.change(entry.id) { $0.title = "Updated title" }
+            sync.kick()
+            await sync.syncNow()
+            #expect(hub.calls.count == before, "saving while disabled must not resume automatic requests")
+            hub.refusal = nil
+            await sync.syncNow(retryPaused: true)
+            #expect(sync.status(lib.entry(entry.id)!) == .synced)
+            #expect(!sync.automaticRetryPaused)
+        }
+    }
+
+    @Test func pairingLaterDoesNotNeedAConfigurationRetry() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let lib = RecordingLibrary(root: root), hub = FakeRecordingHub()
+        var client: APIClient?
+        let sync = RecordingSync(library: lib, api: { client })
+        let entry = try transcribed(lib)
+        await sync.syncNow()
+        #expect(!sync.automaticRetryPaused && sync.status(entry) == .pending)
+        client = api(hub)
+        await sync.syncNow()
+        #expect(sync.status(entry) == .synced)
+    }
+
+    @Test func transportTimeoutKeepsUploadsPendingWithoutClaimingHubIsOffline() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let lib = RecordingLibrary(root: root)
+        let client = APIClient(config: ServerConfig(url: URL(string: "https://hub.invalid")!, token: "t"),
+                               transport: { _ in throw URLError(.timedOut) })
+        let sync = RecordingSync(library: lib, api: { client })
+        let entry = try transcribed(lib)
+        await sync.syncNow()
+        #expect(sync.status(entry) == .pending)
+        #expect(!sync.automaticRetryPaused)
+        #expect(sync.problem == String(localized: "The request timed out. Try again later."))
+    }
+
+    @Test func readOnlyAndUnsupportedDeletesStayPendingAndVisible() async throws {
+        for refusal in [APIError(status: 403, message: "Read-only", fields: ["code": "kb_read_only"]),
+                        APIError(status: 404, message: "Not found")] {
+            let (lib, sync, hub, root) = setup()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let entry = try transcribed(lib)
+            await sync.syncNow()
+            hub.refusal = refusal
+            hub.writesOnly = true
+            try sync.delete(entry.id)
+            await sync.syncNow()
+            #expect(sync.automaticRetryPaused)
+            #expect(sync.store.deletes.contains(entry.id))
+            #expect(hub.stored[entry.id.uuidString.lowercased()] != nil)
+            #expect(sync.problem?.contains(String(localized: "Pending deletions have not been removed from Knowledge yet.")) == true)
+            let relaunched = RecordingSync(library: lib, api: { nil })
+            #expect(relaunched.store.deletes.contains(entry.id))
+            hub.refusal = nil
+            await sync.syncNow(retryPaused: true)
+            #expect(sync.store.deletes.isEmpty)
+            #expect(hub.stored.isEmpty)
+        }
     }
 
     @Test func deleteHereDeletesThereEvenAfterBeingOffline() async throws {

@@ -23,6 +23,8 @@ class ExtensionModelTest {
         val old = ExtensionDetail.decode(JsonCodec.parseToJsonElement("""{"id":"example","contributes":{"ui":["notes"]}}"""))
         assertNull(old.contributions)
         assertNull(old.extension.sandbox)
+        assertTrue(old.depends.isEmpty())
+        assertTrue(old.extensionPack.isEmpty())
         val current = ExtensionDetail.decode(JsonCodec.parseToJsonElement("""{"id":"example","contributions":[
             {"point":"ui","id":"notes","enabled":false,"can_disable":true}],"sandbox":{"enabled":true,"active":false}}"""))
         assertFalse(current.contributions!!.single().enabled)
@@ -66,6 +68,8 @@ class ExtensionModelTest {
         assertEquals("基础扩展 · >=1.0.0 · 依赖未就绪", ExtensionModelText.dependency(res, d))
         assertEquals("基础扩展 · >=1.0.0 · 状态未知，重新预览", ExtensionModelText.dependency(res, d.copy(state = "new-state")))
         assertEquals("基础扩展 · >=1.0.0 · 已满足", ExtensionModelText.dependency(res, d.copy(state = "ok")))
+        assertEquals("基础扩展 · >=1.0.0 · 状态未知，请刷新详情",
+            ExtensionModelText.dependency(res, d.copy(state = "new-state"), installed = true))
         val preview = ExtensionPreview(depends = listOf(d))
         val guidance = "还有依赖未就绪，暂时不能安装；先完成依赖扩展的设置，确认其依赖也已就绪，再重新预览。"
         assertEquals(guidance, ExtensionModelText.blockedPreview(res, preview))

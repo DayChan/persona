@@ -3,6 +3,7 @@ import SwiftUI
 
 // Settings › Appearance (2026-11-01): laid out like Connectors, one row per thing that changes how the app looks
 // (Avatar, Theme Color, Interface Style, Light & Dark on iPhone and iPad), each opening its own page; the first three are apart (docs/apple/ios.md「设计语言」).
+// Glow While Replying is a switch in place, not a page: it is one on/off choice (iOS only, `ComposerGlow`).
 // The home screen icon is the Avatar's, not a row of its own (#3203). Picking anything
 // there rebuilds the whole tree (`AppModel.look`); the settings path lives in AppModel, so the
 // rebuilt app is back on the same page.
@@ -13,6 +14,7 @@ struct AppearanceSection: View {
     #if os(iOS)
     private let layoutDisplay = AgentListDisplayChoice()
     #endif
+    @StoredValue(ComposerGlowPrefs.enabledKey) private var composerGlow = false
 
     var body: some View {
         Section {
@@ -54,6 +56,12 @@ struct AppearanceSection: View {
                 .settingsListRow(SettingsPage.colorScheme)
                 .accessibilityIdentifier("settings-scheme")
                 #endif
+                if ComposerGlowPrefs.isAvailable {
+                    SettingsSwitchRow(title: String(localized: "Glow While Replying"),
+                                      detail: String(localized: "Light up the input box while Persona writes a reply"),
+                                      symbol: Theme.Icon.composerGlow, tint: Theme.Hue.purple,
+                                      accessibilityID: "settings-composer-glow", isOn: $composerGlow)
+                }
             }
             .bareListRow()
         } header: {

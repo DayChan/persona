@@ -570,7 +570,7 @@ func TestOrcaEngineUse(t *testing.T) {
 		t.Fatal(err)
 	}
 	h, ok := n.hosts.Get(host.Orca).(*orcaHost)
-	if !ok || len(n.hosts.All()) != 1 {
+	if !ok || len(n.hosts.All()) != 2 || n.hosts.All()[1].Kind() != host.Tmux {
 		t.Fatalf("hosts %v", hostKinds(n))
 	}
 	if m := byID(listSessions(t, n)); m[sidB].PaneID != "orca:tab1:leaf1" || m[sidB].Status != proto.StatusWorking ||

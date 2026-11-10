@@ -364,7 +364,7 @@ func TestHookCardsArePlacedInTheConversationsDirectory(t *testing.T) {
 		{"main, from a skill's folder", mainSession, filepath.Join(assistant, ".claude", "skills", "x"), assistant, "assistant"},
 		{"no process", agentSession, "/work/app/web", "/work/app/web", "web"},
 	} {
-		raw, _ := json.Marshal(hookInput{HookEventName: "PreToolUse", ToolName: "AskUserQuestion", SessionID: c.session,
+		raw, _ := json.Marshal(hookInput{HookEventName: "PermissionRequest", ToolName: "AskUserQuestion", SessionID: c.session,
 			Cwd: c.hookCwd, ToolUseID: "toolu_" + string(rune('a'+i)), ToolInput: question})
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_, err := n.handleHook(ctx, sockRequest{Input: raw, Attempt: "a1"})

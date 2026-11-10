@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/clitext"
 	"github.com/nwverse/persona/server/internal/link"
 	"github.com/nwverse/persona/server/internal/mdns"
 )
@@ -169,6 +170,7 @@ func discover(e *env, args []string) error {
 	} else if len(hubs) == 0 {
 		fmt.Fprintf(e.stdout, "%s内局域网里没听到 hub（mDNS；Docker 桥接网络里的 hub 听不到）。\n", duration(wait))
 	} else {
+		// What a hub advertises is any LAN host's text, printed above the installer's question: inert, one line per hub.
 		for _, h := range hubs {
 			name := h.Name
 			if name == "" {
@@ -176,9 +178,9 @@ func discover(e *env, args []string) error {
 			}
 			addr := ""
 			if len(h.Addresses) > 0 {
-				addr = " · " + h.Addresses[0]
+				addr = " · " + clitext.Inert(h.Addresses[0])
 			}
-			fmt.Fprintf(e.stdout, "hub「%s」%s\n", name, addr)
+			fmt.Fprintf(e.stdout, "hub「%s」%s\n", clitext.Inert(name), addr)
 		}
 	}
 	if len(hubs) == 0 {

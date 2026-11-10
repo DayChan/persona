@@ -8,7 +8,7 @@ import hub_release
 
 
 class SourceSelectionTests(unittest.TestCase):
-    def invoke(self, directory, previous=None, branch=None, validate_only=False, commit=None, remote_repository=None):
+    def invoke(self, directory, previous=None, branch=None, validate_only=False, commit=None, remote_repository=None, report_commit_status=None):
         root = Path(directory)
         state = root / 'state'
         state.mkdir(exist_ok=True)
@@ -20,6 +20,8 @@ class SourceSelectionTests(unittest.TestCase):
         config = {'checkout': str(root), 'state_dir': str(state),
                   'repository': 'example/canonical', 'update_url': 'file:///example',
                   'publish_command': ['publisher']}
+        if report_commit_status is not None:
+            config['report_commit_status'] = report_commit_status
         if branch is not None:
             config['source_branch'] = branch
         config_path = root / 'config.json'
@@ -50,13 +52,21 @@ class SourceSelectionTests(unittest.TestCase):
         self.assertEqual(result['repository'], 'example/canonical')
         self.assertEqual(result['source_branch'], 'main')
         statuses = [c for c in calls if c[:2] == ['gh', 'api']]
+        self.assertEqual(statuses, [])
+        self.assertFalse(result['report_commit_status'])
+
+    def test_opted_in_statuses_name_the_validated_source_repository_and_sha(self):
+        with tempfile.TemporaryDirectory() as directory:
+            calls, result = self.invoke(directory, report_commit_status=True)
+        statuses = [c for c in calls if c[:2] == ['gh', 'api']]
         self.assertEqual(len(statuses), 2)
         self.assertTrue(all(c[2] == 'repos/example/canonical/statuses/' + 'a' * 40
                             for c in statuses))
+        self.assertTrue(result['report_commit_status'])
 
     def test_pinned_commit_must_remain_on_selected_branch(self):
         with tempfile.TemporaryDirectory() as directory:
-            calls, result = self.invoke(directory, commit='b' * 40)
+            calls, result = self.invoke(directory, commit='b' * 40, report_commit_status=True)
         self.assertEqual(result['sha'], 'b' * 40)
         self.assertIn(['git', 'checkout', '--detach', 'b' * 40], calls)
         checks = [c for c in calls if c[:3] == ['git', 'merge-base', '--is-ancestor']]
@@ -116,7 +126,7 @@ class SourceSelectionTests(unittest.TestCase):
 
     def test_validation_only_never_invokes_publisher_or_claims_publication(self):
         with tempfile.TemporaryDirectory() as directory:
-            calls, result = self.invoke(directory, validate_only=True)
+            calls, result = self.invoke(directory, validate_only=True, report_commit_status=True)
             self.assertFalse((Path(result['evidence']) / 'publication.log').exists())
         self.assertEqual(result['result'], 'validated')
         self.assertFalse(any(c[0] == 'publisher' for c in calls))

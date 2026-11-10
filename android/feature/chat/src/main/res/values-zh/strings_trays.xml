@@ -29,6 +29,9 @@
     <string name="chat_tray_draft_changed">草稿已更新，请查看最新版本再发送。</string>
     <string name="chat_tray_caught_up">都处理完了</string>
     <string name="chat_tray_accept">接受</string>
+    <string name="chat_tray_finish_now">直接完成</string>
+    <string name="chat_tray_follow_recommendation">按建议处理</string>
+    <string name="chat_tray_finish_failed">未能完成此任务，请重试。</string>
     <string name="chat_tray_recommended">建议：%1$s</string>
     <string name="chat_tray_accept_changed">验收请求已更新，请查看最新一轮。</string>
     <string name="chat_tray_cancelled">已取消</string>

@@ -11,9 +11,19 @@ struct MacUsageFooter: View {
     @State private var hovering = false
 
     var body: some View {
-        let live = UsageWindows.live(store.accounts)
-        let top = UsageWindows.top(live)
-        // A stack, not a Group: with no account a Group has no view to run the task on, and nothing would ever load.
+        // A minute's clock (periodic, not an animation's): kept numbers turn stale on their own time while refreshes
+        // fail, without a new answer to redraw them (#1905). Always a view, so the task below always runs.
+        TimelineView(.periodic(from: .now, by: 60)) { ctx in
+            bars(UsageWindows.top(UsageWindows.live(store.accounts, now: ctx.date)))
+        }
+        // While the window's app is in front: the column is always on screen, so that is when the bars are seen.
+        .task(id: phase == .active) {
+            guard phase == .active else { return }
+            await store.poll(model)
+        }
+    }
+
+    @ViewBuilder private func bars(_ top: [UsageAccount]) -> some View {
         VStack(spacing: 0) {
             if !top.isEmpty {
                 Button { open.toggle() } label: {
@@ -49,11 +59,6 @@ struct MacUsageFooter: View {
                     .frame(maxHeight: Theme.Size.box380)
                 }
             }
-        }
-        // While the window's app is in front: the column is always on screen, so that is when the bars are seen.
-        .task(id: phase == .active) {
-            guard phase == .active else { return }
-            await store.poll(model)
         }
     }
 

@@ -67,11 +67,20 @@ func (n *Node) scanOffline() []proto.Session {
 	var out []proto.Session
 	files := n.globProjects("*", "*.jsonl")
 	n.maybePruneGoneMetas(files)
+	// Which count a transcript is listed under: the assistant's conversations are counted on their own (a script running
+	// `claude -p` hundreds of times a day filled the 80 newest with its sessions, and the "Chat" tab lost every conversation
+	// quieter than a couple of hours, #2105); kept ones are not counted.
+	const (
+		others = iota
+		assistants
+		keptOnes
+	)
 	type cand struct {
-		path string
-		st   os.FileInfo
+		path  string
+		st    os.FileInfo
+		count int
 	}
-	var cands, assistant, kept []cand
+	var cands []cand
 	keep := n.keptSessions()
 	n.mu.Lock()
 	forked := maps.Clone(n.forked) // "Branch to New Chat"'s copies (fork.go)
@@ -87,14 +96,14 @@ func (n *Node) scanOffline() []proto.Session {
 			continue
 		}
 		if keep[id] { // the main conversation: listed however long it has been quiet and however busy the machine
-			kept = append(kept, cand{p, st})
+			cands = append(cands, cand{p, st, keptOnes})
 			continue
 		}
 		if time.Since(st.ModTime()) > offlineWindow || (st.Size() < 2048 && !forked[id]) {
 			continue
 		}
 		if isAssistantProject(filepath.Base(filepath.Dir(p)), own) {
-			assistant = append(assistant, cand{p, st})
+			cands = append(cands, cand{p, st, assistants})
 			continue
 		}
 		// Another platform's runs (agentfilters.go) go before the newest are counted: hundreds a day would crowd out
@@ -102,20 +111,13 @@ func (n *Node) scanOffline() []proto.Session {
 		if !forked[id] && n.agentFiltered("claude", p) {
 			continue
 		}
-		cands = append(cands, cand{p, st})
+		cands = append(cands, cand{p, st, others})
 	}
-	newest := func(list []cand, limit int) []cand {
-		sort.Slice(list, func(i, j int) bool { return list[i].st.ModTime().After(list[j].st.ModTime()) })
-		if len(list) > limit {
-			list = list[:limit]
-		}
-		return list
-	}
-	// The assistant's conversations are counted on their own: a script running `claude -p` hundreds of times a day
-	// filled the 80 newest with its sessions, and the "Chat" tab lost every conversation quieter than a couple of hours (#2105).
-	cands = append(newest(cands, 80), newest(assistant, maxAssistantOffline)...)
-	cands = append(cands, kept...)
+	// Newest first, and only what is listed counts: a session the filters below leave out (a blocked or out-of-scope
+	// directory, a probe that never said anything, an older copy) took one of the 80 and pushed a listed one out.
 	sort.SliceStable(cands, func(i, j int) bool { return cands[i].st.ModTime().After(cands[j].st.ModTime()) })
+	limit := [...]int{others: 80, assistants: maxAssistantOffline, keptOnes: len(cands)}
+	var counted [3]int
 	listed := map[string]bool{}
 	for _, c := range cands {
 		id := strings.TrimSuffix(filepath.Base(c.path), ".jsonl")
@@ -123,7 +125,13 @@ func (n *Node) scanOffline() []proto.Session {
 			continue // an older copy in another config directory (newest first): it used to win, and list the session twice
 		}
 		listed[id] = true
+		if counted[c.count] >= limit[c.count] {
+			continue
+		}
 		m := n.meta(c.path, c.st)
+		if isLauncherCheckRun(c.path, m) {
+			continue // a launcher health check's run, a hundred a day on each computer: no session of the user's (#2959)
+		}
 		// Where the session is: an assistant conversation's start directory, before the filters look at it.
 		cwd := n.assistantHome(id, m.cwd)
 		if !n.sessionScopeAllows(cwd) {
@@ -151,6 +159,7 @@ func (n *Node) scanOffline() []proto.Session {
 		s.PermissionMode, s.Effort = n.currentModes(id, m)
 		untitled(&s, m)
 		out = append(out, s)
+		counted[c.count]++
 	}
 	return out
 }
@@ -273,3 +282,19 @@ var assistantProjectSuffixes = sync.OnceValue(func() []string {
 	former := "-" + nonAlnum.ReplaceAllString(compat.StateDir, "-") // "." becomes "-" as in the project's name
 	return []string{"--persona-assistant", former + "-assistant", "--persona-health", former + "-health"}
 })
+
+// isLauncherCheckRun: the transcript at path is a launcher health check's: its directory — a temp directory the check
+// made and removed when it ended — no longer exists, and the run started there (the head's start directory, which
+// Claude Code names even after `cd`s; the check never runs a Bash that could move). A directory of the user's own with
+// a similar name exists, so the name alone is not enough (#2959). The head is the meta the listing has already read.
+func isLauncherCheckRun(path string, m quickMeta) bool {
+	if !isLauncherCheckProject(filepath.Base(filepath.Dir(path))) {
+		return false
+	}
+	if st, err := os.Stat(m.start); err == nil && st.IsDir() {
+		return false // the directory exists: not one of the check's
+	}
+	// Before a big first read the head is still running: it holds the check's prompt or nothing, never a start
+	// directory; decide on what is known, and let the next pass (the read finishes) be exact.
+	return m.start == "" || isLauncherCheckDir(m.start)
+}

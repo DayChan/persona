@@ -123,7 +123,6 @@ export function MachineDetail({ mid, onToggleSidebar }: { mid: string; onToggleS
   const [range, setRangeState] = useState<MetricRange>(initialRange);
   const [data, setData] = useState<{ metrics: DetailMetrics; range: MetricRange; at: number } | null>(null);
   const [failure, setFailure] = useState("");
-  const [hover, setHover] = useState<number | null>(null);
   const [launchers, setLaunchers] = useState<MachineLauncher[] | null>(null);
   const [launcherError, setLauncherError] = useState("");
   const [reconnecting, setReconnecting] = useState(false);
@@ -132,7 +131,6 @@ export function MachineDetail({ mid, onToggleSidebar }: { mid: string; onToggleS
 
   const setRange = (r: MetricRange) => {
     setRangeState(r);
-    setHover(null);
     history.replaceState(history.state, "", r === "1h" ? location.pathname : `${location.pathname}?range=${r}`);
   };
 
@@ -387,7 +385,7 @@ export function MachineDetail({ mid, onToggleSidebar }: { mid: string; onToggleS
             </div>
           )
         ) : (
-          <Monitor data={data} range={range} online={online} system={system} hover={hover} onHover={setHover} tz={tz} onRange={setRange} />
+          <Monitor data={data} range={range} online={online} system={system} tz={tz} onRange={setRange} />
         )}
         {data && failure && <p className="mt-2 px-1 text-[11.5px] text-red">{t("machines-machinedetail.refresh_failed", { error: failure })}</p>}
         <p className="mt-2 px-1 text-[11.5px] leading-relaxed text-ink-3">{t("machines-machinedetail.metrics_note")}</p>
@@ -499,8 +497,6 @@ function Monitor({
   range,
   online,
   system,
-  hover,
-  onHover,
   tz,
   onRange,
 }: {
@@ -508,32 +504,12 @@ function Monitor({
   range: MetricRange;
   online: boolean;
   system: DetailMachine["system"];
-  hover: number | null;
-  onHover: (t: number | null) => void;
   tz: number;
   onRange: (r: MetricRange) => void;
 }) {
   const { metrics } = data;
-  const r = RANGES[data.range];
-  const t1 = data.at,
-    t0 = t1 - r.secs;
   const live = online ? (metrics.latest ?? undefined) : undefined;
-  const memTotal = live?.mem_total ?? system?.memory ?? 0;
-  const memPct = memPercent(live?.mem_used, live?.mem_total);
-
-  const cpu = useMemo<ChartSeries[]>(() => [{ name: "CPU", color: "var(--accent)", read: (p) => p.cpu, now: live?.cpu }], [live?.cpu]);
-  const mem = useMemo<ChartSeries[]>(() => [{ name: t("machines-machinedetail.memory"), color: "var(--green)", read: (p) => (p.mem !== undefined && memTotal ? (100 * p.mem) / memTotal : undefined), now: memPct }], [memTotal, memPct]);
-  const net = useMemo<ChartSeries[]>(
-    () => [
-      { name: t("machines-machinedetail.download"), color: "var(--orange)", read: (p) => p.rx, now: live?.net_rx },
-      { name: t("machines-machinedetail.upload"), color: "var(--accent)", read: (p) => p.tx, now: live?.net_tx },
-    ],
-    [live?.net_rx, live?.net_tx],
-  );
-  const load = useMemo<ChartSeries[]>(() => [{ name: t("machines-machinedetail.load"), color: "var(--chart-load)", read: (p) => p.load, now: live?.load }], [live?.load]);
-  const cores = system?.cores ?? 0;
   const perCore = coresNow(metrics.latest, online);
-  const common = { points: metrics.points, t0, t1, step: r.step, hover, onHover, tz };
 
   // Nothing in the whole range (offline all along, or just started): one line instead of three empty charts.
   if (isEmpty(metrics.points))
@@ -557,14 +533,64 @@ function Monitor({
   return (
     <>
       {live && <NowTiles s={live} cores={system?.cores} />}
-      <div className={cx("grid grid-cols-1 gap-3 transition-opacity duration-200 md:grid-cols-2", data.range !== range && "opacity-60")}>
-        <MetricChart title="CPU" series={cpu} percent format={percent} axisFormat={(v) => `${v}%`} {...common} />
-        <MetricChart title={memTotal ? t("machines-machinedetail.memory_total", { total: bytesBin(memTotal).replace(/\.00 /, " ") }) : t("machines-machinedetail.memory")} series={mem} percent format={percent} axisFormat={(v) => `${v}%`} {...common} />
-        <MetricChart title={t("machines-machinedetail.network")} series={net} binary format={rate} axisFormat={bytesAxis} {...common} />
-        <MetricChart title={t("machines-machinedetail.load_1m")} series={load} format={loadText} axisFormat={loadAxis} reference={cores > 0 ? { value: cores, label: t("machines-machinedetail.cores", { count: cores }) } : undefined} {...common} />
-      </div>
+      <Charts data={data} range={range} live={live} system={system} tz={tz} />
       {perCore && <CoreBars cores={perCore} />}
     </>
+  );
+}
+
+const percentAxis = (v: number) => `${v}%`;
+
+/** The four charts and the moment they share. The moment lives here, not in the page: a pointer move re-renders these
+ * charts (each only its crosshair and read-out), not the tiles, the cores, the agents or the launchers. */
+function Charts({
+  data,
+  range,
+  live,
+  system,
+  tz,
+}: {
+  data: { metrics: DetailMetrics; range: MetricRange; at: number };
+  range: MetricRange;
+  live: NonNullable<DetailMetrics["latest"]> | undefined;
+  system: DetailMachine["system"];
+  tz: number;
+}) {
+  const { metrics } = data;
+  const r = RANGES[data.range];
+  const t1 = data.at,
+    t0 = t1 - r.secs;
+  const memTotal = live?.mem_total ?? system?.memory ?? 0;
+  const memPct = memPercent(live?.mem_used, live?.mem_total);
+
+  const cpu = useMemo<ChartSeries[]>(() => [{ name: "CPU", color: "var(--accent)", read: (p) => p.cpu, now: live?.cpu }], [live?.cpu]);
+  const mem = useMemo<ChartSeries[]>(() => [{ name: t("machines-machinedetail.memory"), color: "var(--green)", read: (p) => (p.mem !== undefined && memTotal ? (100 * p.mem) / memTotal : undefined), now: memPct }], [memTotal, memPct]);
+  const net = useMemo<ChartSeries[]>(
+    () => [
+      { name: t("machines-machinedetail.download"), color: "var(--orange)", read: (p) => p.rx, now: live?.net_rx },
+      { name: t("machines-machinedetail.upload"), color: "var(--accent)", read: (p) => p.tx, now: live?.net_tx },
+    ],
+    [live?.net_rx, live?.net_tx],
+  );
+  const load = useMemo<ChartSeries[]>(() => [{ name: t("machines-machinedetail.load"), color: "var(--chart-load)", read: (p) => p.load, now: live?.load }], [live?.load]);
+  const cores = system?.cores ?? 0;
+
+  // Picking another range lets go of the moment (React's "adjusting some state when a prop changes").
+  const [hover, setHover] = useState<number | null>(null);
+  const [hoverRange, setHoverRange] = useState(range);
+  if (hoverRange !== range) {
+    setHoverRange(range);
+    setHover(null);
+  }
+  const common = { points: metrics.points, t0, t1, step: r.step, hover, onHover: setHover, tz };
+
+  return (
+    <div className={cx("grid grid-cols-1 gap-3 transition-opacity duration-200 md:grid-cols-2", data.range !== range && "opacity-60")}>
+      <MetricChart title="CPU" series={cpu} percent format={percent} axisFormat={percentAxis} {...common} />
+      <MetricChart title={memTotal ? t("machines-machinedetail.memory_total", { total: bytesBin(memTotal).replace(/\.00 /, " ") }) : t("machines-machinedetail.memory")} series={mem} percent format={percent} axisFormat={percentAxis} {...common} />
+      <MetricChart title={t("machines-machinedetail.network")} series={net} binary format={rate} axisFormat={bytesAxis} {...common} />
+      <MetricChart title={t("machines-machinedetail.load_1m")} series={load} format={loadText} axisFormat={loadAxis} reference={cores > 0 ? { value: cores, label: t("machines-machinedetail.cores", { count: cores }) } : undefined} {...common} />
+    </div>
   );
 }
 

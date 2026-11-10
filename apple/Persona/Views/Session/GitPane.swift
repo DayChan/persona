@@ -10,9 +10,13 @@ struct GitPane: View {
     let cwd: String
     @Binding var status: GitStatus?
     @State private var error: String?
+    /// A refresh the user asked for failed over a status already shown (#1889): said above it, which stays.
+    @State private var refreshError: String?
     @State private var older: [GitCommit] = []
     @State private var noMore = false
     @State private var loadingMore = false
+    /// The last Load Earlier Commits failed: its button says so and tries again.
+    @State private var moreFailed = false
     @State private var diff: GitDiffTarget?
     @State private var commit: GitCommit?
     @State private var pullModel = GitPullModel()
@@ -20,6 +24,16 @@ struct GitPane: View {
 
     var body: some View {
         List {
+            if let refreshError, status != nil {
+                Section {
+                    NoticeBanner(text: String(localized: "Couldn't refresh, so this is the status from the last read: \(refreshError)"), tone: .danger) {
+                        Button("Retry") { Task { await load() } }
+                    }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .accessibilityIdentifier("git-refresh-failed")
+                }
+            }
             if let s = status, s.isRepo {
                 Section { header(s) }
                 changes(s)
@@ -41,6 +55,16 @@ struct GitPane: View {
         .pageToolbar { MacRefreshItem(id: [machineID, cwd]) { await load() } } // no pull to refresh on the Mac
         #endif
         .task(id: cwd) { await load() }
+        #if DEBUG
+        // `-showGitReload YES`: a refresh and a Load Earlier Commits two seconds after the first read, as the user's
+        // would be, to see what their failures say (#1889, with scripts/mock/mock_hub.py MOCK_GIT_READ_FAIL=1).
+        .task(id: cwd) {
+            guard UserDefaults.standard.bool(forKey: "showGitReload") else { return }
+            try? await Task.sleep(for: .seconds(2))
+            await load()
+            if let s = status, s.commits.count >= 30 { await loadMore(after: s.commits.count + older.count) }
+        }
+        #endif
         // Live refresh (#3089): the status again when the hub says it moved, in place (the commits loaded below stay).
         .fsLive(group: group, machineID: machineID, cwd: cwd, paths: [], git: true) { change in
             if change.git { Task { await load(live: true) } }
@@ -166,11 +190,15 @@ struct GitPane: View {
                 } label: {
                     HStack(spacing: Theme.Space.sm) {
                         if loadingMore { ProgressView().controlSize(.mini) }
-                        Text("Load Earlier Commits").lineLimit(1)
+                        Text(moreFailed && !loadingMore ? String(localized: "Couldn't load. Try again.") : String(localized: "Load Earlier Commits"))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .foregroundStyle(moreFailed && !loadingMore ? AnyShapeStyle(Theme.danger) : AnyShapeStyle(.tint))
                     }
                     .frame(maxWidth: .infinity)
                 }
                 .disabled(loadingMore)
+                .accessibilityIdentifier("git-load-more")
             }
         }
     }
@@ -190,7 +218,8 @@ struct GitPane: View {
     }
 
     /// live: an automatic refresh (#3089): the older commits already loaded stay while the newest one is the same,
-    /// and a failure leaves what is shown.
+    /// and a failure leaves what is shown without a word. One the user asked for (pull to refresh, Refresh / ⌘R, Retry)
+    /// says it failed (GitReadFailure).
     private func load(live: Bool = false) async {
         guard let api = model.api(group), !cwd.isEmpty, !pullModel.isPulling else { return }
         let started = revision
@@ -202,10 +231,16 @@ struct GitPane: View {
             if !sameHistory {
                 older = []
                 noMore = false
+                moreFailed = false
             }
             error = nil
+            refreshError = nil
         } catch {
-            if status == nil && !live { self.error = error.shown }
+            switch GitReadFailure(error.shown, shown: status != nil, live: live) {
+            case .page(let message): self.error = message
+            case .refresh(let message): refreshError = message
+            case .quiet: break
+            }
         }
     }
 
@@ -213,10 +248,28 @@ struct GitPane: View {
         guard let api = model.api(group), !pullModel.isPulling else { return }
         loadingMore = true
         defer { loadingMore = false }
-        if let more = try? await api.gitLog(machine: machineID, cwd: cwd, skip: skip) {
+        do {
+            let more = try await api.gitLog(machine: machineID, cwd: cwd, skip: skip)
             older += more
             noMore = more.count < 50
+            moreFailed = false
+        } catch {
+            moreFailed = !error.isCancellation
         }
+    }
+}
+
+/// What a failed read of the Git status says (#1889). Before anything is shown, the page's error; over a status already
+/// shown, a read the user asked for says it failed above it and the status stays; the automatic live refresh stays
+/// quiet, as do a cancellation, a timeout and no network (`shown` nil), which the app says elsewhere.
+nonisolated enum GitReadFailure: Equatable {
+    case page(String)
+    case refresh(String)
+    case quiet
+
+    init(_ message: String?, shown: Bool, live: Bool) {
+        guard let message, !live else { self = .quiet; return }
+        self = shown ? .refresh(message) : .page(message)
     }
 }
 
@@ -530,6 +583,9 @@ struct DiffText: View {
         var text: String
         var old: Int?
         var new: Int?
+        /// The words that changed, as UTF-16 offsets into `text` (`LineDiff.Line.changed`): an edit's in the chat's
+        /// `DiffView`; none from a unified diff.
+        var changed: [Range<Int>] = []
     }
 
     var body: some View {

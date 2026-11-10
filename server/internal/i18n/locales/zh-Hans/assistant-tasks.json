@@ -26,5 +26,6 @@
   "outcome_pitfall": "踩过的坑",
   "adopt_notes": "收编：{agent} · {machine} · {cwd}",
   "adopt_failed": "收编没成功：{reason}",
-  "interrupt_summary": "停下 {agent} · {machine}"
+  "interrupt_summary": "停下 {agent} · {machine}",
+  "start_remedy_notice": "没开起来：「{title}」。{reason}"
 }

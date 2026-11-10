@@ -69,6 +69,22 @@ class MockHubManagersTests(unittest.TestCase):
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read() or b"null")
 
+    def test_personal_agent_entry_states_are_consistent(self):
+        for state in ("configured", "empty", "missing", "disabled", "no_accounts", "none"):
+            with self.subTest(state=state):
+                status, answer = self.call("GET", "/mock/personal-agents?reset=1&state=" + state)
+                self.assertEqual(status, 200, answer)
+                _, sources = self.call("GET", "/api/v1/agents")
+                _, sessions = self.call("GET", "/api/v1/agents/sessions")
+                self.assertEqual(bool(sessions["sessions"]), state == "configured")
+                if state == "none":
+                    self.assertEqual(sources["sources"], [])
+                else:
+                    source = sources["sources"][0]
+                    self.assertEqual(bool(source["accounts"]), state in ("configured", "empty"))
+                    self.assertEqual(source.get("setup"), state if state in ("missing", "disabled", "no_accounts") else None)
+        self.call("GET", "/mock/personal-agents?reset=1")
+
     def test_a_raw_body_post_is_answered(self):
         image = bytes(range(256)) * 4  # not JSON
         status, answer = self.call("POST", "/api/v1/lark/conversations/f1/files?client_id=c1&name=a.png", image, "image/png")

@@ -46,6 +46,7 @@ import privacy_check as pc  # noqa: E402
 
 SKIP = {"embedded.mobileprovision", "embedded.provisionprofile", "CodeResources"}
 PRINTABLE = re.compile(rb"[\x20-\x7e]{4,}")
+PLIST_UTF16 = re.compile(rb"(?:\x00[\x20-\x7e]){4,}")
 
 # npm mermaid@12.3.0, package/dist/mermaid.min.js; verified against the registry tarball's SHA-512 integrity.
 PUBLIC_JS_SHA256 = {
@@ -185,7 +186,8 @@ def generic_text(text, dependencies, original_text=None):
     return pc.IPV4.sub(public_address, text)
 
 
-def text_kinds(text, words, whole_short=False, dependencies=frozenset(), original_text=None, public_js=False):
+def text_kinds(text, words, whole_short=False, dependencies=frozenset(), original_text=None, public_js=False,
+               generic=True):
     kinds = set()
     for word in words:
         pinned_short = (public_js and (original_text is None or text == original_text)
@@ -199,8 +201,9 @@ def text_kinds(text, words, whole_short=False, dependencies=frozenset(), origina
                 kinds.add("private value (%d chars)" % len(word))
         elif word in text or word.lower() in text:
             kinds.add("private value (%d chars)" % len(word))
-    for word in pc.problems(generic_text(text, dependencies, original_text), []):
-        kinds.add("private IP" if pc.IPV4.fullmatch(word) else "email")
+    if generic:
+        for word in pc.problems(generic_text(text, dependencies, original_text), []):
+            kinds.add("private IP" if pc.IPV4.fullmatch(word) else "email")
     return kinds
 
 
@@ -302,19 +305,115 @@ def signature_ranges(data):
     return ranges
 
 
-def texts(path: str, data=None):
+def plist_references(data):
+    """Only validated array/dictionary reference payloads are non-text (#3166).
+
+    Check every indexed object, including unreachable ones, before trusting any range. Unknown types, overlaps,
+    bad lengths/references and cycles fall back to raw scanning. Data, scalar payloads, gaps and offset/trailer bytes
+    are never excluded. Decode every string object too: plutil's root traversal misses unreachable UTF-16 strings.
+    """
+    if data[:8] != b"bplist00" or len(data) < 40:
+        return [], []
+    offset_size, ref_size, count, root, table = struct.unpack_from(">6xBBQQQ", data, len(data) - 32)
+    if (data[-32:-26] != b"\0" * 6 or offset_size not in (1, 2, 4, 8) or ref_size not in (1, 2, 4, 8)
+            or not 0 < count <= (len(data) - 32 - table) // offset_size or root >= count or table < 8
+            or count > 1 << (8 * ref_size)):
+        return [], []
+    offsets = [int.from_bytes(data[table + i * offset_size:table + (i + 1) * offset_size], "big")
+               for i in range(count)]
+    if len(set(offsets)) != count or any(not 8 <= offset < table for offset in offsets):
+        return [], []
+    spans, ranges, strings = [], [], {}
+    references = [[] for _ in offsets]
+    dictionaries = []
+    try:
+        for index, offset in enumerate(offsets):
+            marker = data[offset]
+            kind, length = marker >> 4, marker & 15
+            start = offset + 1
+            if kind in (4, 5, 6, 10, 13) and length == 15:
+                if start >= table or data[start] >> 4 != 1 or data[start] & 15 > 3:
+                    return [], []
+                width = 1 << (data[start] & 15)
+                start += 1
+                if start + width > table:
+                    return [], []
+                length = int.from_bytes(data[start:start + width], "big")
+                start += width
+            if kind == 0 and marker in (0, 8, 9, 15):
+                size = 0
+            elif kind == 1 and length <= 4:
+                size = 1 << length
+            elif (kind == 2 and length in (2, 3)) or marker == 0x33:
+                size = 1 << length
+            elif kind in (4, 5, 6):
+                size = length * (2 if kind == 6 else 1)
+            elif kind == 8:
+                size = length + 1
+            elif kind in (10, 13):
+                size = length * ref_size * (2 if kind == 13 else 1)
+            else:
+                return [], []
+            end = start + size
+            if end > table:
+                return [], []
+            spans.append((offset, end))
+            if kind in (5, 6):
+                strings[index] = data[start:end].decode("ascii" if kind == 5 else "utf-16be")
+            elif kind in (10, 13):
+                refs = [int.from_bytes(data[pos:pos + ref_size], "big") for pos in range(start, end, ref_size)]
+                if any(ref >= count for ref in refs):
+                    return [], []
+                references[index] = refs
+                if size:
+                    ranges.append((start, end))
+                if kind == 13:
+                    dictionaries.append(refs[:length])
+    except UnicodeDecodeError:
+        return [], []
+    spans.sort()
+    if any(a[1] > b[0] for a, b in zip(spans, spans[1:])):
+        return [], []
+    for keys in dictionaries:
+        if any(key not in strings for key in keys) or len({strings[key] for key in keys}) != len(keys):
+            return [], []
+    # Iterative traversal bounds work by the object/reference count, not Python's recursion limit.
+    states = [0] * count
+    for index in range(count):
+        stack = [(index, False)]
+        while stack:
+            index, exiting = stack.pop()
+            if exiting:
+                states[index] = 2
+            elif states[index] == 1:
+                return [], []
+            elif states[index] == 0:
+                states[index] = 1
+                stack.append((index, True))
+                stack.extend((ref, False) for ref in references[index])
+    return sorted(ranges), list(strings.values())
+
+
+def texts(path: str, data=None, *, private_only=False):
     if data is None:
         with open(path, "rb") as source:
             data = source.read()
     if data[:3] == b"bvx":  # lzfse (App Intents metadata): compressed, values would be split across matches
         data = subprocess.run(["compression_tool", "-decode", "-a", "lzfse", "-i", path, "-o", "/dev/stdout"],
                               capture_output=True).stdout
+    references, strings = plist_references(data) if not private_only else ([], [])
+    binary_plist = data[:6] == b"bplist"
     # Do not truncate at the first slice's signature: later slices and trailing bytes must remain visible.
     cursor = 0
-    for start, end in signature_ranges(data) + [(len(data), len(data))]:
-        yield from (m.group(0).decode("ascii") for m in PRINTABLE.finditer(data[cursor:start]))
+    for start, end in sorted(signature_ranges(data) + references) + [(len(data), len(data))]:
+        chunk = data[cursor:start]
+        yield from (m.group(0).decode("ascii") for m in PRINTABLE.finditer(chunk))
+        if binary_plist:
+            # Keep ASCII IP/email text in UTF-16 data, gaps or malformed/unreachable objects visible too.
+            yield from (m.group(0).decode("utf-16be") for m in PLIST_UTF16.finditer(chunk))
         cursor = end
-    if data[:6] == b"bplist":
+    yield from strings
+    if binary_plist and not private_only:
         yield subprocess.run(["plutil", "-convert", "xml1", "-o", "-", path], capture_output=True, text=True).stdout
 
 
@@ -371,17 +470,21 @@ def main():
             with open(path, "rb") as source:
                 data = source.read()
             public_js = not whole_short and verified_public_js(path, data)
-            for t in texts(path, data):
-                original_text = t
-                if not whole_short:
-                    t = remove_public_relay_url(t, persona_config.get(cfg, "app.push_relay", ""))
-                else:  # the update URL every published personad carries (-X main.updateURL, scripts/release/publish.sh)
-                    t = remove_public_relay_url(t, public_download_url(cfg), "/dl")
-                for v in inherent:
-                    t = t.replace(v, "")
-                if modules:
-                    t = modules.sub("", t)
-                kinds.update(text_kinds(t, words, whole_short, dependencies, original_text, public_js=public_js))
+            # Reference bytes can spell a configured value too; only generic IP/email detection skips them.
+            modes = (False, True) if data[:6] == b"bplist" or data[:3] == b"bvx" else (False,)
+            for private_only in modes:
+                for t in texts(path, data, private_only=private_only):
+                    original_text = t
+                    if not whole_short:
+                        t = remove_public_relay_url(t, persona_config.get(cfg, "app.push_relay", ""))
+                    else:  # the update URL every published personad carries (-X main.updateURL, scripts/release/publish.sh)
+                        t = remove_public_relay_url(t, public_download_url(cfg), "/dl")
+                    for v in inherent:
+                        t = t.replace(v, "")
+                    if modules:
+                        t = modules.sub("", t)
+                    kinds.update(text_kinds(t, words, whole_short, dependencies, original_text, public_js=public_js,
+                                            generic=not private_only))
             bad += [(os.path.relpath(path, root), k) for k in sorted(kinds)]
     for f, k in bad:
         print("%s: %s" % (f, k))

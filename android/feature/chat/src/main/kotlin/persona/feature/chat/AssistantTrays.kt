@@ -1,7 +1,9 @@
 package persona.feature.chat
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
@@ -163,7 +165,12 @@ internal fun AssistantTrays(host: AssistantTaskHost, state: AssistantTrayState,
     val agents = (standalone + host.sessions.filter { it.key in ownedTaskAgents })
         .distinctBy { it.key }.filter { it.agentState in setOf(AgentState.Working, AgentState.NeedsYou, AgentState.Unread) }
     val pendingPlans = plans.values.filter { it.conversation == host.conversation && it.state == "open" }
-    val needsReview = progress.filter { it.todo?.ask != null || it.todo?.supervision?.state in setOf("needs_user", "pending_review") }
+    val needsReview = progress.filter { row ->
+        val todo = row.todo
+        val ask = todo?.ask
+        (ask != null || todo?.supervision?.state in setOf("needs_user", "pending_review")) &&
+            !(todo?.isDone == true && (ask == null || ask.outcome == "decide"))
+    }
     val pendingCount = requests.size + drafts.size + pendingPlans.size + needsReview.size
     val approvals = requests.mapNotNull { r -> trayApproval(r, bySession[GroupKeys.rawKey(r.sessionKey)])?.let { r to it } }
     val pendingEnabled = pendingCount > 0
@@ -207,8 +214,10 @@ internal fun AssistantTrays(host: AssistantTaskHost, state: AssistantTrayState,
                                     stringResource(R.string.chat_tray_plan_review), R.string.chat_tray_review, "assistant-plan-${plan.id}", enabled && plan.id !in taskBusy) { onPlan(plan) }
                             }
                             items(needsReview, key = { "review:${it.id}" }) { row ->
-                                TrayDecisionRow(row.title, row.todo?.ask?.verdict ?: row.text.orEmpty(), R.string.chat_tray_review, "assistant-review-${row.id}", enabled) {
-                                    row.todo?.let { openTask(host, it) }
+                                val todo = row.todo
+                                if (todo?.ask?.outcome == "decide") TaskDecisionCard(todo, host, enabled) { openTask(host, todo) }
+                                else TrayDecisionRow(row.title, todo?.ask?.verdict ?: row.text.orEmpty(), R.string.chat_tray_review, "assistant-review-${row.id}", enabled) {
+                                    todo?.let { openTask(host, it) }
                                 }
                             }
                             if (drafts.isNotEmpty()) item { JSectionHeader(stringResource(R.string.chat_tray_drafts)) }
@@ -270,7 +279,9 @@ internal fun AssistantTrays(host: AssistantTaskHost, state: AssistantTrayState,
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().testTag("assistant-tray-bar"), horizontalArrangement = Arrangement.spacedBy(Tokens.Space.s)) {
+        // Content-width chips at the leading edge, like the old All / task chips; a large font scrolls rather than wraps.
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("assistant-tray-bar"),
+            horizontalArrangement = Arrangement.spacedBy(Tokens.Space.s), verticalAlignment = Alignment.CenterVertically) {
             for (tray in AssistantTray.entries) AssistantTrayEntry(stringResource(when (tray) {
                 AssistantTray.Pending -> R.string.chat_tray_pending
                 AssistantTray.Progress -> R.string.chat_tray_progress
@@ -285,7 +296,7 @@ internal fun AssistantTrays(host: AssistantTaskHost, state: AssistantTrayState,
                 AssistantTray.Agents -> AssistantTrayTone.Agents
             }, state.expanded == tray,
                 stringResource(if (state.expanded == tray) R.string.chat_tray_expanded else R.string.chat_tray_collapsed),
-                { state.toggle(tray) }, Modifier.weight(1f).testTag("assistant-entry-${tray.name.lowercase()}"),
+                { state.toggle(tray) }, Modifier.testTag("assistant-entry-${tray.name.lowercase()}"),
                 enabled = true)
         }
     }

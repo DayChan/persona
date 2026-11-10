@@ -95,5 +95,13 @@
   "policy_saved": "「{name}」のルールを保存しました",
   "policy_removed": "「{name}」のルールを削除しました",
   "policy_failed": "ルールを保存できませんでした：{error}",
+  "group_just": "たった今",
+  "group_today": "今日",
+  "group_yesterday": "昨日",
+  "group_week": "7日以上前",
+  "group_month": "1か月以上前",
+  "group_lark": "Lark",
+  "group_mail": "メール · {account}",
+  "group_agents": "あなたを待っている Agent",
   "folder_failed": "移動できませんでした：{error}"
 }

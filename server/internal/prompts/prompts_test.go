@@ -323,3 +323,18 @@ func TestSnapshotCalendarSaysFinishedMeetingsAreNotListed(t *testing.T) {
 		t.Errorf("a meeting still to come is left out:\n%s", got)
 	}
 }
+
+// The triage's one-line work status is shown to the user as is: in their language when it isn't Chinese, and without
+// the internal ids an Agent's last words carry (#2363).
+func TestAgentTriageLineLanguageAndIDs(t *testing.T) {
+	zh := RenderAgentTriage(AgentTriage{})
+	en := RenderAgentTriage(AgentTriage{Language: "English"})
+	if strings.Contains(zh, "用English写") || !strings.Contains(en, "，用English写。") {
+		t.Fatalf("line language: zh has it %v, en has it %v", strings.Contains(zh, "用English写"), strings.Contains(en, "，用English写。"))
+	}
+	for _, s := range []string{zh, en} {
+		if !strings.Contains(s, "pane id、session id、批次号") {
+			t.Fatal("the line rule must keep internal ids out")
+		}
+	}
+}

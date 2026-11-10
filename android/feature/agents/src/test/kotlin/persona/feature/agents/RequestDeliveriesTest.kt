@@ -27,6 +27,20 @@ class RequestDeliveriesTest {
         assertTrue(RequestDeliveries.locks(RequestDelivery.Unknown))
     }
 
+    /** The request sheet closes once the answer given since it opened is delivered; a history item stays (#2821). */
+    @Test fun theSheetClosesWhenItsAnswerIsDelivered() {
+        val cases = listOf(
+            Triple(null, RequestDelivery.Sent, true),
+            Triple(RequestDelivery.Retry, RequestDelivery.Sent, true),
+            Triple(null, RequestDelivery.Sending, false),
+            Triple(null, RequestDelivery.Unknown, false),
+            Triple(RequestDelivery.Unknown, RequestDelivery.Retry, false),
+            Triple(RequestDelivery.Sent, RequestDelivery.Sent, false),
+            Triple(null, null, false),
+        )
+        for ((atOpen, now, closes) in cases) assertEquals("$atOpen -> $now", closes, RequestDeliveries.closesSheet(atOpen, now))
+    }
+
     @Test fun aCheckThatFindsTheCardGoneEndsIt() {
         val after = RequestDeliveries.checked(mapOf("card" to RequestDelivery.Unknown), "card", DeliveryCheck.Gone)
         assertEquals(emptyMap<String, RequestDelivery>(), after)

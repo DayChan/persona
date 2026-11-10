@@ -110,7 +110,10 @@ data class ExtensionField(
     val default: JsonElement? = null,
     val required: Boolean? = null,
     val enum: List<ExtensionChoice>? = null,
+    /** `uri | email | hostname`, or `machine` (one of the hub's machines, of the systems in [os]) / `launcher` (one of its launchers), both picked from a list. */
     val format: String? = null,
+    /** x-os of a `machine` field: the systems its machine may run (none is any). */
+    val os: List<String>? = null,
     val pattern: String? = null,
     @SerialName("min_length") val minLength: Int? = null,
     @SerialName("max_length") val maxLength: Int? = null,
@@ -129,6 +132,12 @@ data class ExtensionField(
     val label: String get() = title?.takeIf { it.isNotBlank() } ?: name
     /** The default it falls back to, when there is one (JSON null is none). */
     val fallback: JsonElement? get() = default?.takeIf { it != JsonNull }
+    /** One of the hub's machines, picked from them by name (a string of format machine without choices of its own). */
+    val picksMachine: Boolean get() = type == "string" && enum == null && format == "machine"
+    /** One of the hub's launchers, picked from them (a string of format launcher without choices of its own). */
+    val picksLauncher: Boolean get() = type == "string" && enum == null && format == "launcher"
+    /** Whether flipping a switch of it asks [confirm] first: only turning one on, and only with a sentence. */
+    fun asksFirst(on: Boolean): Boolean = on && !confirm.isNullOrBlank()
 }
 
 /**
@@ -185,6 +194,8 @@ data class ExtensionDetail(
     val contributions: List<ExtensionContribution>? = null,
     /** The field (format machine) that picks the computers its program runs on; their rows say how it is there. */
     val nodeMachines: String? = null,
+    val depends: List<ExtensionDependency> = emptyList(),
+    val extensionPack: List<ExtensionPackMember> = emptyList(),
 ) {
     /** Installed from an extension market (`market:<market>/<extension>`): a phone may upgrade and remove it. */
     val fromMarket: Boolean get() = origin?.startsWith("market:") == true
@@ -203,6 +214,8 @@ data class ExtensionDetail(
         val ui: List<ExtensionUiPlace> = emptyList(),
         val contributions: List<ExtensionContribution>? = null,
         @SerialName("node_machines") val nodeMachines: String? = null,
+        val depends: List<ExtensionDependency> = emptyList(),
+        @SerialName("extension_pack") val extensionPack: List<ExtensionPackMember> = emptyList(),
     )
 
     @Serializable
@@ -218,6 +231,7 @@ data class ExtensionDetail(
                 extra.form?.fields.orEmpty(), extra.config ?: JsonObject(emptyMap()), extra.secrets, extra.permissions,
                 extra.ui.filter { it.placement.isEmpty() || it.placement == "extension_page" || it.placement == "plugin_page" || it.placement == "nav_page" },
                 extra.contributions, extra.nodeMachines?.takeIf { it.isNotBlank() },
+                extra.depends, extra.extensionPack,
             )
         }
     }

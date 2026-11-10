@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/lazyre"
 	"github.com/nwverse/persona/server/internal/proto"
@@ -395,6 +396,12 @@ func (s *Service) taskTurnEndedAfter(ctx context.Context, machine, sid string, a
 // routeToTask sends text straight to the agent of task todoID that most needs it, and keeps it in the conversation as
 // the user's (no from: a task card's Message, or a decision the owner made in Lark).
 func (s *Service) routeToTask(ctx context.Context, conversation, todoID, text string) (FeedItem, error) {
+	return s.routeToTaskChecked(ctx, conversation, todoID, text, nil)
+}
+
+// routeToTaskChecked lets automatic decisions recheck their task after slow session/device lookups.
+// Direct user messages retain routeToTask's ability to reuse a completed task's agent.
+func (s *Service) routeToTaskChecked(ctx context.Context, conversation, todoID, text string, guard func(Todo) bool) (FeedItem, error) {
 	if err := s.ensureTodosLoaded(ctx); err != nil {
 		return FeedItem{}, err
 	}
@@ -421,6 +428,15 @@ func (s *Service) routeToTask(ctx context.Context, conversation, todoID, text st
 	}
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), wait)
 	defer cancel()
+	if guard != nil {
+		cur, ok := s.todoNow(todoID)
+		if !ok {
+			return FeedItem{}, db.ErrTodoNotFound
+		}
+		if !guard(cur) {
+			return FeedItem{}, db.ErrTodoCompleted
+		}
+	}
 	if err := s.call(sctx, c.MachineID, DeviceSessionSend, map[string]any{"session_id": c.SessionID, "text": text}, nil); err != nil {
 		return FeedItem{}, err
 	}

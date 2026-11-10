@@ -16,14 +16,27 @@ struct RootView: View {
         #endif
     }
     @Environment(\.horizontalSizeClass) private var widthClass
+    #if os(iOS)
+    @Environment(\.scenePhase) private var phase
+    /// The window's width class when the app was last the active one: what its pages keep while it is away (#2836,
+    /// `heldWidthClass`).
+    @State private var activeWidthClass: UserInterfaceSizeClass?
+    #endif
     #if DEBUG
-    /// `-swapTreeAt <seconds>`: the width class goes compact for a moment that long after launch, as iOS may set it for
-    /// its snapshots when the app goes to the background (iPhone Duo open): the tree swap that follows, on any simulator.
+    /// `-swapTreeAt <seconds>`: the shell for a moment that long after launch and back, the tree swap a fold and an
+    /// unfold make, on any simulator; only this view's choice flips, as before #2836 (a real fold changes the pages' own
+    /// width class too). With `-swapTreeAway YES` the whole app's width class flips instead, from above this view
+    /// (`TreeSwapFlip`), while the app counts as away, as while iOS takes its snapshots: nothing is built again
+    /// (`heldWidthClass`, `probe.tree-inner`).
     @State private var flipped = false
-    /// The swaps it made (`probe.tree`, `-probes YES`): a test that needs the tree built again checks it was (#2626).
+    /// The flips it made, and the swaps between the shell and the tabs (`probe.tree`, `-probes YES`): a test that needs
+    /// the tree built again checks it was (#2626), one that needs it kept checks it was not (#2836).
     @State private var swaps = TreeSwaps()
+    /// `-swapTreeAway YES`: the app counts as away while the width is flipped.
+    @State private var away = false
     #else
     private let flipped = false
+    private let away = false
     #endif
 
     /// The iPhone-width shell; regular-width and other platforms keep their own navigation.
@@ -32,11 +45,25 @@ struct RootView: View {
         // Apple Vision Pro keeps the tabs, as the system's ornament (VisionShell), whatever the window's width.
         return false
         #elseif os(iOS)
-        return widthClass == .compact || flipped
+        return (heldWidthClass ?? widthClass) == .compact || flipped
         #else
         return false
         #endif
     }
+
+    #if os(iOS)
+    /// The width class the app's pages are given instead of the window's (#2836); nil, the window's. iOS snapshots an app
+    /// on its way to the background in other widths (iPhone Duo open: the outer screen's), and the whole tree was built
+    /// again for it (the shell for the tabs, a stack for a split, a drawer for a column), losing what each part kept (an
+    /// open sheet such as New Agent with what was typed in it, uploads under way, what was picked); and again on the way
+    /// back. While the app is away, its pages keep the width class it had while it was the active one; back, they take
+    /// the window's (folded meanwhile, the shell). Read in the same update as the phase: a width that changes with it
+    /// does not get a turn.
+    private var heldWidthClass: UserInterfaceSizeClass? { isAway ? activeWidthClass : nil }
+
+    /// Not the active app (inactive, in the background), or a test says so (`-swapTreeAway`).
+    private var isAway: Bool { phase != .active || away }
+    #endif
 
     /// The shell is on screen, and with it its toast window (`ToastWindow`): not on the welcome page, the engine step or
     /// the checklist after pairing (the same branches as `body`).
@@ -78,6 +105,9 @@ struct RootView: View {
                 WelcomeView()
             }
         }
+        #if DEBUG && os(iOS)
+        .background { InnerWidthProbe() } // below the held width class, across the branches
+        #endif
         .task(id: model.checklistPending && model.hubFeatures.contains(AssistantReadiness.feature)) {
             if model.checklistPending { await model.refreshReadiness() }
         }
@@ -92,16 +122,34 @@ struct RootView: View {
         .extensionSystemPresentation()
         // A new style, Theme Color or persona rebuilds the whole tree (tokens are static); the open tab and chat are remembered.
         .id(model.look)
+        #if os(iOS)
+        // While the app is away its pages keep the width class it had while it was the active one (#2836): the widths iOS
+        // snapshots it in on its way to the background build nothing again.
+        .transformEnvironment(\.horizontalSizeClass) { width in if let held = heldWidthClass { width = held } }
+        .onChange(of: widthClass, initial: true) { _, now in if !isAway { activeWidthClass = now } }
+        .onChange(of: isAway) { _, nowAway in if !nowAway { activeWidthClass = widthClass } }
+        #endif
         #if DEBUG
         .task {
             let at = UserDefaults.standard.double(forKey: "swapTreeAt")
             guard at > 0 else { return }
             try? await Task.sleep(for: .seconds(at))
-            flipped = true
-            try? await Task.sleep(for: .seconds(1))
-            flipped = false
+            if UserDefaults.standard.bool(forKey: "swapTreeAway") {
+                away = true
+                try? await Task.sleep(for: .milliseconds(200)) // away first, as the snapshots come after the phase
+                TreeSwapDebug.shared.compact = true
+                try? await Task.sleep(for: .seconds(1))
+                TreeSwapDebug.shared.compact = false
+                try? await Task.sleep(for: .milliseconds(200))
+                away = false
+            } else {
+                flipped = true
+                try? await Task.sleep(for: .seconds(1))
+                flipped = false
+            }
             swaps.count += 1
         }
+        .onChange(of: usesShell) { swaps.rebuilt += 1 }
         .screenProbe("tree", swaps)
         // LookBlink drives UIWindowScene overrides, so it only exists on iOS and visionOS.
         #if os(iOS) || os(visionOS)
@@ -380,8 +428,47 @@ nonisolated struct ConnectionShown: Encodable, Equatable {
 #endif
 
 #if DEBUG
-/// `probe.tree`: how many times `-swapTreeAt` built the tree again.
+/// `probe.tree`: how many times `-swapTreeAt` flipped the width class (`count`), and how many times the tree went between
+/// the shell and the tabs (`rebuilt`: twice for a flip while the app is active, not at all while it is away).
 struct TreeSwaps: Encodable, Equatable {
     var count = 0
+    var rebuilt = 0
 }
+
+/// `-swapTreeAway YES`'s flip, for the whole app (#2836): `TreeSwapFlip` gives RootView a compact width class while it is
+/// set, as iOS does for its snapshots (iOS only; the Mac's RootView has no shell to swap).
+@MainActor @Observable final class TreeSwapDebug {
+    static let shared = TreeSwapDebug()
+    var compact = false
+}
+
+#if os(iOS)
+/// Above RootView (PersonaApp): `TreeSwapDebug`'s flip.
+struct TreeSwapFlip: ViewModifier {
+    @State private var debug = TreeSwapDebug.shared
+
+    func body(content: Content) -> some View {
+        let compact = debug.compact
+        content.transformEnvironment(\.horizontalSizeClass) { width in if compact { width = .compact } }
+    }
+}
+
+/// `probe.tree-inner`: how many times the pages below RootView saw their width class change; none while the app is away,
+/// whatever RootView's own does (#2836).
+private struct InnerWidthProbe: View {
+    @Environment(\.horizontalSizeClass) private var width
+    @State private var seen = InnerWidthChanges()
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: width) { seen.count += 1 }
+            .screenProbe("tree-inner", seen)
+    }
+}
+
+struct InnerWidthChanges: Encodable, Equatable {
+    var count = 0
+}
+#endif
 #endif

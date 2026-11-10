@@ -219,7 +219,13 @@ func startWatchdog(backup, path, id string) error {
 		_ = cmd.Wait()
 		return err
 	}
-	return cmd.Process.Release()
+	// Wait instead of releasing: a Commit that stops after this point (context
+	// canceled, an agent became active, the swap failed) removes the marker, the
+	// watchdog exits within one poll, and a child nobody waits for stays a zombie
+	// for as long as this node runs. It keeps its own session either way; after an
+	// exec this goroutine is gone and the new image inherits the watchdog as its child.
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 // A detached child still belongs to its parent's systemd cgroup. Run the

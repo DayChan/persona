@@ -170,6 +170,90 @@ type startProbe struct {
 	// listed says whether the node lists launcher (nil: it does), asked only when the tab's shell has no such command:
 	// one the login shell does not have either (removed from the rc file, a stale name) is no terminal's problem.
 	listed func() bool
+	// startFile is the start file the typed line sources ("" when the command was typed out), firstWord the typed
+	// line's first word: the shell answering for either one did not take the line itself (rejects, #2570).
+	startFile, firstWord string
+}
+
+// typed has the probe know the line a start typed (typedStart): the start file it sources and its first word.
+func (p *startProbe) typed(t *typedStart) {
+	if p == nil || t == nil {
+		return
+	}
+	p.startFile = t.path
+	if f := strings.Fields(t.line); len(f) > 0 {
+		p.firstWord = f[0]
+	}
+}
+
+// startLineRejected is the error of a start whose typed line the tab's shell did not take: something before the shell's
+// line editor (a startup question reading one key) ate its first characters, and the shell answered for the rest
+// (#2570). Nothing ran: the start may type the line again (control.go).
+type startLineRejected struct{ line string }
+
+func (e *startLineRejected) Error() string {
+	return fmt.Sprintf("the new tab's shell did not take the start line: it printed %q", e.line)
+}
+
+// rejects: m, a not-found line after the start's typed line, is the shell answering for that line with its head cut
+// off: the start file itself (". " eaten, the file is not executable), or a tail of the line's first word ("nset"
+// for "unset").
+func (p *startProbe) rejects(m shellMissAt) bool {
+	if !m.afterLast {
+		return false
+	}
+	if p.startFile != "" && (m.Word == p.startFile || strings.Trim(m.Word, `'"`) == p.startFile) {
+		return true
+	}
+	return p.firstWord != "" && m.Word != "" && len(m.Word) < len(p.firstWord) && strings.HasSuffix(p.firstWord, m.Word)
+}
+
+// shellParseErrors are a shell's lines for a typed line it could not parse (zsh, bash, fish), and shellContinuation the
+// prompt of one that waits for a quote to close (zsh's quote> / dquote>): what is left of a start line whose head was
+// eaten.
+var (
+	shellParseErrors = []*lazyre.Regexp{
+		lazyre.New(`^[^\s:]+(?::\d+)?: parse error near\b`),
+		lazyre.New(`^[^\s:]+(?:: line \d+)?: syntax error near unexpected token\b`),
+		lazyre.New(`^fish: Unexpected end of string, quotes are not balanced$`),
+	}
+	shellContinuation = lazyre.New(`^(?:[a-z]+ )*(?:quote|dquote|bquote)>\s*$`)
+)
+
+// mayBeRejected: the screen has a word of a shell's parse error or ends on a continuation prompt.
+func mayBeRejected(screen string) bool {
+	return strings.Contains(screen, "parse error") || strings.Contains(screen, "syntax error") ||
+		strings.Contains(screen, "quotes are not balanced") || shellContinuation.MatchString(lastLine(screen))
+}
+
+// rejectedLine is the line of screen saying the shell did not take the start's typed line as it was: a parse error
+// after the last line holding the anchor, or a continuation prompt at the bottom. "" when there is none.
+func (p *startProbe) rejectedLine(screen string) string {
+	if p == nil || p.anchor == "" {
+		return ""
+	}
+	lines := strings.Split(strings.ReplaceAll(screen, "\r\n", "\n"), "\n")
+	last := -1
+	for i, l := range lines {
+		if strings.Contains(l, p.anchor) && !fishTrace.MatchString(l) {
+			last = i
+		}
+	}
+	if last < 0 {
+		return ""
+	}
+	for _, l := range lines[last+1:] {
+		l = strings.TrimSpace(l)
+		for _, re := range shellParseErrors {
+			if re.MatchString(l) {
+				return l
+			}
+		}
+	}
+	if l := lastLine(screen); shellContinuation.MatchString(l) {
+		return l
+	}
+	return ""
 }
 
 // probeFor is the probe of a start of launcher under session id id, typed into a tab whose shells are shells.
@@ -211,6 +295,8 @@ func (n *Node) launcherListed(ctx context.Context, name string) bool {
 func (p *startProbe) verdict(screen string, shellBack func() bool) (refused error, other string) {
 	for _, m := range shellMisses(screen, p.anchor) {
 		switch {
+		case p.rejects(m):
+			return &startLineRejected{line: m.Line}, ""
 		case m.Word == p.program:
 			// The command itself: only it can print its own name back, wherever the line is (fish reprints the
 			// command after its error).

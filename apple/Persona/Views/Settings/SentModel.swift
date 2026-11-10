@@ -254,7 +254,7 @@ enum SentText {
                 return SentProblem(kind: .unsupported, text: String(localized: "This hub's version doesn't record what was sent as you yet. Update the hub and come back."))
             }
         }
-        return SentProblem(kind: .error, text: error.shown ?? String(localized: "Can't reach the hub"))
+        return SentProblem(kind: .error, text: error.isOffline ? String(localized: "Can't reach the hub") : error.localizedDescription)
     }
 
     // MARK: The list

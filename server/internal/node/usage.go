@@ -67,20 +67,25 @@ func newUsageMeter() *usageMeter {
 		counted: map[string]int64{}}
 }
 
+// usagePath is a transcript usageFiles lists, with the stat that found it in the window (scan reads up to its size).
+type usagePath struct {
+	path string
+	st   os.FileInfo
+}
+
 // usageFiles lists the transcripts that may hold usage of the window: Claude Code's (every config directory, and
-// their subagents), Codex's and the compatible CLI's rollouts.
-func (n *Node) usageFiles(cutoff time.Time) []string {
-	paths := n.globProjects("*", "*.jsonl")
-	paths = append(paths, n.globProjects("*", "*", "subagents", "*.jsonl")...)
+// their subagents, projectTranscripts), Codex's and the compatible CLI's rollouts.
+func (n *Node) usageFiles(cutoff time.Time) []usagePath {
+	paths := n.projectTranscripts()
 	for _, home := range []string{n.codexHome(), n.traexHome()} {
 		for _, r := range rollouts(home) {
 			paths = append(paths, r.path)
 		}
 	}
-	out := paths[:0]
+	out := make([]usagePath, 0, len(paths))
 	for _, p := range paths {
 		if st, err := os.Stat(p); err == nil && st.ModTime().After(cutoff) && n.scopedTranscriptAllows(p) {
-			out = append(out, p)
+			out = append(out, usagePath{p, st})
 		}
 	}
 	return out
@@ -109,11 +114,11 @@ func (n *Node) meterUsage(ctx context.Context, stateLoaded <-chan struct{}) {
 	for {
 		now := time.Now()
 		cutoff := now.Add(-usageWindow)
-		for _, p := range n.usageFiles(cutoff) {
+		for _, f := range n.usageFiles(cutoff) {
 			if ctx.Err() != nil {
 				return
 			}
-			m.scan(p, cutoff)
+			m.scan(f.path, f.st, cutoff)
 		}
 		m.prune(cutoff)
 		if n.peer != nil {
@@ -130,12 +135,9 @@ func (n *Node) meterUsage(ctx context.Context, stateLoaded <-chan struct{}) {
 	}
 }
 
-// scan reads what path gained since the last scan (a file seen for the first time: from about the cutoff).
-func (m *usageMeter) scan(path string, cutoff time.Time) {
-	st, err := os.Stat(path)
-	if err != nil {
-		return
-	}
+// scan reads what path gained since the last scan (a file seen for the first time: from about the cutoff), up to the
+// size st (usageFiles' stat of it) says; what it gains after that is read on the next sweep.
+func (m *usageMeter) scan(path string, st os.FileInfo, cutoff time.Time) {
 	uf := m.files[path]
 	if uf == nil {
 		uf = &usageFile{session: usageSession(path), off: startOffset(path, st.Size(), cutoff)}

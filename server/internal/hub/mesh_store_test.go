@@ -300,7 +300,7 @@ func (s *meshStore) RedeemPairToken(context.Context, string, db.DeviceToken, str
 func (s *meshStore) PutInboxItem(context.Context, string, []byte, time.Time, *time.Time) error {
 	return nil
 }
-func (s *meshStore) InboxItems(context.Context, time.Time) ([][]byte, error) { return nil, nil }
+func (s *meshStore) InboxItems(context.Context, time.Time, func([]byte) error) error { return nil }
 
 func (s *meshStore) Peers(context.Context) ([]db.Peer, error) {
 	s.mu.Lock()

@@ -66,7 +66,7 @@ type TaskProgress struct {
 type TaskReview struct {
 	At      time.Time     `json:"at"`
 	Verdict string        `json:"verdict"`
-	By      string        `json:"by,omitempty"`    // "reviewer": the independent reviewer's rework (#2173); "" the supervisor's
+	By      string        `json:"by,omitempty"`    // "reviewer": the independent reviewer's rework (#2173); "judge": the done judge's own acceptance (#3128); "" the supervisor's
 	Round   int           `json:"round,omitempty"` // the rework round it started (rework)
 	Checks  []ReviewCheck `json:"checks,omitempty"`
 	Note    string        `json:"note,omitempty"`

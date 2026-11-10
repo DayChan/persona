@@ -22,6 +22,13 @@ interface HubSent {
      * (no ledger), 403 (a device without full access), 404 with no code (a hub from before the ledger).
      */
     suspend fun page(before: Long? = null, limit: Int? = null, connector: String? = null): SentPage
+
+    /**
+     * `POST /api/v1/connectors/sent/{id}/recall` with `{"confirm": true}`: takes back the message row [id] made, once the user
+     * agreed in the app's own dialog (the hub shows no card). The row as the ledger has it afterwards, null when the answer
+     * has none. A refusal comes as a failure with its status and code (`too_old`, `already_recalled`, `recall_unknown`, …).
+     */
+    suspend fun recall(id: Long): SentItem?
 }
 
 /** The `connector_gate` rule that allowed a send (`let_through.kind` "rule"). */
@@ -72,6 +79,8 @@ data class SentItem(
     val letThrough: SentLetThrough = SentLetThrough(),
     val messageRef: String = "",
     val recalledAt: String = "",
+    /** The hub can take the message back now; false from a hub from before recall. */
+    val canRecall: Boolean = false,
 )
 
 /** A page of rows; [next] is the `before` of the page after it, null on the last. */
@@ -113,6 +122,7 @@ object SentWire {
             letThrough = (row["let_through"] as? JsonObject)?.let(::letThrough) ?: SentLetThrough(),
             messageRef = row.text("message_ref"),
             recalledAt = row.text("recalled_at"),
+            canRecall = (row["can_recall"] as? JsonPrimitive)?.takeIf { !it.isString }?.content == "true",
         )
     }
 

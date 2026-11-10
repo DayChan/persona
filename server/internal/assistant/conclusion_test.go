@@ -340,6 +340,110 @@ func TestRecommendationThatCannotReachTheAgentIsNotTaken(t *testing.T) {
 	}
 }
 
+// Hold the automatic send's session lookup while the user completes the task.
+// The request context marks only that lookup, not completion's publication or outcome reads.
+type conclusionLookupKey struct{}
+type conclusionLookupHub struct {
+	*fakeHub
+	entered, release chan struct{}
+}
+
+func (h *conclusionLookupHub) DeviceCall(ctx context.Context, p DeviceCall) (json.RawMessage, error) {
+	if p.Method == DeviceSessionsList && ctx.Value(conclusionLookupKey{}) != nil {
+		close(h.entered)
+		select {
+		case <-h.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return h.fakeHub.DeviceCall(ctx, p)
+}
+
+func TestLateTaskDecisionDoesNotSendAfterCompletion(t *testing.T) {
+	for _, action := range []string{"recommendation", "rework"} {
+		for _, reopen := range []bool{false, true} {
+			name := action + map[bool]string{false: "/done", true: "/reopened"}[reopen]
+			t.Run(name, func(t *testing.T) {
+				s, f, todo := newSupervisedService(t)
+				f.setSessions("box", idleAgent(time.Now().Add(-time.Hour)))
+				reviewTask(t, s, todo.ID, map[string]any{"verdict": "needs_user", "reason": "Choose a rollout", "recommend": "Use staged rollout"})
+				a := askOf(s, todo.ID)
+				h := &conclusionLookupHub{fakeHub: f, entered: make(chan struct{}), release: make(chan struct{})}
+				s.hub = h
+				var release sync.Once
+				defer release.Do(func() { close(h.release) })
+				ctx, cancel := context.WithTimeout(context.WithValue(context.Background(), conclusionLookupKey{}, true), 5*time.Second)
+				defer cancel()
+				done := make(chan error, 1)
+				sent := len(sentToAgent(f))
+				go func() {
+					var err error
+					if action == "recommendation" {
+						_, err = s.acceptTry(ctx, todo.ID, a.MessageID)
+					} else {
+						raw, _ := json.Marshal(map[string]any{"todo_id": todo.ID, "verdict": "rework", "note": "Run one more test"})
+						_, err = s.toolTaskReview(ctx, "conv1", raw)
+					}
+					done <- err
+				}()
+				select {
+				case <-h.entered:
+				case <-ctx.Done():
+					t.Fatal("automatic send did not reach session lookup")
+				}
+				e := &todoEnv{t: t, s: s, f: f}
+				e.must("PATCH", "/api/v1/todos/"+todo.ID, `{"done":true}`)
+				if reopen {
+					e.must("PATCH", "/api/v1/todos/"+todo.ID, `{"done":false}`)
+				}
+				release.Do(func() { close(h.release) })
+				select {
+				case err := <-done:
+					if err == nil {
+						t.Fatal("stale automatic send was not refused")
+					}
+				case <-ctx.Done():
+					t.Fatal("automatic send did not finish after lookup was released")
+				}
+				if got := len(sentToAgent(f)); got != sent {
+					t.Fatalf("stale %s sent %d messages after completion", action, got-sent)
+				}
+				if listedAsk(t, s, todo.ID) != nil {
+					t.Fatal("the old decision is still pending")
+				}
+				if !reopen {
+					s.taskWorking(context.Background(), "box", "s1")
+					if got := todoNow(s, todo.ID); got.DoneAt == nil || got.DoneBy != "" {
+						t.Fatalf("late supervisor work changed the user's completion: %+v", got)
+					}
+				}
+			})
+		}
+	}
+}
+
+// The automatic-send guard must not change a deliberate user message from a task card.
+func TestCompletedTaskDirectMessageStillReachesAgent(t *testing.T) {
+	s, f, todo := newSupervisedService(t)
+	c := idleAgent(time.Now().Add(-time.Hour))
+	c.Status, c.PaneID = proto.StatusOffline, ""
+	f.setSessions("box", c)
+	e := &todoEnv{t: t, s: s, f: f}
+	e.must("PATCH", "/api/v1/todos/"+todo.ID, `{"done":true}`)
+	sent := len(sentToAgent(f))
+	if _, err := s.routeToTask(context.Background(), todo.Origin, todo.ID, "Check one more case"); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentToAgent(f)[sent:]; len(got) != 1 || got[0] != "Check one more case" {
+		t.Fatalf("direct user message: %v", got)
+	}
+	s.taskWorking(context.Background(), "box", "s1")
+	if todoNow(s, todo.ID).DoneAt == nil {
+		t.Fatal("direct user input reopened a user-completed task")
+	}
+}
+
 // A recommendation is recorded in the to-do's decisions only once it reached the agent: a send that fails records nothing,
 // and the retry that goes through records it once.
 func TestRecommendationIsRecordedOnlyOnceItReachedTheAgent(t *testing.T) {

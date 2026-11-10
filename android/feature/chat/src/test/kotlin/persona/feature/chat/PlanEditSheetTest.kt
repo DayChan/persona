@@ -68,8 +68,8 @@ class PlanEditSheetTest {
         override fun send(message: JsonObject): Boolean = true
     }
 
-    /** Opens 改一下 on the plan's card, renames its task to "Write the changelog" and taps 开始 in the sheet. */
-    private fun editAndStart(api: Api, errors: MutableList<Throwable>) {
+    /** Shows the plan's card. */
+    private fun showCard(api: Api, errors: MutableList<Throwable>) {
         val store = TasksStore(api, Connection(), CoroutineScope(Dispatchers.Unconfined))
         store.load("main")
         rule.setContent {
@@ -78,6 +78,11 @@ class PlanEditSheetTest {
                 AssistantExtraLine(AssistantExtra.Feed(FeedItem("f1", "main", kind = "plan", ref = "plan1")), host)
             }
         }
+    }
+
+    /** Opens 改一下 on the plan's card, renames its task to "Write the changelog" and taps 开始 in the sheet. */
+    private fun editAndStart(api: Api, errors: MutableList<Throwable>) {
+        showCard(api, errors)
         rule.onNodeWithText("改一下").performClick()
         rule.onNode(hasSetTextAction() and hasText("写发布说明")).performTextReplacement("Write the changelog")
         rule.onNode(hasText("开始") and hasAnyAncestor(isDialog())).performClick()
@@ -91,6 +96,19 @@ class PlanEditSheetTest {
         assertEquals("task_no_machine", errors.single().message)
         rule.onNode(isDialog()).assertExists()
         rule.onNode(hasSetTextAction() and hasText("Write the changelog")).assertExists()
+    }
+
+    /** Auto is a mode the card names and the sheet offers: the hub may settle an unset one from Claude Code's default mode (#3026). */
+    @Test fun autoIsNamedOnTheCardAndOfferedInTheSheet() {
+        val auto = Api(plan.copy(tasks = plan.tasks.map { it.copy(permission = "auto") }), fail = false)
+        showCard(auto, mutableListOf())
+        rule.onNodeWithText("自动判断").assertExists()
+        rule.onNodeWithText("改一下").performClick()
+        rule.onNode(hasText("每步都问") and hasAnyAncestor(isDialog())).performClick()
+        rule.onNode(hasText("自动判断") and hasAnyAncestor(isDialog())).performClick()
+        rule.onNode(hasText("开始") and hasAnyAncestor(isDialog())).performClick()
+        rule.waitForIdle()
+        assertEquals("auto", auto.sent.single()?.single()?.permission)
     }
 
     @Test fun aStartedPlanClosesTheSheet() {

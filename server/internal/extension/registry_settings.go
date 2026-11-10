@@ -27,6 +27,20 @@ func (r *Registry) editable(id string) (*Extension, error) {
 
 // SetEnabled switches a plugin on or off; on only when CanEnable lets it.
 func (r *Registry) SetEnabled(ctx context.Context, id string, on bool, actor string) error {
+	return r.setEnabled(ctx, id, on, nil, actor)
+}
+
+// SetPackEnabled switches extension pack id on or off and records, in the same write, the members switching it off
+// switched off (Record.PackOff; nil when it goes on). The members themselves are switched by the caller.
+func (r *Registry) SetPackEnabled(ctx context.Context, id string, on bool, packOff []string, actor string) error {
+	if packOff == nil {
+		packOff = []string{}
+	}
+	return r.setEnabled(ctx, id, on, packOff, actor)
+}
+
+// setEnabled is SetEnabled; a non-nil packOff replaces the record's PackOff.
+func (r *Registry) setEnabled(ctx context.Context, id string, on bool, packOff []string, actor string) error {
 	unlock, err := r.beginOperation()
 	if err != nil {
 		return err
@@ -51,12 +65,19 @@ func (r *Registry) SetEnabled(ctx context.Context, id string, on bool, actor str
 	r.mu.Lock()
 	row := p.Record
 	row.Enabled = on
+	if packOff != nil {
+		row.PackOff = slices.Clone(packOff)
+		if len(row.PackOff) == 0 {
+			row.PackOff = nil
+		}
+	}
 	r.mu.Unlock()
 	if err := r.write(ctx, row); err != nil { // the owner's choice, held off or not
 		return err
 	}
 	r.mu.Lock()
 	p.Record.Enabled = on
+	p.Record.PackOff = row.PackOff
 	if held != nil {
 		held.row = on
 	}
@@ -65,6 +86,49 @@ func (r *Registry) SetEnabled(ctx context.Context, id string, on bool, actor str
 	unlock()
 	r.audit(ctx, id, kind, actor, nil)
 	r.changed(Change{ID: id, Kind: kind})
+	return nil
+}
+
+// ForgetPackOff drops member from the PackOff of every pack that switched it off: the user switched it on or off
+// themselves, so switching the pack back on leaves it as they chose.
+func (r *Registry) ForgetPackOff(ctx context.Context, member string) error {
+	unlock, err := r.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	r.mu.Lock()
+	member = r.canonicalID(member)
+	var rows []Record
+	var packs []*Extension
+	same := func(id string) bool { return r.canonicalID(id) == member } // a member renamed since keeps its old id as an alias
+	for _, p := range r.extensions {
+		if slices.ContainsFunc(p.Record.PackOff, same) {
+			row := snapshotExtension(p).Record
+			row.PackOff = slices.DeleteFunc(row.PackOff, same)
+			if len(row.PackOff) == 0 {
+				row.PackOff = nil
+			}
+			rows, packs = append(rows, row), append(packs, p)
+		}
+	}
+	r.mu.Unlock()
+	var changed []string
+	defer func() { // after the operation, as every write tells it
+		unlock()
+		for _, id := range changed {
+			r.changed(Change{ID: id, Kind: "pack_off"})
+		}
+	}()
+	for i, row := range rows {
+		if err := r.put(ctx, row); err != nil {
+			return err
+		}
+		r.mu.Lock()
+		packs[i].Record.PackOff = row.PackOff
+		r.mu.Unlock()
+		changed = append(changed, row.ID)
+	}
 	return nil
 }
 

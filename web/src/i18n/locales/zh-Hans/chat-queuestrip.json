@@ -14,5 +14,11 @@
   "sent_now": "已发给 {agent}",
   "move_up": "上移",
   "move_down": "下移",
-  "moved": "顺序已调整"
+  "moved": "顺序已调整",
+  "mark_photo_other": "{count} 张图片",
+  "mark_video_other": "{count} 个视频",
+  "mark_file_other": "{count} 个文件",
+  "mark_context_other": "{count} 段上下文",
+  "mark_join": "、",
+  "photos_as_paths_other": "有 {count} 张图片没能从电脑上读回来，已把它们的路径放进输入框"
 }

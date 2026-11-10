@@ -87,7 +87,7 @@ export class WsClient extends EventEmitter {
   constructor(socket, rest) {
     super()
     this.socket = socket
-    this.buf = rest?.length ? Buffer.from(rest) : Buffer.alloc(0)
+    this.rx = new Received()
     this.parts = []
     this.size = 0
     this.binary = false
@@ -96,7 +96,7 @@ export class WsClient extends EventEmitter {
     this.reason = ''
     socket.setNoDelay?.(true)
     socket.on('data', (chunk) => {
-      this.buf = this.buf.length ? Buffer.concat([this.buf, chunk]) : chunk
+      this.rx.push(chunk)
       this.parse()
     })
     socket.on('close', () => this.finish())
@@ -104,33 +104,37 @@ export class WsClient extends EventEmitter {
     socket.on('error', (err) => this.listenerCount('error') > 0 && this.emit('error', err))
     // What came with the handshake's answer is read once the caller has its listeners on (after dialWebSocket's
     // promise settles), not in a microtask before: a first message sent at once by the server would be lost.
-    if (this.buf.length) setImmediate(() => this.parse())
+    if (rest?.length) {
+      this.rx.push(Buffer.from(rest))
+      setImmediate(() => this.parse())
+    }
   }
 
   parse() {
+    const rx = this.rx
     while (!this.closed) {
-      const b = this.buf
-      if (b.length < 2) return
+      if (rx.length < 2) return
+      const b = rx.peek(2)
       const fin = (b[0] & 0x80) !== 0
       const op = b[0] & 0x0f
       if ((b[1] & 0x80) !== 0) return this.fail(1002, 'server frames must not be masked')
       let len = b[1] & 0x7f
       let at = 2
       if (len === 126) {
-        if (b.length < 4) return
-        len = b.readUInt16BE(2)
+        if (rx.length < 4) return
+        len = rx.peek(4).readUInt16BE(2)
         at = 4
       } else if (len === 127) {
-        if (b.length < 10) return
-        const big = b.readBigUInt64BE(2)
+        if (rx.length < 10) return
+        const big = rx.peek(10).readBigUInt64BE(2)
         if (big > BigInt(MAX_MESSAGE)) return this.fail(1009, 'message too big')
         len = Number(big)
         at = 10
       }
       if (op < 0x8 && this.size + len > MAX_MESSAGE) return this.fail(1009, 'message too big')
-      if (b.length < at + len) return
-      const payload = b.subarray(at, at + len)
-      this.buf = b.subarray(at + len)
+      if (rx.length < at + len) return
+      rx.take(at)
+      const payload = rx.take(len) // a copy of its own
       if (op >= 0x8) {
         if (!fin || len > 125) return this.fail(1002, 'bad control frame')
         if (op === OP.ping) this.frame(OP.pong, payload)
@@ -147,9 +151,9 @@ export class WsClient extends EventEmitter {
       }
       if (op !== OP.cont) this.binary = op === OP.binary
       this.size += payload.length
-      this.parts.push(Buffer.from(payload))
+      this.parts.push(payload)
       if (fin) {
-        const msg = Buffer.concat(this.parts)
+        const msg = this.parts.length === 1 ? this.parts[0] : Buffer.concat(this.parts, this.size)
         this.parts = []
         this.size = 0
         if (!this.binary) this.emit('message', msg.toString('utf8'))
@@ -217,5 +221,57 @@ export class WsClient extends EventEmitter {
     this.finished = true
     this.closed = true
     this.emit('close', this.code, this.reason)
+  }
+}
+
+/**
+ * The bytes received and not parsed yet, kept as the chunks they came in: joining every chunk onto what came before
+ * would copy a large frame again for each of its chunks. A frame is copied out once, when all of it is here.
+ */
+class Received {
+  constructor() {
+    this.chunks = []
+    this.length = 0
+  }
+
+  push(chunk) {
+    if (!chunk.length) return
+    this.chunks.push(chunk)
+    this.length += chunk.length
+  }
+
+  /** The first n bytes (a header's few; n <= length), copied only when they span chunks. Read only. */
+  peek(n) {
+    const first = this.chunks[0]
+    if (first.length >= n) return first
+    const out = Buffer.alloc(n)
+    let at = 0
+    for (const c of this.chunks) {
+      at += c.copy(out, at, 0, Math.min(c.length, n - at))
+      if (at === n) break
+    }
+    return out
+  }
+
+  /** Remove the first n bytes (n <= length) and return them copied into a buffer of their own. */
+  take(n) {
+    const pieces = []
+    let left = n
+    let used = 0
+    while (left > 0) {
+      const c = this.chunks[used]
+      if (c.length <= left) {
+        pieces.push(c)
+        left -= c.length
+        used++
+      } else {
+        pieces.push(c.subarray(0, left))
+        this.chunks[used] = c.subarray(left)
+        left = 0
+      }
+    }
+    this.chunks.splice(0, used)
+    this.length -= n
+    return Buffer.concat(pieces, n)
   }
 }

@@ -89,4 +89,22 @@ class PaneSplitTest {
         assertFalse(ticks.reached(150f, listOf(385f), canCollapse = true))
         assertFalse("a tab that keeps its list never ticks for closing", DragTicks().reached(200f, emptyList(), canCollapse = false))
     }
+
+    @Test fun theSidebarColumnIsAListWideAndNoWiderThanTheDrawer() {
+        // An open foldable upright (the page keeps 400dp), on its side, and a tablet on its side; the page starts where
+        // the column ends. The narrowest regular window still gets a list-wide column.
+        assertEquals(SidebarSplit(301f, 301f), sidebarSplit(701f, emptyList()))
+        assertEquals(SidebarSplit(280f, 280f), sidebarSplit(600f, emptyList()))
+        assertEquals(SidebarSplit(320f, 320f), sidebarSplit(841f, emptyList()))
+        assertEquals(SidebarSplit(PaneSplits.SidebarMax, PaneSplits.SidebarMax), sidebarSplit(1280f, emptyList()))
+        // A flat fold is barely there: the column does not move to it.
+        assertEquals(SidebarSplit(320f, 320f), sidebarSplit(841f, listOf(flat(420f))))
+    }
+
+    @Test fun halfOpenTheSidebarAndThePageKeepClearOfTheFold() {
+        // Book posture: the column ends where the fold begins, the page starts past it.
+        assertEquals(SidebarSplit(410f, 430f), sidebarSplit(841f, listOf(PaneHinge(410f, 430f, separating = true))))
+        // A separating fold too near an edge for a column on each side is ignored.
+        assertEquals(SidebarSplit(320f, 320f), sidebarSplit(841f, listOf(PaneHinge(150f, 160f, separating = true))))
+    }
 }

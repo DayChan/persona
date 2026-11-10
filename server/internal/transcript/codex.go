@@ -105,6 +105,8 @@ type codexItem struct {
 	Stdout           string   `json:"stdout"`
 	Stderr           string   `json:"stderr"`
 	ExitCode         *int     `json:"exit_code"`
+	// Duration: how long the command ran (its outcome's duration_ms).
+	Duration codexDuration `json:"duration"`
 	// FileChange
 	Changes map[string]struct {
 		Type        string `json:"type"`
@@ -358,10 +360,13 @@ func codexItemLines(seq int, ts time.Time, it *codexItem, meta *Meta) []proto.It
 			out = strings.TrimSpace(it.Stdout + "\n" + it.Stderr)
 		}
 		failed := it.Status == "failed" || (it.ExitCode != nil && *it.ExitCode != 0)
-		if it.ExitCode != nil && *it.ExitCode != 0 {
+		if it.ExitCode != nil && *it.ExitCode != 0 { // older apps read the exit code from the text: it stays there too
 			out = strings.TrimSpace(out + fmt.Sprintf("\n(exit code %d)", *it.ExitCode))
 		}
-		return codexTool(mk, it.ID, "Bash", input, out, failed)
+		items := codexTool(mk, it.ID, "Bash", input, out, failed)
+		o := items[1].Outcome
+		o.Status, o.ExitCode, o.DurationMS = codexStatus(it.Status, failed), it.ExitCode, it.Duration.ms
+		return items
 	case "FileChange":
 		// One Edit per file, the patch as a unified diff (the apps draw "diff" when there is no old/new string).
 		// In path order: map order would give the same file a different id on every parse.
@@ -384,6 +389,7 @@ func codexItemLines(seq int, ts time.Time, it *codexItem, meta *Meta) []proto.It
 			use.ToolUseID, use.ToolName, use.ToolInput = id, "Edit", clipJSON(input) // a new file's whole content
 			res := mk(2*n+1, id, "user", proto.KindToolResult)
 			res.ToolUseID, res.Text, res.IsError = id, ch.Type+" "+path, it.Status == "failed"
+			res.Outcome = &proto.ToolOutcome{Status: codexStatus(it.Status, res.IsError)}
 			out = append(out, use, res)
 			n++
 		}
@@ -406,7 +412,9 @@ func codexItemLines(seq int, ts time.Time, it *codexItem, meta *Meta) []proto.It
 		if len(parts) == 0 && isErr && len(it.Error) > 0 {
 			parts = append(parts, string(it.Error))
 		}
-		return codexTool(mk, it.ID, "mcp__"+it.Server+"__"+it.Tool, args, strings.Join(parts, "\n"), isErr)
+		items := codexTool(mk, it.ID, "mcp__"+it.Server+"__"+it.Tool, args, strings.Join(parts, "\n"), isErr)
+		items[1].Outcome.Status = codexStatus(it.Status, isErr)
+		return items
 	case "ImageView":
 		input, _ := json.Marshal(map[string]string{"file_path": strings.TrimPrefix(it.Path, "file://")})
 		return codexTool(mk, it.ID, "Read", input, "", false)
@@ -506,13 +514,44 @@ func codexWebSearch(mk func(int, string, string, string) proto.Item, it *codexIt
 }
 
 // codexTool is a finished tool call: Codex writes the call and its result in one line. Its input is clipped as a
-// Claude tool_use's is (a heredoc command, an MCP call's long argument would go out whole in every page and push).
+// Claude tool_use's is (a heredoc command, an MCP call's long argument would go out whole in every page and push). Its
+// outcome says ok or failed and has the output's tail; callers that know more (a status, an exit code) add it.
 func codexTool(mk func(int, string, string, string) proto.Item, id, name string, input json.RawMessage, result string, isErr bool) []proto.Item {
 	use := mk(0, id, "assistant", proto.KindToolUse)
 	use.ToolUseID, use.ToolName, use.ToolInput = id, name, clipJSON(input)
 	res := mk(1, id, "user", proto.KindToolResult)
 	res.ToolUseID, res.Text, res.IsError = id, clip(result), isErr
+	res.Outcome = &proto.ToolOutcome{Status: codexStatus("", isErr), Tail: outputTail(result)}
 	return []proto.Item{use, res}
+}
+
+// codexStatus is an outcome's status from an item's: declined is a call the user did not approve.
+func codexStatus(status string, failed bool) string {
+	switch {
+	case status == "declined":
+		return proto.OutcomeDenied
+	case failed:
+		return proto.OutcomeFailed
+	}
+	return proto.OutcomeOK
+}
+
+// codexDuration is how long a command ran, as rollouts write it (Rust's Duration: {"secs":11,"nanos":121827375}), in
+// milliseconds (nil when not recorded). Any other shape leaves it unread rather than failing the line.
+type codexDuration struct{ ms *int64 }
+
+func (d *codexDuration) UnmarshalJSON(b []byte) error {
+	d.ms = nil
+	var v struct {
+		Secs  *int64 `json:"secs"`
+		Nanos int64  `json:"nanos"`
+	}
+	if json.Unmarshal(b, &v) != nil || v.Secs == nil || *v.Secs < 0 || *v.Secs > 1<<40 || v.Nanos < 0 {
+		return nil
+	}
+	ms := *v.Secs*1000 + v.Nanos/1_000_000
+	d.ms = &ms
+	return nil
 }
 
 // shellCommand drops the login-shell wrapper Codex runs everything through: ["/bin/zsh", "-lc", "ls"] → "ls".

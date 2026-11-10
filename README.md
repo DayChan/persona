@@ -83,6 +83,16 @@ You run a small hub on an always-on machine; your devices talk only to it, and i
 
 [Getting started](docs/operations/getting-started.md) · [Architecture](docs/server/architecture.md) · [Protocol](docs/protocol/protocol.md) · [Docker](docs/operations/docker.md) · [iOS](docs/apple/ios.md) · [Mac](docs/apple/mac.md) · [Android](docs/android/android.md) · [Web](docs/web/web.md) · [All docs](CLAUDE.md#docs-index)
 
+## Star History
+
+<a href="https://www.star-history.com/#nwverse/persona&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=nwverse/persona&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=nwverse/persona&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=nwverse/persona&type=Date" />
+  </picture>
+</a>
+
 ## License
 
 Persona is licensed under the [MIT License](LICENSE).

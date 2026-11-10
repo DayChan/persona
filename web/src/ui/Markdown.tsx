@@ -438,6 +438,9 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
 // keeps its width, scroll and margin (styles.css passes the prose edge rule through). The button is out of the
 // table, so a copy does not pick it up as a cell, and it stays put while a wide table scrolls. It is the control's
 // own 24px, not the 44px touch pad: it sits on a cell, and that pad would take the tap meant for a corner link.
+// The first placement is the ResizeObserver's first report (after layout, before paint), not a read in the effect: that
+// read laid out every table's exchange when a long chat opened, the ones skipped off screen too (#2905). A table in a
+// skipped exchange is placed when the exchange is drawn; the button only shows on hover, so it is there before it is seen.
 function TableBlock({ children, ref: _ref, ...rest }: React.ComponentProps<"table">) {
   const tableRef = useRef<HTMLTableElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -453,8 +456,10 @@ function TableBlock({ children, ref: _ref, ...rest }: React.ComponentProps<"tabl
       button.style.top = `calc(${table.offsetTop}px + 0.375rem)`;
       button.style.right = `calc(${gap}px + 0.375rem)`;
     };
-    place();
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") {
+      place();
+      return;
+    }
     const obs = new ResizeObserver(place);
     obs.observe(table);
     if (button.parentElement) obs.observe(button.parentElement);

@@ -114,7 +114,7 @@ func TestOrcaBridgeListsChats(t *testing.T) {
 		t.Fatalf("row %+v", s)
 	}
 	if s.PermissionMode != "acceptEdits" || s.Capabilities == nil || !s.Capabilities.Send || !s.Capabilities.Interrupt ||
-		s.Capabilities.Terminal {
+		s.Capabilities.Terminal || s.Capabilities.Modes == nil || !*s.Capabilities.Modes {
 		t.Fatalf("modes / capabilities %+v %+v", s.PermissionMode, s.Capabilities)
 	}
 	for id := range listed(t, n) {

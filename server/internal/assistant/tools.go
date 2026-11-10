@@ -29,10 +29,10 @@ import (
 // (docs/assistant/prompts.md).
 var toolNames = []string{"ask_user", "notify_user", "supervision_finish", "schedule_followup", "schedule_routine", "delete_routine", "list_followups",
 	"cancel_followup", "list_places", "save_place", "machines_list", "agents_list", "agent_read", "agent_send", "agent_interrupt", "agent_start", "agent_supervise", "agent_archive", "agent_unarchive", "interaction_answer", "inbox_suggest", "inbox_draft",
-	"kb_search", "kb_list", "kb_get", "kb_update", "kb_history_plan", "kb_history_status", "kb_history_stop", "kb_history_resume", "persona_settings", "secret_run",
+	"inbox_folders", "inbox_move", "kb_search", "kb_list", "kb_get", "kb_update", "kb_history_plan", "kb_history_status", "kb_history_stop", "kb_history_resume", "persona_settings", "secret_run",
 	"model_profiles_list", "model_profile_get", "model_profile_switch", "model_profile_rollback",
 	"conversations_list", "conversation_read", "conversation_rename", "conversation_archive", "conversation_unarchive",
-	"conversation_new", "conversation_send", "task_plan", "task_review",
+	"conversation_new", "conversation_send", "task_plan", "task_review", "task_start_screen", "task_start_keys", "task_retry",
 	"todo_list", "todo_get", "todo_create", "todo_update", "todo_complete", "todo_reopen", "todo_delete"}
 
 // Tools are the assistant's tools (assistant.tools).
@@ -72,6 +72,12 @@ func (s *Service) Tool(ctx context.Context, call ToolCall) proto.ToolResult {
 	switch call.Name {
 	case "persona_settings":
 		return s.toolPersonaSettings(ctx, call, args) // settings_tool.go
+	case "task_plan", "agent_start":
+		// A task's agent does the work itself (supervise_leader.go); the hub's own starts (an inbox hand-off) are not
+		// a model's call and come through runTool.
+		if err := s.workerRefusal(ctx, call.MachineID, call.SessionID); err != nil {
+			return proto.TextResult(err.Error(), true)
+		}
 	}
 	res, err := s.runTool(ctx, call.MachineID, call.SessionID, call.Name, args)
 	if err != nil {
@@ -109,6 +115,12 @@ func (s *Service) runTool(ctx context.Context, machine, self, name string, args 
 		return s.toolTaskPlanFrom(ctx, machine, self, args)
 	case "model_profiles_list", "model_profile_get", "model_profile_switch", "model_profile_rollback":
 		return s.toolModelProfile(ctx, self, name, args)
+	case "task_start_screen": // a failed start's kept tab (start_remedy.go)
+		return s.toolTaskStartScreen(ctx, self, args)
+	case "task_start_keys":
+		return s.toolTaskStartKeys(ctx, self, args)
+	case "task_retry":
+		return s.toolTaskRetry(ctx, self, args)
 	case "task_review":
 		res, err := s.toolTaskReview(ctx, self, args) // supervise_review.go
 		if err == nil {
@@ -138,6 +150,10 @@ func (s *Service) runTool(ctx context.Context, machine, self, name string, args 
 		return s.toolInboxDraft(ctx, self, args)
 	case "inbox_suggest":
 		return s.toolInboxSuggest(ctx, self, args)
+	case "inbox_folders":
+		return s.toolInboxFolders(ctx, args) // inbox_folders.go
+	case "inbox_move":
+		return s.toolInboxMove(ctx, args)
 	case "notify_user":
 		var a struct{ Title, Body string }
 		if err := json.Unmarshal(args, &a); err != nil || strings.TrimSpace(a.Title+a.Body) == "" {
@@ -597,9 +613,34 @@ func (s *Service) toolAskUser(ctx context.Context, machine, sessionID string, ar
 	if err := json.Unmarshal(args, &a); err != nil || len(a.Questions) == 0 {
 		return "", fmt.Errorf("questions are required")
 	}
+	var da askDeadlineArgs
+	if err := json.Unmarshal(args, &da); err != nil {
+		return "", fmt.Errorf("arguments: %v", err) // a deadline or reversible of the wrong type is no deadline to ignore
+	}
+	now := time.Now()
+	deadline, err := readAskDeadline(da, now)
+	if err != nil {
+		return "", err
+	}
+	expires := now.Add(askUserWait)
+	if !deadline.At.IsZero() {
+		// The deadline is kept as a time in the question's arguments (askDeadlineOf reads it back when it expires), and
+		// the card waits no longer than it.
+		var m map[string]any
+		if err := json.Unmarshal(args, &m); err != nil {
+			return "", fmt.Errorf("arguments: %v", err)
+		}
+		m["deadline"] = deadline.At.Format(time.RFC3339Nano)
+		if args, err = json.Marshal(m); err != nil {
+			return "", err
+		}
+		if deadline.At.Before(expires) {
+			expires = deadline.At
+		}
+	}
 	ix := proto.Interaction{
 		ID: "ix_" + randomHex(6), MachineID: machine, SessionID: sessionID, SessionTitle: "Persona", Kind: proto.IxQuestion, CanCancel: true,
-		ToolName: "ask_user", ToolInput: args, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().Add(askUserWait).UTC(),
+		ToolName: "ask_user", ToolInput: args, CreatedAt: now.UTC(), ExpiresAt: expires.UTC(),
 	}
 	if c, ok := s.session(ctx, machine, sessionID); ok {
 		ix.Cwd = c.Cwd
@@ -610,6 +651,7 @@ func (s *Service) toolAskUser(ctx context.Context, machine, sessionID string, ar
 	for _, q := range a.Questions {
 		ix.Questions = append(ix.Questions, proto.Question{Question: q.Question, Header: q.Header, MultiSelect: q.MultiSelect, Options: q.Options})
 	}
+	markRecommended(s.lang(ctx), s.location(ctx), ix.Questions, deadline)
 	// Answers come back keyed by question text: two questions with the same text would lose one answer.
 	if proto.HasDuplicateQuestionText(ix.Questions) {
 		return "", i18n.Err("hub-hub.duplicate_question")
@@ -628,7 +670,7 @@ func (s *Service) toolAskUser(ctx context.Context, machine, sessionID string, ar
 	if s.askExpiredResolution(ix, r) { // nobody answered in time: it waits as a to-do (ask_todo.go)
 		t, err := s.askExpired(context.WithoutCancel(ctx), ix)
 		if err == nil {
-			return prompts.RenderQuestionMovedToTodo(prompts.QuestionMovedToTodo{TodoID: t.ID, Title: t.Title}), nil
+			return s.askExpiredResult(context.WithoutCancel(ctx), ix, t, deadline), nil
 		}
 		s.logf("ask_user %s: expired, and no to-do could be made: %v", ix.ID, err)
 	}

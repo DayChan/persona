@@ -37,6 +37,11 @@ describe("the sidebar's usage strip", () => {
   it("marks a stale account", () => {
     expect(renderToStaticMarkup(<UsageBars accounts={[account("a", 10, 20, { stale: true })]} now={NOW} />)).toContain("数据已过期");
   });
+  it("marks a kept account stale once its stale_at has passed, though the hub said it was fresh (#1905)", () => {
+    const kept = account("a", 10, 20, { stale_at: iso(-60_000) });
+    expect(renderToStaticMarkup(<UsageBars accounts={[kept]} now={NOW} />)).toContain("数据已过期");
+    expect(renderToStaticMarkup(<UsageBars accounts={[{ ...kept, stale_at: iso(60_000) }]} now={NOW} />)).not.toContain("数据已过期");
+  });
 });
 
 describe("the popover", () => {
@@ -67,14 +72,15 @@ describe("the popover", () => {
 
 describe("where the numbers came from (#2595)", () => {
   const mixed = (): UsageAccount[] => [
-    account("a", 20, 30, { name: "work-claude", plan: "Max", local: true, sources: ["Relay"] }),
+    account("a", 20, 30, { name: "work-claude", plan: "Max", local: true, machines: ["MacBook"], sources: ["Relay"] }),
     account("b", 5, 10, { name: "team-seat", plan: "Plus", sources: ["Relay", "Team pool"] }),
     account("c", 40, 50, { name: "Codex Pro", plan: "pro", local: true }),
     account("d", 1, 2, { name: "team-seat-3", sources: ["Relay"], stale: true, problem: "unreachable" }),
   ];
-  it("names the sources of each account in the popover, this computer first", () => {
+  it("names the sources of each account in the popover, the computers first", () => {
     const html = renderToStaticMarkup(<UsagePopover accounts={mixed()} now={NOW} />);
-    expect(html).toContain("本机 · Relay");
+    expect(html).toContain("MacBook · Relay");
+    expect(html).toContain(">电脑<"); // an account an older hub only marks local
     expect(html).toContain("Relay · Team pool");
     expect(html.match(/data-usage-source/g)).toHaveLength(4); // every account has a source line (the plan or the sources)
   });
@@ -109,6 +115,6 @@ describe("where the numbers came from (#2595)", () => {
   });
   it("puts the sources in the tooltip of a sidebar bar", () => {
     const html = renderToStaticMarkup(<UsageBars accounts={mixed().slice(0, 1)} now={NOW} />);
-    expect(html).toContain("来源：本机 · Relay");
+    expect(html).toContain("来源：MacBook · Relay");
   });
 });

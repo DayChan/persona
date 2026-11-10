@@ -314,7 +314,7 @@ func gitRun(ctx context.Context, dir string, timeout time.Duration, args ...stri
 	text := strings.TrimSpace(out.String())
 	if err != nil {
 		if ctx.Err() != nil {
-			return text, fmt.Errorf("Git 操作超时或已取消：%w", ctx.Err())
+			return text, fmt.Errorf("git timed out or was canceled: %w", ctx.Err())
 		}
 		if text == "" {
 			text = err.Error()
@@ -336,13 +336,30 @@ func clip(s string) string {
 	return "…" + s
 }
 
+// The refusals of panes.git and git.pull (#1888). The hub says each in the client's language (apierr rpcFailureKeys,
+// i18n rpc-errors) and keeps the node's words, git's included, as the detail; the *_failed ones are said with git's own
+// words, which name the reason.
+const (
+	gitOpNoDirectory    = "no_directory"
+	gitOpNotRepo        = "not_a_repository"
+	gitOpDetached       = "detached_head"
+	gitOpNoUpstream     = "no_upstream"
+	gitOpUncommitted    = "uncommitted_changes"
+	gitOpNotFastForward = "not_fast_forward"
+	gitOpPushRejected   = "push_rejected"
+	gitOpPullFailed     = "pull_failed"
+	gitOpPushFailed     = "push_failed"
+	gitOpFetchFailed    = "fetch_failed"
+)
+
 // gitOp runs fetch, pull or push in dir. It never forces anything: a pull only fast-forwards and refuses a dirty
 // tree (gitPull), a push sends the branch to its own upstream branch by an explicit refspec with no "+" (a
 // configured forcing refspec does not apply), a fetch only updates remote-tracking refs. Not a repository: refused.
+// What came of it is an outcome the clients say in their language, with an English message for older ones.
 func (n *Node) gitOp(ctx context.Context, dir, op string) (proto.PaneGitResult, error) {
 	res := proto.PaneGitResult{Op: op}
 	if strings.TrimSpace(dir) == "" {
-		return res, errors.New("不知道这里的目录")
+		return res, refusal(gitOpNoDirectory, "the folder of this pane is not known", nil)
 	}
 	ctx, cancel := context.WithTimeout(ctx, gitOpTimeout+15*time.Second)
 	defer cancel()
@@ -351,49 +368,54 @@ func (n *Node) gitOp(ctx context.Context, dir, op string) (proto.PaneGitResult, 
 		return res, err
 	}
 	if !st.IsRepo {
-		return res, errors.New("不是 Git 仓库")
+		return res, refusal(gitOpNotRepo, "the folder is not in a Git repository", nil)
 	}
 	switch op {
 	case "fetch":
 		out, err := gitRun(ctx, st.Root, gitOpTimeout, "fetch", "--no-recurse-submodules")
 		if err != nil {
-			return res, fmt.Errorf("获取失败：%w", err)
+			return res, refusal(gitOpFetchFailed, err.Error(), nil)
 		}
-		res.Message, res.Output = "已获取远端更新", clip(out)
+		res.Outcome, res.Message, res.Output = proto.GitOutcomeFetched, "Fetched", clip(out)
 	case "pull":
 		r, err := n.gitPull(ctx, st.Root)
 		if err != nil {
 			return res, err
 		}
-		res.Message = "已是最新"
+		res.Outcome, res.Message = proto.GitOutcomeUpToDate, "Already up to date"
 		if r.Updated {
-			res.Message = "已拉取最新提交"
+			res.Outcome, res.Message = proto.GitOutcomePulled, "Pulled the latest commits"
 		}
 	case "push":
 		if st.Branch == "" {
-			return res, errors.New("当前是分离的 HEAD，请先切换到分支")
+			return res, refusal(gitOpDetached, "HEAD is detached: switch to a branch first", nil)
 		}
 		if st.Upstream == "" {
-			return res, errors.New("没有上游分支，请先在电脑上设置上游")
+			return res, refusal(gitOpNoUpstream, st.Branch+" has no upstream branch", nil)
 		}
 		// a deleted upstream counts nothing ahead: the push below publishes the branch there again
 		if st.Ahead == 0 && !st.Gone {
-			res.Message = "没有要推送的提交"
+			res.Outcome, res.Message = proto.GitOutcomeNothingToPush, "No commits to push"
 			return res, nil
 		}
 		remote, err := gitRun(ctx, st.Root, 10*time.Second, "config", "--get", "branch."+st.Branch+".remote")
 		if err != nil || remote == "" || strings.HasPrefix(remote, "-") {
-			return res, errors.New("找不到上游所在的远端")
+			return res, refusal(gitOpNoUpstream, "the remote of "+st.Branch+"'s upstream is not configured", nil)
 		}
 		merge, err := gitRun(ctx, st.Root, 10*time.Second, "config", "--get", "branch."+st.Branch+".merge")
 		if err != nil || !strings.HasPrefix(merge, "refs/heads/") {
-			return res, errors.New("找不到上游分支")
+			return res, refusal(gitOpNoUpstream, "the upstream branch of "+st.Branch+" is not configured", nil)
 		}
 		out, err := gitRun(ctx, st.Root, gitOpTimeout, "push", remote, "refs/heads/"+st.Branch+":"+merge)
 		if err != nil {
-			return res, fmt.Errorf("推送失败（不会强制推送）：%w", err)
+			code := gitOpPushFailed
+			if low := strings.ToLower(err.Error()); strings.Contains(low, "[rejected]") || strings.Contains(low, "non-fast-forward") ||
+				strings.Contains(low, "fetch first") {
+				code = gitOpPushRejected
+			}
+			return res, refusal(code, err.Error()+" (nothing was forced)", nil)
 		}
-		res.Message, res.Output = "已推送", clip(out)
+		res.Outcome, res.Message, res.Output = proto.GitOutcomePushed, "Pushed", clip(out)
 	default:
 		return res, errors.New("op must be fetch, pull or push")
 	}

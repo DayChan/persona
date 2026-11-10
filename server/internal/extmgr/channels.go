@@ -307,7 +307,7 @@ func (h *Manager) enableChannel(ctx context.Context, id string, on bool) error {
 		return errors.New(i18n.T(h.botLang(ctx), "hub-channels.no_channel", i18n.Args{"id": id}))
 	}
 	if on && !pc.extension.Record.Enabled {
-		if err := h.extensions.reg.SetEnabled(ctx, pc.extension.Record.ID, true, actorOf(ctx)); err != nil {
+		if err := h.channelExtensionSet(ctx, pc.extension.Record.ID, true); err != nil {
 			return err
 		}
 	}
@@ -315,9 +315,17 @@ func (h *Manager) enableChannel(ctx context.Context, id string, on bool) error {
 		return h.setConnectorEnabled(ctx, pc.item.Connector, on)
 	}
 	if !on {
-		return h.extensions.reg.SetEnabled(ctx, pc.extension.Record.ID, false, actorOf(ctx))
+		return h.channelExtensionSet(ctx, pc.extension.Record.ID, false)
 	}
 	return nil
+}
+
+// channelExtensionSet switches a channel's extension as the user switching it by itself (setByUser): its pack, if it
+// switched it off, forgets it (#1830).
+func (h *Manager) channelExtensionSet(ctx context.Context, id string, on bool) error {
+	h.extensions.switchMu.Lock()
+	defer h.extensions.switchMu.Unlock()
+	return h.setByUser(ctx, id, on, actorOf(ctx))
 }
 
 // configureFeishu applies the assistant's changes to the bot's switches (feishu.configure): only what is given.

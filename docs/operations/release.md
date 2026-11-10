@@ -478,6 +478,10 @@ actual store/publication receipt before declaring the whole release complete.
 dedicated `checkout` must all identify the intended source repository. Checkpoints and build receipts carry the repository identity;
 an old checkpoint without that identity is rejected rather than silently attributed to a different repository.
 
+`report_commit_status` uses the same opt-in policy as the Hub worker: missing or `false` disables every GitHub
+status write; only the JSON boolean `true` enables `release/android` pending/success/failure reporting. Local
+logs, `runs`, checkpoints and Hub APK metadata are still written. No historical GitHub status is changed.
+
 When moving to rewritten history, pause the existing publisher, retain its evidence and use a separate `state_directory` for the new
 repository. Keep the existing package, signing certificate and signing entry. Never post an old commit's status to the new repository
 or treat an old verified APK as a build of the new source. Compare migrated file content when commit IDs have changed.
@@ -499,7 +503,7 @@ fixed nonnegative base so its first version exceeds the currently published APK.
 history rewrites and version regressions within the lane; the atomic Hub publisher also rejects stale versions across lanes.
 
 After publishing and completing the configured full online verifier, the worker durably records `verified.json`, including the source,
-repository, package, version, signed APK hash and certificate. Only then does it post the GitHub success status and advance `published.json`.
+repository, package, version, signed APK hash and certificate. Only then does it post the optional GitHub success status and advance `published.json`.
 If that status write fails, the next cycle for the same source revalidates the local artifact and retries only the status/checkpoint;
 it does not build, sign, publish or download again. The receipt proves the completed verification, not current availability after an
 unrelated deployment. A newer source follows the normal full pipeline. Preserve failure logs and report publication, verification,

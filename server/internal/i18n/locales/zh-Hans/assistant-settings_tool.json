@@ -14,6 +14,10 @@
   "change_recording_days": "录音在知识库里保留：{before} → {after} 天",
   "title_done_needs_delivery": "上线并实测才算做完",
   "change_done_needs_delivery": "「上线并实测才算做完」：{before} → {after}",
+  "title_leaders": "Leader 对话",
+  "change_leaders": "Leader 对话（督办自己派出的任务）：{before} → {after}",
   "title_model_tiers": "Agent 预设",
-  "change_model_tier": "{profile} · {tier}：{before} → {after}"
+  "change_model_tier": "{profile} · {tier}：{before} → {after}",
+  "title_review_sample_percent": "抽查验收的比例",
+  "change_review_sample_percent": "抽查验收的比例：{before}% → {after}%"
 }

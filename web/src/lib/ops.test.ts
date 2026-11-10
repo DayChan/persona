@@ -27,6 +27,10 @@ beforeEach(() => vi.stubGlobal("localStorage", { getItem: () => "tok" }));
 afterEach(() => vi.unstubAllGlobals());
 
 describe("what counts as a gap", () => {
+  it.each(["kb_disabled", "kb_unavailable", "kb_read_only", "assistant_offline"])("never retries a coded %s as a connection gap", (code) => {
+    expect(isTransient(new ApiError(503, "Request failed", { code }))).toBe(false);
+  });
+
   it("a failed fetch and a proxy's 502/503/504 are gaps; the hub's own answers are not", () => {
     expect(isTransient(new TypeError("Failed to fetch"))).toBe(true);
     expect(isTransient(new ApiError(502, "HTTP 502", { error: "<html>" }, false))).toBe(true);

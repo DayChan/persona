@@ -1,0 +1,13 @@
+{
+  "ready_title": "議事録ができました",
+  "ready_body": "{name} · 決定 {decisions} 件 · 提案された ToDo {actions} 件",
+  "no_recording": "その録音はありません。",
+  "incomplete": "文字起こしがまだ終わっていません。終わってから議事録を作ります。",
+  "todo_forbidden": "このデバイスでは ToDo を作成できません。",
+  "no_actions": "ToDo を 1 つ以上選んでください。",
+  "stale": "議事録が更新されました。読み込み直してからもう一度お試しください。",
+  "unknown_action": "この議事録に ToDo {id} はありません。",
+  "no_minutes": "この録音にはまだ議事録がありません。",
+  "todo_notes": "議事録「{meeting}」（{when}）の {clock} の発言から。",
+  "todo_by": "発言にあった期限：{by}"
+}

@@ -186,9 +186,11 @@ nonisolated extension BriefBody.Row {
     /// the user answers on its card or in the chat.
     enum Take: Hashable, Sendable { case accept, gotIt, recommendation }
 
+    var isDecision: Bool { outcome?.trimmingCharacters(in: .whitespacesAndNewlines) == "decide" }
+
     var take: Take? {
         let outcome = outcome?.trimmingCharacters(in: .whitespaces) ?? ""
-        if outcome == "decide" { return recommend?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? .recommendation : nil }
+        if isDecision { return recommend?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? .recommendation : nil }
         return outcome.isEmpty ? .accept : .gotIt
     }
 }

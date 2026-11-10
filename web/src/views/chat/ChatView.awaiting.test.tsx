@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Item, Session } from "../../lib/types";
+import { setQuotes } from "../../lib/drafts";
 
 vi.hoisted(() => {
   const g = globalThis as Record<string, unknown>;
@@ -48,11 +49,101 @@ const esc = () => act(() => void window.dispatchEvent(new KeyboardEvent("keydown
 
 beforeEach(() => {
   localStorage.clear();
+  setQuotes("hub/c1", []);
+  captured.session = { machine_id: "hub", session_id: "c1", title: "Conversation", cwd: "/code", status: "idle", state: "idle", agent: "claude" } as Session;
+  transcript.items = [];
+  transcript.loading = false;
+  transcript.error = "";
   fetcher = vi.fn(async () => new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }));
   vi.stubGlobal("fetch", fetcher);
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
+});
+
+describe("editing the last Claude prompt", () => {
+  const prompt = '> Quoted text\n\nRevise this paragraph';
+  const error = "API Error: Opus 5.5's safeguards flagged this message. Details: [frontier_llm]";
+  const box = () => host.querySelector<HTMLTextAreaElement>("textarea")!;
+  const rewinds = () => fetcher.mock.calls.filter(([url]) => String(url).endsWith("/sessions/hub/c1/rewind"));
+  const pressEsc = () => act(() => void box().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  const mountError = async (assistant = false) => {
+    transcript.items = [
+      { id: "u1#0", seq: 1, role: "user", kind: "text", text: "Earlier input", ts: "2020-01-01T00:00:00Z" },
+      { id: "a1#0", seq: 2, role: "assistant", kind: "text", text: "Earlier reply" },
+      { id: "u2#0", seq: 3, role: "user", kind: "text", text: prompt, ts: "2020-01-01T00:01:00Z" },
+      { id: "a2#0", seq: 4, role: "assistant", kind: "text", text: error },
+    ];
+    act(() => root.render(<ChatView mid="hub" sid="c1" assistant={assistant} />));
+    await flush();
+  };
+  const editButton = () => [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === t("rewind.edit_last"));
+
+  it("rewinds exactly once and restores quotes and text without sending automatically", async () => {
+    let finish!: () => void;
+    fetcher.mockImplementation(async (url) => {
+      if (String(url).endsWith("/rewind")) {
+        await new Promise<void>((resolve) => { finish = resolve; });
+        return new Response(JSON.stringify({ prompt, restore: "conversation", input_cleared: true, code_restored: false }));
+      }
+      return new Response("{}");
+    });
+    await mountError();
+    pressEsc();
+    expect(rewinds()).toHaveLength(0);
+    pressEsc();
+    await flush();
+    expect(rewinds()).toHaveLength(1);
+    expect(JSON.parse(rewinds()[0][1].body)).toEqual({ prompt, occurrence: 1, prompts_after: 0, restore: "conversation" });
+    expect(box().readOnly).toBe(true);
+    pressEsc(); pressEsc();
+    expect(rewinds()).toHaveLength(1);
+    await act(async () => finish());
+    await flush();
+    expect(box().readOnly).toBe(false);
+    expect(box().value).toBe("Revise this paragraph");
+    expect(host.textContent).toContain("Quoted text");
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/messages"))).toBe(false);
+    expect(interrupts()).toHaveLength(0);
+  });
+
+  it("offers the same recovery on the error card", async () => {
+    fetcher.mockResolvedValue(new Response(JSON.stringify({ prompt, restore: "conversation", input_cleared: true, code_restored: false })));
+    await mountError();
+    expect(editButton()).toBeDefined();
+    await act(async () => editButton()!.click());
+    await flush();
+    expect(rewinds()).toHaveLength(1);
+    expect(box().value).toBe("Revise this paragraph");
+  });
+
+  it.each(["rewind_mismatch", "input_draft"])("keeps history and the composer unchanged when the node refuses: %s", async (code) => {
+    fetcher.mockImplementation(async (url) => String(url).endsWith("/rewind")
+      ? new Response(JSON.stringify({ error: "Cannot rewind", code }), { status: 409 })
+      : new Response("{}"));
+    await mountError();
+    pressEsc(); pressEsc(); await flush();
+    expect(rewinds()).toHaveLength(1);
+    expect(box().value).toBe("");
+    expect(box().readOnly).toBe(false);
+    expect(host.textContent).toContain("Revise this paragraph");
+  });
+
+  it("does not duplicate a prompt the node could not clear from Claude's input", async () => {
+    fetcher.mockResolvedValue(new Response(JSON.stringify({ prompt, restore: "conversation", input_cleared: false, code_restored: false })));
+    await mountError();
+    pressEsc(); pressEsc(); await flush();
+    expect(box().value).toBe("");
+  });
+
+  it.each(["codex", "working", "offline", "needs_you", "assistant"] as const)("does not expose the shortcut in an unsupported state: %s", async (kind) => {
+    if (kind === "codex") captured.session.agent = "codex";
+    else if (kind !== "assistant") captured.session.state = kind;
+    await mountError(kind === "assistant");
+    expect(editButton()).toBeUndefined();
+    pressEsc(); pressEsc(); await flush();
+    expect(rewinds()).toHaveLength(0);
+  });
 });
 afterEach(() => {
   act(() => root.unmount());

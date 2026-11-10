@@ -295,6 +295,9 @@
     <string name="chat_modes_section_effort">思考の深さ</string>
     <string name="chat_modes_section_model">モデル</string>
     <string name="chat_modes_model_note">/modelを送るとコンピューター上のClaudeが切り替えます。チャットにキャッシュがあると先に確認されることがあり、ここに表示されます。</string>
+    <string name="chat_ultracode_subtitle">すべてのタスクをマルチエージェントの workflow で進めます · 使用量を大きく消費 · このセッションのみ</string>
+    <string name="chat_ultracode_pending">次のターンから有効</string>
+    <string name="chat_ultracode_pending_other">切り替えが待機中です。次のターンから有効</string>
     <string name="chat_port_desc">ポート%1$d</string>
     <string name="chat_port_desc_titled">ポート%1$d、%2$s</string>
     <string name="chat_port_desc_gone">ポート%1$d、待ち受けは終了しています</string>

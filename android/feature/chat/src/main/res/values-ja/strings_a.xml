@@ -263,6 +263,7 @@
     <string name="chat_tasks_answered_default">回答済み</string>
     <string name="chat_tasks_permission_accept_edits">ファイル編集可</string>
     <string name="chat_tasks_permission_plan">先にプラン</string>
+    <string name="chat_tasks_permission_auto">自動判断</string>
     <string name="chat_tasks_permission_bypass">すべて許可</string>
     <string name="chat_tasks_permission_default">毎回確認</string>
     <plurals name="chat_tasks_plan_started">

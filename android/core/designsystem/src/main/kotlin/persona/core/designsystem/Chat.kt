@@ -427,38 +427,58 @@ fun ComposerFrame(
         return
     }
     when (PersonaTheme.style) {
-        AppStyle.Glass -> Column(modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp).floatingSurface(RoundedCornerShape(28.dp)).then(keepsKeyboard).padding(6.dp)) {
-            accessory?.let { Column(Modifier.padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 2.dp), content = it) }
-            Row(verticalAlignment = Alignment.Bottom) {
+        AppStyle.Glass -> Column(modifier.fillMaxWidth().padding(horizontal = Tokens.Space.m, vertical = Tokens.Space.s)
+            .floatingSurface(RoundedCornerShape(HomeTokens.composerRadius)).then(keepsKeyboard).padding(Tokens.Space.s)) {
+            accessory?.let { Column(Modifier.padding(horizontal = Tokens.Space.s, vertical = Tokens.Space.xs), content = it) }
+            if (expanded) {
+                Box(Modifier.fillMaxWidth().heightIn(min = Tokens.MinTouch.ios).padding(horizontal = Tokens.Space.s, vertical = Tokens.Space.m),
+                    contentAlignment = Alignment.CenterStart, content = field)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    leading?.invoke(this)
+                    Spacer(Modifier.weight(1f))
+                    trailing?.invoke(this)
+                }
+            } else Row(verticalAlignment = Alignment.CenterVertically) {
                 leading?.invoke(this)
-                Box(Modifier.weight(1f).heightIn(min = 44.dp).padding(horizontal = 8.dp, vertical = 11.dp), contentAlignment = Alignment.CenterStart, content = field)
+                Box(Modifier.weight(1f).heightIn(min = Tokens.MinTouch.ios).padding(horizontal = Tokens.Space.s, vertical = Tokens.Space.m),
+                    contentAlignment = Alignment.CenterStart, content = field)
                 trailing?.invoke(this)
             }
         }
-        AppStyle.Brief -> Column(modifier.fillMaxWidth().background(palette.background).then(keepsKeyboard).padding(horizontal = 12.dp, vertical = 8.dp)) {
-            accessory?.let { Column(Modifier.padding(start = 4.dp, end = 4.dp, bottom = 6.dp), content = it) }
-            Row(verticalAlignment = Alignment.Bottom) {
-                leading?.let { Row(Modifier.padding(bottom = 2.dp)) { it() }; Spacer(Modifier.width(4.dp)) }
+        AppStyle.Brief -> Column(modifier.fillMaxWidth().background(palette.background).then(keepsKeyboard).padding(horizontal = Tokens.Space.m, vertical = Tokens.Space.s)) {
+            accessory?.let { Column(Modifier.padding(start = Tokens.Space.xs, end = Tokens.Space.xs, bottom = Tokens.Space.xs), content = it) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!expanded) leading?.let { it(); Spacer(Modifier.width(Tokens.Space.xs)) }
                 Row(
-                    Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).background(palette.surface).padding(start = 18.dp, end = 4.dp),
-                    verticalAlignment = Alignment.Bottom,
+                    Modifier.weight(1f).heightIn(min = Tokens.MinTouch.android).clip(RoundedCornerShape(Tokens.Radius.bubble))
+                        .background(palette.surface).padding(start = Tokens.Space.l, end = Tokens.Space.xs),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(Modifier.weight(1f).padding(vertical = 13.dp), contentAlignment = Alignment.CenterStart, content = field)
-                    trailing?.let { Row(Modifier.padding(vertical = 4.dp)) { it() } }
+                    Box(Modifier.weight(1f).padding(vertical = Tokens.Space.m), contentAlignment = Alignment.CenterStart, content = field)
+                    trailing?.let { Row(Modifier.padding(vertical = Tokens.Space.xs)) { it() } }
                 }
+            }
+            if (expanded && leading != null) Row(Modifier.padding(top = Tokens.Space.xs), verticalAlignment = Alignment.CenterVertically) {
+                leading?.invoke(this)
+                Spacer(Modifier.weight(1f))
             }
         }
         // The board's grey under a rule, the field a white ticket on it: no white plate across the bottom.
-        AppStyle.Board -> Column(modifier.fillMaxWidth().background(palette.background).drawBehind { drawLine(palette.line, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }.then(keepsKeyboard).padding(10.dp)) {
-            accessory?.let { Column(Modifier.padding(bottom = 8.dp), content = it) }
-            Row(verticalAlignment = Alignment.Bottom) {
-                leading?.invoke(this)
+        AppStyle.Board -> Column(modifier.fillMaxWidth().background(palette.background)
+            .drawBehind { drawLine(palette.line, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }.then(keepsKeyboard).padding(Tokens.Space.s)) {
+            accessory?.let { Column(Modifier.padding(bottom = Tokens.Space.s), content = it) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!expanded) leading?.invoke(this)
                 Box(
-                    Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(8.dp)).background(palette.surface)
-                        .border(1.dp, palette.line, RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 11.dp),
+                    Modifier.weight(1f).heightIn(min = Tokens.MinTouch.ios).clip(RoundedCornerShape(Tokens.Radius.control)).background(palette.surface)
+                        .border(1.dp, palette.line, RoundedCornerShape(Tokens.Radius.control)).padding(horizontal = Tokens.Space.m, vertical = Tokens.Space.m),
                     contentAlignment = Alignment.CenterStart, content = field,
                 )
-                trailing?.let { Spacer(Modifier.width(8.dp)); it() }
+                trailing?.let { Spacer(Modifier.width(Tokens.Space.s)); it() }
+            }
+            if (expanded && leading != null) Row(Modifier.padding(top = Tokens.Space.s), verticalAlignment = Alignment.CenterVertically) {
+                leading?.invoke(this)
+                Spacer(Modifier.weight(1f))
             }
         }
     }

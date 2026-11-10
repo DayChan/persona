@@ -127,3 +127,40 @@ func TestMessageSourcesUserEntryAndFilters(t *testing.T) {
 	}
 	assertSentSource(t, f, source)
 }
+
+// A relay into the main conversation carries is_main, or the node starts it (or restarts it when idle, is_main being
+// part of what a process runs) on the ordinary compaction limits (#3028). Another conversation's relay is not main,
+// and an is_main a sender set is not overridden.
+func TestRelayCarriesIsMain(t *testing.T) {
+	ctx := context.Background()
+	f := newFakeHub().withMachine()
+	f.settings = &Settings{MachineID: "server", Main: "main-conv"}
+	f.known["main-conv"], f.known["other-conv"] = true, true
+	s := newTestService(t, f)
+	for _, tt := range []struct {
+		machine, to string
+		want        bool
+	}{
+		{"server", "main-conv", true},
+		{"server", "other-conv", false},
+	} {
+		for _, msg := range []relayMsg{
+			{From: "conversation-1", Tool: "conversation_send", Text: "Read the result.", Hop: 1, At: time.Now().UTC()},
+			{Tool: superviseTool, Text: "A supervision prompt."},
+			{Tool: noticeTool, Text: "A task finished."},
+		} {
+			if err := s.deliverRelay(ctx, tt.machine, tt.to, msg); err != nil {
+				t.Fatal(err)
+			}
+			if got := f.lastSend(t)["is_main"]; got != tt.want {
+				t.Fatalf("%s on %s, %s: is_main %v, want %v", tt.to, tt.machine, msg.Tool, got, tt.want)
+			}
+		}
+	}
+	if err := s.call(ctx, "server", DeviceAssistantSend, map[string]any{"session_id": "main-conv", "text": "x", "is_main": false}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.lastSend(t)["is_main"]; got != false {
+		t.Fatalf("a sender's is_main was overridden: %v", got)
+	}
+}

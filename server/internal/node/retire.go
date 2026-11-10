@@ -205,6 +205,9 @@ func (n *Node) newTab(ctx context.Context, launch host.Launcher, cwd, ws, tabNam
 	if c := adoptedPane(ctx); c != nil { // "Run Agent Here": the pane the user picked, not a new tab (panes_actions.go)
 		return c, nil
 	}
+	if c, ok := ctx.Value(reusedTabKey{}).(*host.Created); ok && c != nil { // a failed start's kept tab (startremedy.go)
+		return c, nil
+	}
 	var created *host.Created
 	var err error
 	if ws == "" {

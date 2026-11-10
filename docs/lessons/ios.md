@@ -2,6 +2,32 @@
 
 Pitfalls, odd behavior and the decisions made at the time (formerly "Lessons" in `CLAUDE.md`; index in `docs/lessons/README.md`). Add new lessons to the relevant section, or create one if none fits.
 
+## Binary-plist reference bytes are not text (#3166)
+
+A compiled localization dictionary's reference table can accidentally spell an address even when every decoded key
+and value is clean. For generic IP/email checks, exclude only container references after validating all indexed
+objects, bounds and references; malformed layouts keep raw scanning. Keep configured private-value matching on the
+original bytes, decode unreachable string objects too, and still scan data, padding and trailing bytes. Do not fix
+this by changing a locale, allowing an address or rearranging the generated plist.
+
+## Device names in Siri intent descriptions (#3113)
+
+App Store Connect can commit an upload but reject it before the build appears in TestFlight. Validation code 90626 rejected a meeting-recording App Intent description containing `iPhone`, even though archive, export, purpose strings and entitlements passed. Keep the intent description device-neutral in Swift and in every catalog translation; changing a permission purpose string does not fix Siri metadata. If a committed upload never appears, inspect the upload's state and errors instead of re-uploading the same package or treating the wait timeout as success.
+
+## Completing a task-review decision without another Agent turn (#3040)
+
+- A `task_review needs_user` conclusion is a to-do acceptance `ask`, not a runtime `Interaction`. Use the existing
+  `PATCH /api/v1/todos/{id}` with `done: true` to end it without delivering another message. `/accept` takes the
+  recommendation and resumes the Agent; interaction resolution answers a different object and must not be used.
+- Apple must decode the optional `ask` before the pending tray can show a stopped Agent's decision. Keep malformed or
+  absent asks compatible, retain the exact `asked_at` for recommendation acceptance, and ignore cached asks on completed
+  tasks. The conversation's shared task cards, the iPhone pending tray and the iPad task board use the same action.
+  Completion and recommendation share one in-flight guard for each hub/task/round; a failed completion leaves
+  the card available and shows an error. Apply the successful todo response to the shared index before refreshing it.
+- A SwiftUI accessibility identifier on a wrapper can overwrite identifiers on all of its child buttons. The first
+  decision-tray UI run found the buttons by label but not by their action ids. Keep identifiers on the actions rather
+  than the padding wrapper, and verify the actual accessibility tree before changing waits or weakening assertions.
+
 ## Motion rules (#2943)
 
 The table and red lines are in `docs/apple/ios.md` ("Design language", Motion); this is why they read that way.
@@ -43,6 +69,11 @@ from colliding with its buttons.
 - **A second fog starts where the first stops being solid.** The manager switcher under the bar draws its own fog. Lifting it to the top of
   the screen drew it over the bar and hid the bar's buttons; it starts at `AssistantTopBar.fogSolid`, the bar fog's solid end, and goes
   down from there. The bar, the shell's moving bar and the switcher share `fogSolid` and `fade` so they cannot drift apart.
+
+## Personal Agent entry availability (#2935)
+
+- Gate entry points on source setup, configured accounts and an unfiltered session list, not the personal page's search/unread preferences. Unknown availability starts hidden; a source/account response alone cannot reveal the chip. Keep an event listener alive while the Agents tab is visible so the first session can reveal a previously hidden entry, and fence cancelled reads and changed hub credentials.
+- A mock returning sessions with `sources: []` is not a configured fixture. Entry and remove UI tests use `MOCK_PERSONAL_AGENTS=1` and `TEST_RUNNER_PERSONA_PERSONAL_HUB`; `/mock/personal-agents?state=configured|empty|missing|disabled|no_accounts` changes availability and broadcasts an `agents` event. Native preference captures need a configured source too: `MOCK_PERSONAL_UPGRADE=1` supplies the named conversation and leaves preferences at 404. A capture with a synthetic pairing does not by itself prove an old-to-new upgrade; preserve old-build state for that separate acceptance.
 
 ## Pages that move sideways under iPhone Duo's side bars (#2752)
 
@@ -416,6 +447,12 @@ Use an invalidation revision as the task key and handle the flag after completio
 - Several `NavigationLink(value:)` in one `List` row all fire on one tap, each pushing its page (an extension's machine list, a Set Up per Mac in one field row, #2446:
   Back from Mac Studio's page landed on MacBook's). `.buttonStyle(.borderless)` keeps a `Button`'s tap its own but does not stop this; push one value from a `Button`
   (`splitPush`), or give each link its own row.
+- A `.sheet` or `.task` that belongs to a whole `List` page goes on the `List`, never on its rows (2026-11-10, #2988). Modifiers on a `Group` of
+  sections go to every section: an extension page's Update sheet was presented five times over, and once it rose the whole Settings sheet (the
+  shell's) closed under it. Moving it to the first section (#2547) still failed on a long page: that row is lazily built and taken down once it
+  scrolls off, so Review tapped at the bottom closed Settings the same way, and its `.task(id:)` ran again every time the row came back. A page
+  made of a child view's rows puts its page-wide modifiers in a `ViewModifier` the page applies to its `List` (`ExtensionSettingsPageWork`).
+  Test it with the largest text, which pushes the first rows off screen.
 - If `x` in `NavigationPath([x])` is `AnyHashable`, the recorded type is `AnyHashable` and a concrete `navigationDestination(for:)` cannot match,
   producing a yellow warning. Append concrete types (`SettingsView.openDebugPage`).
 - `NavigationSplitView` detail pages use destinations registered in the sidebar and are built in its environment. Put detail environment values
@@ -1565,3 +1602,40 @@ A worktree's display name and its Agents' conversation names are different comma
   `FleetIntentsTests.sayingYesNeedsUnlock`). The policy covers the whole intent, so its other replies wait for the unlock too.
   Ask Claude and Give an Agent a Task still send messages from a locked phone; changing that is a separate decision.
 - An entry that never shows the plan in full approves plans in `acceptEdits`, never `bypassPermissions`.
+
+## A caret written into streamed Markdown lands in whatever block is open (2026-11-10, #2916)
+
+- `StreamingText` appended ` ▍` to the block being written. Inside an open fence it was a line of code, in a table a cell's text; on a
+  line that closes a fence or a `$$` block (`` ``` ▍``, `$$ ▍`) it kept the line from closing it, and `$$x$$ ▍` was no longer a formula.
+  Ask where the text ends (`StreamRepair.end`) before writing anything after it.
+- What is added to close a block goes in that block's container: a closing fence or a table's delimiter row written at
+  column 0 under a list item's indented fence or header ended the item, and cmark-gfm drew an empty code block under the
+  list (or the rows as a paragraph). Indent it as the line that opened the block, and check the result with cmark-gfm.
+- A render queue chained from unstructured `Task`s is not cancelled with the view's `.task`: each half-written ```mermaid source of a
+  streaming reply was drawn in turn. Jobs with their own waiters and a cancellation handler let one nobody waits for be dropped
+  (`MarkdownRenderer`). Keep MarkdownUI's inline image loads uncancelled: `InlineText` stores whatever a cancelled load returns, and
+  `MathInlineImages` returns the TeX source as a picture on an error.
+- Keys that change at every delta in a shared memo that empties itself when full (`TextMemo`) wipe everyone else's entries every few
+  seconds; give them their own small memo (`StreamTail`).
+
+## `difference(from:)` can need memory in the square of the changes (2026-11-10, #2915)
+
+- The standard library's Myers diff keeps every step's frontier in the older runtimes: on macOS 15.6, two sides of
+  2,000 lines that share none took the process to 67 MB, of 4,000 lines to 290 MB (of 500 lines: 6 MB). iOS devices before 26.4
+  are expected to behave the same.
+- Never hand it a whole file or an unbounded input from a view or a memo. `LineDiff` (PersonaKit) sets the lines both
+  sides start and end with aside first (a typical edit leaves a few lines to compare), maps lines to integers, and above
+  1,000 lines in between draws them as removed then added instead. `TextCompare` (document versions) caps each side at
+  20,000 lines only, far more than a phone has memory for when two big versions share little; not changed yet.
+
+## A read the user asked for must say when it fails (2026-11-10, #1889)
+
+- The Git tab's load paths kept a failure quiet once a status was shown (`if status == nil && !live`), and Load Earlier
+  Commits used `try?`: a pull to refresh or ⌘R over a stale status, or a failed page of history, looked exactly like
+  "nothing new" or "no earlier commits". Keep the quiet path only for the automatic live refresh; a read the user started
+  says it failed over what stays shown (a notice with Retry, or the button itself turning into Try Again). Decide it in a
+  small pure type (`GitReadFailure`) so a test pins which case is quiet.
+
+## Configuration refusals are not retryable connection failures (#1915)
+
+HTTP failures live in `Shared/APIClient.swift`, not PersonaKit's model-response `APIErrorInfo`. Classify business codes before status or timeout wording. A background sync must pause on disabled/read-only configuration without discarding uploads or deletion intent; another local save cannot repair that configuration. Reopen/foreground can explicitly recheck. Do not continue writes after failed reconciliation, and do not acknowledge a remote deletion from an unsupported 404. Keep the list's pending-delete explanation durable across relaunch.

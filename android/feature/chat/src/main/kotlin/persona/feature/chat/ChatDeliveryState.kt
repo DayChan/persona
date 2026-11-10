@@ -1,6 +1,5 @@
 package persona.feature.chat
 
-import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -9,6 +8,11 @@ import persona.core.contracts.api.MessageSender
 import persona.core.contracts.api.OutboxMessage
 import persona.core.contracts.resultUnknown
 import persona.core.designsystem.PendingStatus
+import persona.core.designsystem.UiText
+import persona.core.designsystem.operationFeedback
+import persona.core.designsystem.text
+import persona.core.domain.FailureReason
+import persona.core.domain.mapOperationFailure
 
 internal val DeliveryState.pendingStatus: PendingStatus?
     get() = when (this) {
@@ -62,12 +66,20 @@ internal class ChatDeliveryActions(private val sender: MessageSender) {
     }
 }
 
-/** Why the computer refused the message, by the hub's code; the hub's own words for a code it does not know. */
+/** Why the computer refused the message ([refusalText]). */
 @androidx.compose.runtime.Composable
-internal fun OutboxMessage.refusalReason(): String = when (error) {
-    "input_draft" -> stringResource(R.string.chat_delivery_input_draft)
-    "dialog_open" -> stringResource(R.string.chat_delivery_dialog_open)
-    "op_id_reused" -> stringResource(R.string.chat_delivery_op_id_reused)
-    "invalid" -> stringResource(R.string.chat_delivery_invalid)
-    else -> error?.takeIf(String::isNotBlank) ?: stringResource(R.string.chat_delivery_refused)
+internal fun OutboxMessage.refusalReason(): String = refusalText(error).text()
+
+/**
+ * Why the computer refused a message, by the hub's [code]: the chat's own words for what stops typing into a session,
+ * the shared words for the other codes (the computer asleep, the session changed), the generic refusal for a code
+ * the app has no words for. Never the hub's raw code or detail.
+ */
+internal fun refusalText(code: String?): UiText = when (code) {
+    "input_draft" -> UiText.Res(R.string.chat_delivery_input_draft)
+    "dialog_open" -> UiText.Res(R.string.chat_delivery_dialog_open)
+    "op_id_reused" -> UiText.Res(R.string.chat_delivery_op_id_reused)
+    "invalid" -> UiText.Res(R.string.chat_delivery_invalid)
+    else -> mapOperationFailure(code, "none", false).takeIf { it.reason != FailureReason.Failed }
+        ?.let { operationFeedback(it).text } ?: UiText.Res(R.string.chat_delivery_refused)
 }

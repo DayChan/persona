@@ -5,8 +5,8 @@
 
 R8 keeps only what code references. Android also reaches classes by name: manifest components, App Startup
 initializers, WorkManager workers (rebuilt from their class name with a (Context, WorkerParameters) constructor), Room
-databases (whose generated <name>_Impl is loaded by name), JavaScript bridge methods and the getters the tasks store
-looks up on a hub failure. Error reports and breadcrumbs print simple class names, which come from InnerClass
+databases (whose generated <name>_Impl is loaded by name), JavaScript bridge methods, the getters the tasks store
+looks up on a hub failure and the SSH tunnel's algorithms, which JSch makes from class names. Error reports and breadcrumbs print simple class names, which come from InnerClass
 annotations, and the class names themselves, which class merging would replace: every class a keep rule listed in
 R8's seeds.txt must still be in the dex or be listed as removed in usage.txt, and every Throwable in the dex must be
 listed there (proguard-rules.pro keeps all their names). This reads the merged manifest with aapt2 and every
@@ -41,6 +41,12 @@ REQUIRED_MEMBERS = {
                                                           ("fail", "(ILjava/lang/String;)V")},
     # Looked up by name on a failed tasks call (TasksStore.reloadTodos, isLegacySpacesRoute in core/domain).
     "persona.core.hub.HubFailure": {("getStatus", "()Ljava/lang/Integer;"), ("getCode", "()Ljava/lang/String;")},
+    # Made from class names in JSch's config (the SSH tunnel, SshAlgorithms): one of each kind proguard-rules.pro keeps.
+    "persona.core.hub.tunnel.TinkX25519": {NO_ARGS},
+    "persona.core.hub.tunnel.TinkEd25519": {NO_ARGS},
+    "com.jcraft.jsch.DH25519": {NO_ARGS},
+    "com.jcraft.jsch.UserAuthPublicKey": {NO_ARGS},
+    "com.jcraft.jsch.jce.AES128GCM": {NO_ARGS},
 }
 ACC_INTERFACE, ACC_ABSTRACT = 0x200, 0x400
 NO_INDEX = 0xFFFFFFFF

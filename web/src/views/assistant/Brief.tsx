@@ -2,7 +2,10 @@
 // what happened in the last hours, what is to be verified), as the hub worked it out when the run started; the same
 // rows as the Lark card, with an Accept button for each task to verify and a Handled button for each question that can wait
 // (docs/extensions/bots.md "Morning and evening briefings").
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { errorText } from "../../lib/api";
+import { putTodo, refreshTodos } from "../../lib/store";
+import { updateTodo } from "../../lib/todos";
 import { acceptBrief, briefBody, failedKey, handledLater, type BriefBody, type BriefRow, type FeedItem } from "../../lib/feed";
 import { shortDuration } from "../../lib/format";
 import { openPanel } from "../../lib/panel";
@@ -59,7 +62,7 @@ function WaitingRow({ row }: { row: BriefRow }) {
 }
 
 /** What the Accept button of a task says: it asked, the hub took it, or the round is already over. */
-type Accepting = "idle" | "busy" | "accepted" | "handled";
+type Accepting = "idle" | "busy" | "finishing" | "finished" | "accepted" | "handled";
 
 /** What the button of a row to verify says: Accept a deployed task, Got it a conclusion, Take recommendation a decision. */
 function acceptLabel(row: BriefRow): { label: string; title: string } {
@@ -70,17 +73,43 @@ function acceptLabel(row: BriefRow): { label: string; title: string } {
 
 export function AcceptRow({ row, stacked = false }: { row: BriefRow; stacked?: boolean }) {
   const [state, setState] = useState<Accepting>("idle");
+  // Admit either action synchronously, before React disables the other button.
+  const admitted = useRef(false);
   const button = acceptLabel(row);
-  // A decision with nothing recommended has nothing for the button to take: the user answers its card or the chat.
-  const takes = row.outcome !== "decide" || !!row.recommend;
+  const deciding = row.outcome === "decide";
+  const settled = state === "accepted" || state === "handled" || state === "finished";
+  // A decision with nothing recommended can still be finished, but has nothing to take.
+  const takes = !deciding || !!row.recommend;
   const accept = () => {
-    if (!row.asked_at || state !== "idle") return;
+    if (!row.asked_at || admitted.current || state !== "idle") return;
+    admitted.current = true;
     setState("busy");
     acceptBrief(row.id, row.asked_at).then(
       (res) => setState(res),
       (e) => {
+        admitted.current = false;
         setState("idle");
-        toast(t("assistant-brief.accept_failed", { error: String(e instanceof Error ? e.message : e) }), "error");
+        toast(t("assistant-brief.accept_failed", { error: errorText(e) }), "error");
+      },
+    );
+  };
+  const finish = () => {
+    if (!stacked || !row.asked_at || admitted.current || state !== "idle") return;
+    admitted.current = true;
+    setState("finishing");
+    // User completion only: unlike /accept, PATCH never routes the recommendation to the Agent.
+    updateTodo(row.id, { done: true }).then(
+      (todo) => {
+        setState("finished");
+        // putTodo merges optional fields; explicitly clear the ask omitted by a completed todo.
+        putTodo({ ...todo, ask: todo.ask });
+        void refreshTodos();
+        toast(t("assistant-brief.finished"), "ok");
+      },
+      (e) => {
+        admitted.current = false;
+        setState("idle");
+        toast(t("assistant-brief.finish_failed", { error: errorText(e) }), "error");
       },
     );
   };
@@ -100,15 +129,21 @@ export function AcceptRow({ row, stacked = false }: { row: BriefRow; stacked?: b
       <Button title={t("assistant-brief.open_row", { title: row.title })} onClick={() => openPanel({ kind: "task", todo: row.id })}>
         {t("assistant-brief.open")}
       </Button>
-      {!takes ? null : state === "accepted" || state === "handled" ? (
-        <span className="shrink-0 text-[12.5px] text-ink-2" data-brief-accepted={state}>
-          {t(state === "handled" ? "assistant-brief.handled" : row.outcome === "decide" ? "assistant-brief.taken" : row.outcome ? "assistant-brief.noted" : "assistant-brief.accepted")}
-        </span>
-      ) : (
-        <Button tone="primary" busy={state === "busy"} disabled={!row.asked_at} title={button.title} onClick={accept}>
-          {button.label}
+      {/* Only the live Pending row can finish a task; historical brief snapshots must not end a newer run. */}
+      {stacked && deciding && !settled && (
+        <Button busy={state === "finishing"} disabled={!row.asked_at || state === "busy"} title={t("assistant-brief.finish_row", { title: row.title })} onClick={finish}>
+          {t("assistant-brief.finish")}
         </Button>
       )}
+      {settled ? (
+        <span className="shrink-0 text-[12.5px] text-ink-2" data-brief-accepted={state}>
+          {t(state === "finished" ? "assistant-brief.finished" : state === "handled" ? "assistant-brief.handled" : deciding ? "assistant-brief.taken" : row.outcome ? "assistant-brief.noted" : "assistant-brief.accepted")}
+        </span>
+      ) : takes ? (
+        <Button tone="primary" busy={state === "busy"} disabled={!row.asked_at || state === "finishing"} title={button.title} onClick={accept}>
+          {button.label}
+        </Button>
+      ) : null}
     </div>
   );
 }

@@ -2,8 +2,8 @@
 // user's name through the connectors, newest first, from GET /api/v1/connectors/sent. A row: the connector, where it went,
 // how long ago, the first lines of what it said and how the gate let it through (a rule, "always allow" in the chat, the
 // card on the phone, the assistant answering that card, or the extension sending on its own) with the chat that asked,
-// which opens. A row opens its full text and fields. Older rows load a page at a time; the connector chips filter (Lark and
-// the connectors the loaded rows show).
+// which opens. A row opens its full text and fields, and Recall when the hub can take the message back. Older rows load a
+// page at a time; the connector chips filter (Lark and the connectors the loaded rows show).
 import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { sentOwner, subscribeSentOwner } from "../../lib/sent-chat-rules";
 import { SentChatRules } from "./SentChatRules";
@@ -12,8 +12,8 @@ import { ago } from "../../lib/format";
 import { conversationRoute } from "../../lib/inbox";
 import { href, onLinkClick } from "../../lib/router";
 import {
-  allowedBy, connectorChoices, connectorName, listSent, mergeSent, originInfo, previewLines, refreshed, seenConnectors, SENT_TEXT_MOST,
-  sentProblem, targetFields, targetText, textCut, whenText, type SentItem,
+  allowedBy, connectorChoices, connectorName, listSent, mergeSent, originInfo, previewLines, recallProblem, recallSent, refreshed, seenConnectors,
+  SENT_TEXT_MOST, sentProblem, targetFields, targetText, textCut, whenText, type SentItem,
 } from "../../lib/sent";
 import { useStore } from "../../lib/store";
 import { documentPage, visiblePoll } from "../../lib/visible-poll";
@@ -133,6 +133,30 @@ function OwnedSentSettings() {
       .finally(() => { r.controllers.delete(controller); if (r.live && current()) { r.moreBusy = false; setLoadingMore(false); } });
   }, [next, loadingMore]);
 
+  // Recall the row `id` (the user confirmed in the details): reads of the list that started before it are dropped, the
+  // row the hub answers with is shown at once, then the first page is read again whether it worked or not (a `too_old`
+  // or `already_recalled` row changes too). The failure in plain words, "" when it worked.
+  const recall = async (id: number): Promise<string> => {
+    const r = reading.current;
+    if (!r || !current()) return "";
+    r.blocked = true;
+    r.seq++;
+    let fresh: SentItem | null = null;
+    let error = "";
+    try { fresh = await recallSent(id); } catch (e) { error = recallProblem(e); }
+    if (r.live && current() && r === reading.current) {
+      if (fresh) {
+        const it = fresh;
+        held.current = mergeSent(held.current ?? [], [it]);
+        setItems(held.current);
+        setOpen(o => (o?.id === it.id ? it : o));
+      }
+      r.blocked = false;
+      void r.refresh().catch(() => {});
+    }
+    return error;
+  };
+
   const choices = connectorChoices(seen, filter);
   const nameOf = connectorName;
   // Nothing to filter by while the ledger is empty and every connector is shown, or when the unfiltered list can't be
@@ -219,7 +243,8 @@ function OwnedSentSettings() {
         const r = reading.current;
         if (r && current()) { r.blocked = false; await r.refresh(); }
       }}>
-        {action => <SentDetail item={open} name={open ? nameOf(open.connector) : ""} onClose={() => setOpen(null)} action={action} />}
+        {action => <SentDetail item={open} name={open ? nameOf(open.connector) : ""} onClose={() => setOpen(null)} action={action}
+          recall={open && <SentRecall key={open.id} item={open} recall={recall} />} />}
       </SentChatRules>
     </>
   );
@@ -255,6 +280,7 @@ function SentRow({ item, name, onOpen }: { item: SentItem; name: string; onOpen:
       </button>
       <div className="pointer-events-none relative z-10 mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
         <Pill tone={allowed.tone === "orange" ? "orange" : undefined}>{allowed.label}</Pill>
+        {item.recalled_at && <Pill>{t("settings-sent.recalled")}</Pill>}
         <Origin origin={item.origin} what={what} />
       </div>
     </div>
@@ -307,7 +333,37 @@ function Field({ label, children, mono }: { label: string; children: React.React
   );
 }
 
-function SentDetail({ item, name, onClose, action }: { item: SentItem | null; name: string; onClose: () => void; action: React.ReactNode }) {
+/** Recall in the details: shown only when the hub says the message can be taken back (or a recall of it just failed, to
+ *  keep its reason), asked once inline, then `confirm: true` goes to the hub. A recalled row says when. */
+function SentRecall({ item, recall }: { item: SentItem; recall: (id: number) => Promise<string> }) {
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (item.recalled_at) return <p className="text-sm text-ink-2">{t("settings-sent.recalled_at", { when: whenText(item.recalled_at) })}</p>;
+  if (!item.can_recall && !error) return null;
+  const run = async () => {
+    setBusy(true);
+    setError("");
+    const failed = await recall(item.id);
+    setBusy(false);
+    setError(failed);
+    if (!failed) setAsking(false);
+  };
+  return (
+    <section className="flex flex-col items-start gap-3 text-sm text-ink-2">
+      {item.can_recall && (asking ? <>
+        <p className="break-words">{t("settings-sent.recall_confirm", { connector: connectorName(item.connector) })}</p>
+        <div className="flex flex-wrap gap-2">
+          <Button tone="danger" busy={busy} onClick={() => void run()}>{t("settings-sent.recall_do")}</Button>
+          <Button tone="quiet" disabled={busy} onClick={() => { setAsking(false); setError(""); }}>{t("common.cancel")}</Button>
+        </div>
+      </> : <Button icon="undo" onClick={() => { setError(""); setAsking(true); }}>{t("settings-sent.recall")}</Button>)}
+      {error && <p role="alert" className="break-words text-red">{error}</p>}
+    </section>
+  );
+}
+
+function SentDetail({ item, name, onClose, action, recall }: { item: SentItem | null; name: string; onClose: () => void; action: React.ReactNode; recall: React.ReactNode }) {
   return (
     <Dialog
       open={!!item}
@@ -316,7 +372,7 @@ function SentDetail({ item, name, onClose, action }: { item: SentItem | null; na
       title={item && <span className="truncate">{name}</span>}
       footer={<Button tone="primary" onClick={onClose}>{t("settings-sent.done")}</Button>}
     >
-      {item && <><DetailBody item={item} /><div className="mt-4">{action}</div></>}
+      {item && <><DetailBody item={item} /><div className="mt-4 flex flex-col gap-4">{recall}{action}</div></>}
     </Dialog>
   );
 }

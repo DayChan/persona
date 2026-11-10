@@ -5,6 +5,7 @@
     <string name="settings_ext_dep_disabled">需要先启用</string>
     <string name="settings_ext_dep_old">版本不足（现在是 %1$s）</string>
     <string name="settings_ext_dep_unknown">状态未知，重新预览</string>
+    <string name="settings_ext_dep_unknown_installed">状态未知，请刷新详情</string>
     <string name="settings_ext_sandbox_active">沙箱正在生效</string>
     <string name="settings_ext_sandbox_inactive">要求了沙箱，但现在没开起来</string>
     <string name="settings_ext_sandbox_off">未启用沙箱</string>
@@ -130,6 +131,7 @@
     <string name="settings_ext_card_value">数值</string>
     <string name="settings_ext_card_total">合计</string>
     <string name="settings_ext_card_other">其他</string>
+    <string name="settings_ext_card_remaining">剩余</string>
     <string name="settings_ext_card_current">当前</string>
     <string name="settings_ext_not_chosen">未选</string>
     <string name="settings_ext_search">搜索</string>
@@ -324,6 +326,9 @@
     <string name="settings_ext_cua_ready">Cua 可以用</string>
     <string name="settings_ext_cua_installed">Cua 已装</string>
     <string name="settings_ext_machine_not_found">找不到这台机器</string>
+    <string name="settings_ext_machine_missing">%1$s（找不到这台机器）</string>
+    <string name="settings_ext_launcher_missing">%1$s（找不到这个启动器）</string>
+    <string name="settings_ext_launchers_loading">正在读启动器…</string>
     <string name="settings_ext_no_mac">这个 hub 上还没有 Mac。</string>
     <string name="settings_ext_no_machine">这个 hub 上还没有机器。</string>
     <string name="settings_ext_turn_on_title">打开「%1$s」？</string>

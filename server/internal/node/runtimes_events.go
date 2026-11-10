@@ -89,7 +89,8 @@ func (n *Node) runtimeEvent(h *runtimeConn, event string, params json.RawMessage
 }
 
 // normalizeRuntimeSessions keeps the sessions a runtime may list (valid ids, once each) and fills what the apps expect:
-// the agent and its label, the space kind (the runtime's id).
+// the agent and its label, the space kind (the runtime's id). It works in place: the rows kept are list's first ones,
+// in list's own array, the rest cleared, so list is the caller's to give up.
 func normalizeRuntimeSessions(h *runtimeConn, list []proto.Session) []proto.Session {
 	h.mu.Lock()
 	rt, agent, label, caps, daemon := h.hello.Runtime, h.hello.Agent, h.hello.Name, h.hello.Caps, h.daemon != ""
@@ -104,7 +105,7 @@ func normalizeRuntimeSessions(h *runtimeConn, list []proto.Session) []proto.Sess
 	if !caps.Send {
 		readOnly = label + " 没有开放从手机发消息"
 	}
-	seen := map[string]bool{}
+	seen := make(map[string]bool, len(list))
 	panes := map[string]string{}
 	defer func() {
 		h.mu.Lock()
@@ -116,7 +117,7 @@ func normalizeRuntimeSessions(h *runtimeConn, list []proto.Session) []proto.Sess
 		}
 		h.mu.Unlock()
 	}()
-	out := make([]proto.Session, 0, len(list))
+	out := list[:0] // row i is written at or before i, after it was read
 	for _, s := range list {
 		if !runtimeIDRe.MatchString(s.SessionID) || seen[s.SessionID] {
 			continue
@@ -144,7 +145,8 @@ func normalizeRuntimeSessions(h *runtimeConn, list []proto.Session) []proto.Sess
 		} else {
 			s.Host = ""
 		}
-		s.Capabilities = &proto.SessionCapabilities{Read: true, Send: caps.Send, Interrupt: caps.Interrupt, Approve: true}
+		s.Capabilities = &proto.SessionCapabilities{Read: true, Send: caps.Send, Interrupt: caps.Interrupt, Approve: true,
+			Modes: proto.CanModes(runtimeModes(caps.Modes, rt, s))}
 		s.ReadOnlyReason, s.Attached, s.CodexRoute, s.CodexRouteNote = readOnly, false, "", ""
 		// The pane is the engine's to show (pi.go joins it with the engine's pane), not part of the runtime's row.
 		if s.PaneID != "" && validPane(s.PaneID) {
@@ -166,6 +168,7 @@ func normalizeRuntimeSessions(h *runtimeConn, list []proto.Session) []proto.Sess
 		runtimeWork(&s)
 		out = append(out, s)
 	}
+	clear(list[len(out):]) // the rows left out hold no strings
 	return out
 }
 
@@ -292,4 +295,14 @@ func runtimeHealth(h *runtimeConn, ix proto.Interaction) bool {
 	}
 	s, ok := h.row(ix.SessionID)
 	return ok && (s.Space == identity.SpaceHealth || identity.InHealthSpace(s.Cwd))
+}
+
+// runtimeModes is a runtime row's modes capability: the runtime declared caps.modes (the node refuses session.modes
+// otherwise, runtimes_calls.go), the row is not a subagent's, and its agent takes Claude Code's modes (claude: Orca,
+// Paseo's Claude providers) or is the runtime's own (agy). Paseo has no agent of its own: its bridge calls every agent
+// other than Claude Code and Codex "paseo" (integrations/paseo/lib/map.js appAgent), and refuses a permission mode for
+// any of them that is not Claude (bridge.js modes). So a Paseo row running Codex, opencode or any other agent gets none.
+func runtimeModes(declared bool, rt string, s proto.Session) bool {
+	own := s.Agent == rt && rt != paseoRuntimeID
+	return declared && !strings.Contains(s.SessionID, subagentSep) && (s.Agent == "claude" || own)
 }

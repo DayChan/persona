@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.draw.rotate
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -60,17 +61,29 @@ fun JSectionHeader(
     onClick: (() -> Unit)? = null,
     /** Greyed: what it heads is not reachable now (an offline manager's group). */
     muted: Boolean = false,
+    /** Before the title: a group's tick while selecting (#2576). */
+    leading: (@Composable () -> Unit)? = null,
+    /** A group inside a section (an inbox section's source or day, #2576): closer to its rows, the title a level below the
+     *  section's (caption, regular, in every style; as iOS and the web), and a caret for whether it is open (null: none). */
+    sub: Boolean = false,
+    open: Boolean? = null,
     action: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val palette = PersonaTheme.palette
     val style = PersonaTheme.style
     Row(
         modifier.fillMaxWidth().then(if (onClick != null) Modifier.combinedClickable(role = Role.Button, onClick = onClick) else Modifier)
-            .padding(top = if (style == AppStyle.Board) 18.dp else 26.dp, bottom = 10.dp,
+            .padding(top = if (sub) Tokens.Space.s else if (style == AppStyle.Board) 18.dp else 26.dp, bottom = if (sub) Tokens.Space.xs else 10.dp,
                 start = if (style == AppStyle.Brief) 0.dp else 4.dp, end = if (style == AppStyle.Brief) 0.dp else 4.dp)
+            .heightIn(min = if (leading != null) 48.dp else 0.dp)
             .semantics { heading() },
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        leading?.let { it(); Spacer(Modifier.width(Tokens.Space.xs)) }
+        if (sub && open != null) {
+            JIcon(PhIcons.CaretRight, null, size = Tokens.Space.m, tint = palette.ink3, modifier = Modifier.rotate(if (open) 90f else 0f))
+            Spacer(Modifier.width(Tokens.Space.xs))
+        }
         if (status != null && style == AppStyle.Board) {
             Box(Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(palette.status(status).dot))
             Spacer(Modifier.width(8.dp))
@@ -80,9 +93,10 @@ fun JSectionHeader(
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 title,
-                style = if (style == AppStyle.Glass) PersonaTheme.type.caption.copy(fontWeight = FontWeight.SemiBold, fontSize = androidx.compose.ui.unit.TextUnit(14f, androidx.compose.ui.unit.TextUnitType.Sp))
+                style = if (sub) PersonaTheme.type.caption.copy(fontWeight = FontWeight.Normal)
+                else if (style == AppStyle.Glass) PersonaTheme.type.caption.copy(fontWeight = FontWeight.SemiBold, fontSize = androidx.compose.ui.unit.TextUnit(14f, androidx.compose.ui.unit.TextUnitType.Sp))
                 else PersonaTheme.type.headline.copy(fontSize = androidx.compose.ui.unit.TextUnit(15f, androidx.compose.ui.unit.TextUnitType.Sp)),
-                color = if (muted) palette.ink3 else if (style == AppStyle.Glass) palette.ink2 else palette.ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = if (muted) palette.ink3 else if (sub || style == AppStyle.Glass) palette.ink2 else palette.ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
             count?.let { Spacer(Modifier.width(6.dp)); Text("$it", style = PersonaTheme.type.micro, color = palette.ink3) }
@@ -291,8 +305,10 @@ fun JSwitchRow(
     subtitle: String? = null,
     leadingIcon: PhIcon? = null,
     enabled: Boolean = true,
+    /** Lines the subtitle may take before it ends in an ellipsis; a line that must be read in full passes [Int.MAX_VALUE]. */
+    subtitleLines: Int = 2,
 ) = JRow(title, modifier, subtitle, leadingIcon, value = null, onClick = { onCheckedChange(!checked) }, chevron = false, enabled = enabled,
-    trailing = { JSwitch(checked, null, enabled = enabled) }, role = Role.Switch)
+    subtitleLines = subtitleLines, trailing = { JSwitch(checked, null, enabled = enabled) }, role = Role.Switch)
 
 /**
  * A card: a frosted panel, a wash card, or a bordered strip. [status] tints the glass edge and gives board

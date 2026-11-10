@@ -389,7 +389,7 @@ describe("NavRail", () => {
     expect(host.querySelector("[data-nav-preview]")).toBeNull();
   });
 
-  it("does no per-message layout reads or transcript renders on ordinary scroll frames", async () => {
+  it("reads rows from the content's own children, and does no per-message layout reads on scroll frames", async () => {
     const sc = scrollerWith(700, 600);
     const content = document.createElement("div");
     content.dataset.chatContent = "";
@@ -406,7 +406,7 @@ describe("NavRail", () => {
     const query = vi.spyOn(sc, "querySelectorAll");
     act(() => root.render(<NavRail ticks={boxes.map((_, i) => tick(i))} scroller={sc} onJump={() => {}} reset="example/s1" />));
     await settle();
-    query.mockClear();
+    expect(query).not.toHaveBeenCalled(); // the measure walks the content's children, not the transcript subtree
     for (const child of boxes) vi.mocked(child.getBoundingClientRect).mockClear();
     act(() => { sc.scrollTop = 530; sc.dispatchEvent(new Event("scroll")); });
     await settle();

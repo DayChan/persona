@@ -42,6 +42,7 @@ const (
 	DeviceLaunchersShow       = "launchers.show"        // {name} → {definition}
 	DeviceLaunchersCheck      = "launchers.check"       // {name} → proto.LauncherCheck
 	DeviceClaudeAuthStatus    = "claude.auth_status"    // {name} → proto.ClaudeAuthStatus (free: no model request)
+	DeviceClaudeSettings      = "claude.settings"       // {locale?} → {settings: [{key, value, …}]}: Settings › Claude Code
 	DeviceLaunchersHTTP       = "launchers.http"        // {name, http?, configured?} → {base_url} or quota.Response
 	DeviceLaunchersRepair     = "launchers.repair"      // {name, action: "upgrade_cli"} → proto.LauncherRepair
 )

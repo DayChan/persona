@@ -23,7 +23,8 @@ type bgScan struct {
 	mu      sync.Mutex
 	off     int64
 	meta    transcript.Meta
-	pending bool // the first read of a big transcript is running in the background
+	pending bool   // the first read of a big transcript is running in the background
+	seen    bgSeen // the file read, for the next connection of a resident node (carry.go)
 }
 
 // bgSyncLimit: up to this much unread transcript is scanned for background tasks right away. More than that (the
@@ -56,15 +57,18 @@ func (n *Node) backgroundTasks(path string) (tasks []proto.BackgroundTask, loop 
 		if errors.Is(err, fs.ErrNotExist) { // deleted: the scan would stay for the node's whole uptime
 			n.forgetBgScan(path, sc)
 		}
+		sc.checkCarried(nil, nil)
 		return nil, nil, nil, false
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil {
+		sc.checkCarried(nil, nil)
 		return nil, nil, nil, false
 	}
+	sc.checkCarried(f, st)
 	if st.Size() < sc.off { // rewritten
-		sc.off, sc.meta = 0, transcript.Meta{}
+		sc.off, sc.meta, sc.seen = 0, transcript.Meta{}, bgSeen{}
 	}
 	if sc.pending {
 		return nil, nil, nil, true
@@ -75,6 +79,7 @@ func (n *Node) backgroundTasks(path string) (tasks []proto.BackgroundTask, loop 
 		return nil, nil, nil, true
 	}
 	scanBackground(f, &sc.off, &sc.meta, st.Size())
+	sc.seen.note(f, st, sc.off)
 	for _, t := range sc.meta.Background {
 		// Older ones are surely gone (claude restarted); a Monitor past its expiry has stopped.
 		if time.Since(t.StartedAt) < 24*time.Hour && (t.ExpiresAt == nil || time.Now().Before(*t.ExpiresAt)) {
@@ -185,12 +190,17 @@ func (n *Node) scanBackgroundLater(path string, sc *bgScan, size int64) {
 	defer func() { <-bgSlot }()
 	var off int64
 	var m transcript.Meta
+	var seen bgSeen
 	if f, err := os.Open(path); err == nil {
 		scanBackground(f, &off, &m, size)
+		if st, err := f.Stat(); err == nil {
+			seen.note(f, st, off)
+		}
 		f.Close()
 	}
 	sc.mu.Lock()
-	sc.off, sc.meta, sc.pending = off, m, false
+	seen.carried = sc.seen.carried // handed to the next connection's Node meanwhile: checked on its first use there
+	sc.off, sc.meta, sc.seen, sc.pending = off, m, seen, false
 	sc.mu.Unlock()
 }
 

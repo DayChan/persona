@@ -55,7 +55,10 @@ type claudeProc struct {
 	// The claude's peer inbox (claudepeer.go): where it listens and the protocol it speaks.
 	MessagingSocketPath string `json:"messagingSocketPath"`
 	PeerProtocol        int    `json:"peerProtocol"`
-	dir                 string // the sessions directory the file is in (its key file is next to it)
+	// Tmux is the pane Claude Code says it runs in ("orc:@11.%11", its session:window.pane), "" for one that is not in
+	// tmux: the approval in such a pane can be answered from the app (#2562).
+	Tmux string `json:"tmux"`
+	dir  string // the sessions directory the file is in (its key file is next to it)
 }
 
 // liveClaudes reads the sessions/<pid>.json of every claude still running, in every config directory, once per pid.

@@ -85,9 +85,9 @@ final class ReturnToChatTests: XCTestCase {
         XCTAssertEqual(shownChat(), picked, "after the home screen")
     }
 
-    /// The tree swaps (`-swapTreeAt`: the width class compact for a moment, what iOS may do on iPhone Duo open when the
-    /// app goes to the background): the new Agents tree opens the chat again. On a regular width only (iPad), where
-    /// the swap is from the split to the shell and back.
+    /// The tree swaps (`-swapTreeAt`: the shell for a moment and back, as a fold and an unfold make it on iPhone Duo; the
+    /// snapshots on the way to the background no longer do, #2836): the new Agents tree opens the chat again. On a regular
+    /// width only (iPad), where the swap is from the split to the shell and back.
     @MainActor func testTheChatStaysAfterTheTreeSwaps() throws {
         let picked = try openSibling(fresh: false, extra: ["-swapTreeAt", "20"], regularOnly: true)
         let launched = app.probe("chat", as: Chat.self, page: "agents")?.appeared ?? 0

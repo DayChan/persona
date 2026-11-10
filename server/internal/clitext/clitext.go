@@ -1,6 +1,7 @@
 // Package clitext is what every program's command line shares (personad, persona-node, persona-hub,
-// persona-manager): a usage mistake, and the program's name in what it prints. It depends on nothing of the server,
-// so a program links it without the code of the others (docs/server/server.md "Programs").
+// persona-manager, persona-link): a usage mistake, the program's name in what it prints, and untrusted text made inert
+// before it is printed (Inert). It depends on nothing of the server, so a program links it without the code of the
+// others (docs/server/server.md "Programs").
 package clitext
 
 import (

@@ -90,7 +90,7 @@ func (s *Service) startPlan(ctx context.Context, id string, edits []PlanTask, re
 			}
 		}
 		t.TodoID = todo.ID
-		if s.isMain(ctx, p.Conversation) { // the main conversation follows up what it hands out (supervise.go)
+		if s.supervises(ctx, p.Conversation) { // the main conversation or a leader follows up what it hands out (supervise.go)
 			s.superviseTodo(ctx, todo.ID, p.Conversation, t.DoneWhen, t.ExpectMinutes)
 		}
 		if t.ReuseTodo != "" {
@@ -229,6 +229,7 @@ func (s *Service) startPlanTask(planID, conversation string, i int, t PlanTask, 
 		}
 	}
 	if err == nil {
+		s.remedyStarted(context.WithoutCancel(ctx), planID, conversation, i, t) // after an assistant's retry (start_remedy.go)
 		return
 	}
 	s.logf("task %s: start: %v", t.TodoID, err)
@@ -241,19 +242,34 @@ func (s *Service) startPlanTask(planID, conversation string, i int, t PlanTask, 
 		limit = proto.CodedStartErrorMax // the hub's sentence, whose remedy comes last (#1642): kept whole
 	}
 	reason := clip(oneLine(s.startFailureText(ctx, t.Machine, err)), limit)
+	// The new tab's shell waits on a question, or the agent's screen stopped, and the computer keeps the tab: a
+	// supervised task's start is remedied first, not failed yet (start_remedy.go, #2570).
+	code, args := codedStartRefusal(err)
+	if s.beginRemedy(ctx, planID, i, t, err, code, args, reason) {
+		return
+	}
+	// A retry the assistant asked for that failed so its tab is gone: the start fails for good, and the supervisor and
+	// the user hear of it as of a first failure.
+	remedied := t.Start != nil && t.Start.State == remedying
 	if ferr := s.failTodo(ctx, t.TodoID, reason); ferr != nil {
 		s.logf("task %s: fail: %v", t.TodoID, ferr)
 	}
 	if perr := s.patchPlanTask(ctx, planID, i, func(pt *PlanTask) {
 		pt.Error = err.Error()
-		pt.ErrorCode, pt.ErrorArgs = codedStartRefusal(err)
+		pt.ErrorCode, pt.ErrorArgs = code, args
+		if remedied && pt.Start != nil {
+			pt.Start.State, pt.Start.Pane, pt.Start.At = remedyFailed, "", time.Now().UTC()
+		}
 	}); perr != nil {
 		s.logf("plan %s: task %d's start error: %v", planID, i, perr)
 	}
 	s.tasks.mu.Lock()
 	s.tasks.receipted[t.TodoID] = time.Now()
 	s.tasks.mu.Unlock()
-	if retry {
+	if remedied {
+		s.remedyStep(ctx, conversation, t.TodoID, startRemedyBody{Action: "gave_up", By: "hub", Attempt: t.Start.Attempt, Reason: reason})
+	}
+	if retry && !remedied {
 		return
 	}
 	_, _ = s.appendFeed(ctx, conversation, feedReceipt, t.TodoID, receiptBody{Title: t.Title, State: "failed",

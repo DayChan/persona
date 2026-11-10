@@ -46,5 +46,21 @@
   "no_sources_hint": "接上邮箱或飞书，新消息会收到这里，AI 先帮你分好要你处理的和知悉即可的。",
   "no_sources_connect": "接入{name}",
   "rules_list": "规则",
-  "mutes_offline": "离线中：它回来后这里会显示它的静音。"
+  "mutes_offline": "离线中：它回来后这里会显示它的静音。",
+  "selection": "选中的条目",
+  "select_all": "全选",
+  "deselect_all": "取消全选",
+  "selected_count": "已选 {count} 项",
+  "grouping": "分组方式",
+  "by_source": "按来源",
+  "by_time": "按时间",
+  "jump_to": "跳到",
+  "fold_all": "全部折叠",
+  "unfold_all": "全部展开",
+  "group_picked": "已选 {count}",
+  "picked_folded": "已选 {count} 项（含折叠的 {folded} 项）",
+  "pick_group": "选中「{name}」整组",
+  "load_older": "加载更早的",
+  "loading_older": "正在加载…",
+  "older_failed": "没加载到更早的：{error}"
 }

@@ -4,7 +4,8 @@
 // across re-parses (matched by content), so a word that has already faded in never plays again; a remounted node
 // resumes its animation with a negative delay. Code blocks and formulas appear at once.
 //
-// While streaming, settled segments keep their span (only the animation class goes); when the stream ends the message
+// While streaming, settled segments keep their span (only the animation class goes, when the chunk is parsed again:
+// nothing is written to the page as each word ends, FadeSpan.tsx); when the stream ends the message
 // is rendered as plain Markdown again, without any of these spans. A block that fades in once (`plain`) writes its
 // settled segments as plain text instead, so taking over a timeline whose words are mostly in (shownBefore: the stream
 // it ends, or an earlier mount of the same block) costs about what plain Markdown does.

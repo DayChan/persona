@@ -54,21 +54,107 @@ import persona.core.designsystem.WorkStep as TimelineStep
 import persona.core.designsystem.icons.PhIcons
 import persona.core.domain.lines.*
 import androidx.compose.runtime.key
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import okio.FileSystem
 import okio.Path.Companion.toOkioPath
 
-internal class ChatMarkdownCache {
-    private val entries = object : LinkedHashMap<String, Pair<String, MarkdownResult>>(80, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<String, MarkdownResult>>) = size > 80
+/** What a reply's text parses as: its formulas as images (MathMarkdown) and its bare links as autolinks (ChatLinks). */
+internal fun chatMarkdown(text: String) = ChatLinks.markdown(MathMarkdown.rewrite(text))
+
+/**
+ * The page's parsed Markdown (docs/android/android.md "Reply Markdown parsing"): one entry per id, the text it
+ * was parsed from and its parse.
+ *
+ * What it keeps: every id the page's prewarm last asked to [keep], and the most recently used [OTHERS] ids besides
+ * (thinking, plans, recaps, replies older than the prewarm's). So it holds at most the prewarm's set (its 80 replies'
+ * text parts) plus [OTHERS]: about 112 entries, which at the ~19 bytes of parse per byte of reply measured on the JVM
+ * (ChatMarkdownBench.retainedHeapPerEntry: 38 KB for a 2 KB reply, 294 KB for 16 KB, 1.15 MB for 64 KB) is about 4 MB
+ * of 2 KB replies and 33 MB of 16 KB ones. A plain LRU as large as the prewarm's set lost all of it to the first other
+ * text: the prewarm, walking its set in order, then evicted each entry just before it came back to it.
+ *
+ * One parse per id and text: a caller that asks while a parse of the same id and text is under way (the page's prewarm
+ * and the row it warms, say) waits for that one. The parse runs in the cache's own [scope], so a caller that leaves (a
+ * row scrolled away, a prewarm restarted) does not cancel it for the others or lose its work.
+ *
+ * A streaming reply parses from its last settled block on ([ChatMarkdownStream]); once it ends, its final text is parsed
+ * whole and kept under the same id.
+ */
+internal class ChatMarkdownCache(
+    /** Parses Markdown whole: mikepenz's parseMarkdown, or one that counts in tests. */
+    private val parseWhole: (String) -> MarkdownResult = { parseMarkdown(it) },
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+) {
+    /** [result] parsed from [text]; [whole]: by [parseWhole], not from a stream's tail. */
+    private class Entry(val text: String, val result: MarkdownResult, val whole: Boolean)
+    private data class Parse(val id: String, val text: String, val whole: Boolean)
+
+    /** Least recently used first. */
+    private val entries = LinkedHashMap<String, Entry>(128, 0.75f, true)
+    private var kept: Set<String> = emptySet()
+    private val running = HashMap<Parse, Deferred<MarkdownResult>>()
+    private val streams = ChatMarkdownStream(parseWhole)
+
+    @Synchronized fun cached(id: String, text: String) = entries[id]?.takeIf { it.text == text }?.result
+
+    /** The ids the page's prewarm parses, kept however many other ids are parsed between its runs. */
+    @Synchronized fun keep(ids: Collection<String>) {
+        kept = ids.toHashSet()
+        trim()
     }
-    @Synchronized fun cached(id: String, text: String) = entries[id]?.takeIf { it.first == text }?.second
-    suspend fun parse(id: String, text: String): MarkdownResult {
-        cached(id, text)?.let { return it }
-        val parsed = withContext(Dispatchers.Default) { parseMarkdown(ChatLinks.markdown(MathMarkdown.rewrite(text))) }
-        synchronized(this) { entries[id] = text to parsed }
-        return parsed
+
+    private fun trim() {
+        var others = entries.keys.count { it !in kept }
+        val ids = entries.keys.iterator()
+        while (others > OTHERS && ids.hasNext()) {
+            if (ids.next() !in kept) {
+                ids.remove()
+                others--
+            }
+        }
+    }
+
+    /**
+     * [text]'s Markdown under [id]. [streaming] is what the row knows of the reply (MessageContent): true while it
+     * streams, false once it is whole; null from a caller that does not know (the page's prewarm, a plan or a recap),
+     * which goes with what the row last said.
+     */
+    suspend fun parse(id: String, text: String, streaming: Boolean? = null): MarkdownResult {
+        val parse = synchronized(this) {
+            when (streaming) {
+                true -> streams.start(id)
+                false -> streams.end(id)
+                null -> {}
+            }
+            val whole = !streams.streaming(id)
+            entries[id]?.takeIf { it.text == text && (it.whole || !whole) }?.let { return it.result }
+            val key = Parse(id, text, whole)
+            running[key] ?: scope.async(start = CoroutineStart.LAZY) { compute(key) }.also { job ->
+                running[key] = job
+                job.invokeOnCompletion { synchronized(this) { running.remove(key, job) } }
+                job.start()
+            }
+        }
+        return parse.await()
+    }
+
+    private fun compute(parse: Parse): MarkdownResult {
+        val markdown = chatMarkdown(parse.text)
+        val (result, whole) = if (parse.whole) parseWhole(markdown) to true else streams.parse(parse.id, markdown)
+        synchronized(this) {
+            entries[parse.id] = Entry(parse.text, result, whole)
+            trim()
+        }
+        return result
+    }
+
+    companion object {
+        const val OTHERS = 32
     }
 }
 
@@ -77,14 +163,15 @@ internal val LocalChatMarkdownCache = staticCompositionLocalOf<ChatMarkdownCache
 /**
  * Markdown in a conversation. A message's words pass [selectable] false: a long press on a message opens its menu (whose
  * "Select" shows the text to select from), and a SelectionContainer would take the press (docs/android/android.md, the old App's
- * lessons). Text without that menu (thinking, a plan, a recap) stays selectable.
+ * lessons). Text without that menu (thinking, a plan, a recap) stays selectable. [streaming]: a reply's row says whether
+ * it is still streaming ([ChatMarkdownCache.parse]).
  */
 @Composable
 internal fun ChatMarkdown(text: String, id: String = text,
     bodyStyle: TextStyle = PersonaTheme.type.body, color: Color = PersonaTheme.palette.ink, selectable: Boolean = true,
-    viewKeys: ((Int) -> String)? = null) {
-    if (selectable) SelectionContainer { ChatMarkdownBody(text, id, bodyStyle, color, viewKeys) }
-    else ChatMarkdownBody(text, id, bodyStyle, color, viewKeys)
+    viewKeys: ((Int) -> String)? = null, streaming: Boolean? = null) {
+    if (selectable) SelectionContainer { ChatMarkdownBody(text, id, bodyStyle, color, viewKeys, streaming) }
+    else ChatMarkdownBody(text, id, bodyStyle, color, viewKeys, streaming)
 }
 
 /**
@@ -95,12 +182,12 @@ internal fun ChatMarkdown(text: String, id: String = text,
  */
 @Composable
 private fun ChatMarkdownCards(text: String, id: String, fences: List<persona.core.domain.views.AssistantFence>,
-    bodyStyle: TextStyle, color: Color, viewKeys: ((Int) -> String)?) {
+    bodyStyle: TextStyle, color: Color, viewKeys: ((Int) -> String)?, streaming: Boolean?) {
     val blocks = LocalViewBlocks.current
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Tokens.Space.s)) {
         var at = 0
         fences.forEachIndexed { n, fence ->
-            text.substring(at, fence.start).takeIf { it.isNotBlank() }?.let { ChatMarkdownBody(it, "$id/m$n", bodyStyle, color, null) }
+            text.substring(at, fence.start).takeIf { it.isNotBlank() }?.let { ChatMarkdownBody(it, "$id/m$n", bodyStyle, color, null, streaming) }
             at = fence.end
             when {
                 blocks == null -> CodeText(fence.raw.trimEnd('\n', '\r'), fence.language, syntax = true)
@@ -111,16 +198,17 @@ private fun ChatMarkdownCards(text: String, id: String, fences: List<persona.cor
                 }
             }
         }
-        text.substring(at).takeIf { it.isNotBlank() }?.let { ChatMarkdownBody(it, "$id/m${fences.size}", bodyStyle, color, null) }
+        text.substring(at).takeIf { it.isNotBlank() }?.let { ChatMarkdownBody(it, "$id/m${fences.size}", bodyStyle, color, null, streaming) }
     }
 }
 
 @Composable
-private fun ChatMarkdownBody(text: String, id: String, bodyStyle: TextStyle, color: Color, viewKeys: ((Int) -> String)? = null) {
+private fun ChatMarkdownBody(text: String, id: String, bodyStyle: TextStyle, color: Color, viewKeys: ((Int) -> String)? = null,
+    streaming: Boolean? = null) {
     val fences = remember(text) {
         if (persona.core.domain.views.AssistantFences.mentions(text)) persona.core.domain.views.AssistantFences.blocks(text) else emptyList()
     }
-    if (fences.isNotEmpty()) return ChatMarkdownCards(text, id, fences, bodyStyle, color, viewKeys)
+    if (fences.isNotEmpty()) return ChatMarkdownCards(text, id, fences, bodyStyle, color, viewKeys, streaming)
     val cache = LocalChatMarkdownCache.current ?: remember { ChatMarkdownCache() }
     // The paths there on the session's machine become links that open the files pane (PathLinks.kt).
     val actions = LocalChatRowActions.current
@@ -131,8 +219,9 @@ private fun ChatMarkdownBody(text: String, id: String, bodyStyle: TextStyle, col
     val linkable = if (presence == null || open == null) emptySet() else asked.filterTo(LinkedHashSet(), presence::linkable)
     val source = remember(text, linkable) { PathLinks.markdown(text, linkable) }
     // produceState retains its previous value across key changes. Never draw a predecessor's Markdown in this slot.
-    val parsedSource by produceState(source to cache.cached(id, source), id, source, cache) {
-        value = source to cache.parse(id, source)
+    // [streaming] is a key too: a reply that ends on the text it last streamed still gets its whole parse.
+    val parsedSource by produceState(source to cache.cached(id, source), id, source, cache, streaming) {
+        value = source to cache.parse(id, source, streaming)
     }
     val parsed = parsedSource.takeIf { it.first == source }?.second
     val palette = PersonaTheme.palette

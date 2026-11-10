@@ -15,8 +15,9 @@ func TestClaudeQuestionCancelDeniesOnlyQuestionWithoutAnswer(t *testing.T) {
 	fh.mu.Lock()
 	fh.answer = func(proto.Interaction) proto.Resolution { return proto.Resolution{Cancel: true} }
 	fh.mu.Unlock()
-	out := runQuestionHook(t, n, []map[string]any{{"question": "Which color?"}})
-	if out["permissionDecision"] != "deny" || out["updatedInput"] != nil || out["continue"] != nil {
+	out := runQuestionHook(t, n, "PermissionRequest", []map[string]any{{"question": "Which color?"}})
+	decision, _ := out["decision"].(map[string]any)
+	if decision["behavior"] != "deny" || decision["updatedInput"] != nil || out["continue"] != nil {
 		t.Fatalf("question cancellation supplied input or stopped the task: %+v", out)
 	}
 	if ix := fh.interactions(); len(ix) != 1 || !ix[0].CanCancel {
@@ -27,8 +28,9 @@ func TestClaudeQuestionCancelDeniesOnlyQuestionWithoutAnswer(t *testing.T) {
 		return proto.Resolution{Answers: map[string]string{"Next question?": "Blue"}}
 	}
 	fh.mu.Unlock()
-	out = runQuestionHook(t, n, []map[string]any{{"question": "Next question?"}})
-	if out["permissionDecision"] != "allow" {
+	out = runQuestionHook(t, n, "PermissionRequest", []map[string]any{{"question": "Next question?"}})
+	decision, _ = out["decision"].(map[string]any)
+	if decision["behavior"] != "allow" {
 		t.Fatalf("later question cannot be answered: %+v", out)
 	}
 }

@@ -225,6 +225,9 @@ final class AvatarUploadModel: Identifiable {
     private(set) var made: UploadedLook?
     /// Made, on this device and chosen: nothing more to do.
     private(set) var done = false
+    /// What the store had heard of the hub's choices when the image went (`PersonaStore.heard`): a choice heard since
+    /// is newer than the upload's `choose`.
+    @ObservationIgnored private var asked = 0
     @ObservationIgnored private let deps: Deps
 
     init(image: CGImage, deps: Deps = .live) {
@@ -279,6 +282,7 @@ final class AvatarUploadModel: Identifiable {
                 return false
             }
             do {
+                asked = deps.store().heard
                 look = try await api.uploadLook(body(image: encoded))
             } catch {
                 self.error = Self.message(for: error)
@@ -295,13 +299,15 @@ final class AvatarUploadModel: Identifiable {
     }
 
     /// The new avatar in the store's list, on the phone and chosen. The list is read after the hub answered: a refresh
-    /// that was under way may have asked before the avatar was made (`PersonaStore.reload`).
+    /// that was under way may have asked before the avatar was made (`PersonaStore.reload`). The upload's `choose` chose
+    /// it on the hub already: it is not sent again, and another device's choice heard since (newer) stays. True once
+    /// it is on this device: chosen here, or replaced on the hub meanwhile.
     private func adopt(_ look: UploadedLook, api: APIClient) async -> Bool {
         let store = deps.store()
         if !store.offered.contains(where: { $0.id == look.id }) { await store.reload(api) }
         guard let p = store.offered.first(where: { $0.id == look.id }) else { return false }
-        await store.choose(p, api: api)
-        return store.current.id == look.id && store.chosenID == look.id
+        await store.choose(p, api: api, onHub: asked)
+        return store.isOnPhone(p)
     }
 
     /// The hub's message for a refusal as it is (it is in the user's language already); for no answer at all, a line
@@ -369,6 +375,8 @@ final class AvatarUploadsModel {
     /// the other devices). One already gone from the hub counts as deleted.
     func delete(_ p: Persona) async -> Bool {
         guard canDelete(p), !deleting.contains(p.id), let api = deps.api() else { return false }
+        let store = deps.store()
+        let asked = store.heard // what the hub pushes after its own push of the default is newer (`PersonaStore.choose`)
         deleting.insert(p.id)
         defer { deleting.remove(p.id) }
         do {
@@ -380,8 +388,7 @@ final class AvatarUploadsModel {
             return false
         }
         error = nil
-        let store = deps.store()
-        if store.chosenID == p.id { await store.choose(.builtin, api: api) }
+        if store.chosenID == p.id { await store.choose(.builtin, api: api, onHub: asked) } // the hub chose it already
         // Read after the delete: a refresh under way may still list it.
         await store.reload(api)
         return true

@@ -8,4 +8,8 @@ nonisolated enum Palette {
     static let systemBlue = Color(light: 0x007AFF, dark: 0x0A84FF)
     /// A system blue dark enough for white button labels (4.7:1).
     static let buttonBlue = Color(light: 0x0071E3, dark: 0x0071E3)
+    /// System red: a recording in progress (the recording Live Activity's dot, timer and Stop), as the system's own.
+    static let recordingRed = Color(light: 0xFF3B30, dark: 0xFF453A)
+    /// The same red dark enough for a white label on it (4.6:1): the recording Live Activity's Stop button.
+    static let recordingButton = Color(light: 0xD70015, dark: 0xD70015)
 }

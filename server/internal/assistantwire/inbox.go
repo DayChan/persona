@@ -20,6 +20,7 @@ import (
 var InboxRoutes = []string{
 	"GET /api/v1/inbox",
 	"GET /api/v1/inbox/done",
+	"GET /api/v1/inbox/done/days",
 	"GET /api/v1/inbox/{id}",
 	"POST /api/v1/inbox/{id}/done",
 	"POST /api/v1/inbox/{id}/draft",
@@ -277,8 +278,9 @@ type InboxAgentConfig struct {
 	// MaxAgeHours: items whose newest message is older are not handed over (default 24), so turning this on does
 	// not start an agent for every old item.
 	MaxAgeHours int `json:"max_age_hours,omitempty"`
-	// Rules is manager.json's inbox.agent.rules: no longer read (the judge only links items to tasks; what the twin takes
-	// on is set by inbox policies). Kept so older hub.json files still parse.
+	// Rules is manager.json's inbox.agent.rules: the file default for the settings key `inbox.agent_rules`
+	// (extmgr/self_settings.go inboxAgentRules). The database value wins once set; without either, what the twin takes on
+	// is set by inbox policies. Kept so older hub.json files still parse.
 	Rules string `json:"rules,omitempty"`
 }
 

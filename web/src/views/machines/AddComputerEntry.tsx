@@ -9,7 +9,10 @@ import { useStore } from "../../lib/store";
 import { Button } from "../../ui/atoms";
 import { Empty } from "../assistant/parts";
 import { HelpDialog } from "../assistant/Readiness";
-import { AddComputer } from "./AddComputer";
+import { lazyDialog } from "../LazyOverlay";
+
+// the dialog loads on its first open: the sidebar and New agent draw without it
+const AddComputer = lazyDialog(() => import("./AddComputer").then((m) => m.AddComputer));
 
 /** `open` starts adding a computer; `dialog` is rendered once beside the button (outside any other dialog). */
 export function useAddComputer(): { open: () => void; dialog: React.ReactNode } {

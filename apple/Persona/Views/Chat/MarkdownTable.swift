@@ -180,6 +180,13 @@ struct FittedTable: View {
     static let cellPadding: CGFloat = 16
     static let border: CGFloat = 1
 
+    /// Its rules and rows' backgrounds (also the picture of it in a message being selected, `ReplyTable`).
+    static func drawn(_ label: some View) -> some View {
+        label
+            .markdownTableBorderStyle(.init(color: Color.primary.opacity(0.14)))
+            .markdownTableBackgroundStyle(.alternatingRows(Color.clear, Color.primary.opacity(0.035), header: Color.primary.opacity(0.07)))
+    }
+
     var body: some View {
         #if DEBUG || PERF_SIGNPOST
         let _ = PerfTrace.body("FittedTable")
@@ -191,10 +198,7 @@ struct FittedTable: View {
                             available: available - n * (Self.cellPadding + Self.border) - Self.border * 3)
             : nil
         ScrollView(.horizontal, showsIndicators: false) {
-            config.label
-                .environment(\.tableColumnWidths, plan?.widths ?? [])
-                .markdownTableBorderStyle(.init(color: Color.primary.opacity(0.14)))
-                .markdownTableBackgroundStyle(.alternatingRows(Color.clear, Color.primary.opacity(0.035), header: Color.primary.opacity(0.07)))
+            Self.drawn(config.label).environment(\.tableColumnWidths, plan?.widths ?? [])
         }
         .scrollDisabled(plan?.scrolls != true)
         // What shows of it, not offset + container: on an iPad the chat's scroll views run on under the sidebar, inset

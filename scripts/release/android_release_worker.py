@@ -64,6 +64,9 @@ def version_code(checkout, sha, base=VERSION_BASE):
 
 
 def status(config, sha, state, description):
+    if config.get("report_commit_status") is not True:
+        print(f"GitHub commit status disabled: {STATUS_CONTEXT} {state}", flush=True)
+        return
     gh = config.get("gh", "gh")
     run([gh, "api", f"repos/{config['repository']}/statuses/{sha}",
          "-f", "state=" + state, "-f", "context=" + STATUS_CONTEXT,

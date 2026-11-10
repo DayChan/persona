@@ -41,6 +41,9 @@ func (s *Service) recordingRoutes(engine func(http.ResponseWriter, *http.Request
 			return
 		}
 		id, _ := kb.RecordingID(r.PathValue("id"))
+		if status == kb.RecordingStored && u.Complete {
+			s.kbWake() // its summary and minutes now, not at the next round
+		}
 		apierr.WriteJSON(w, map[string]any{"id": id, "revision": u.Revision, "status": status})
 	})
 	s.handle("DELETE /api/v1/recordings/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -67,4 +70,5 @@ func (s *Service) recordingRoutes(engine func(http.ResponseWriter, *http.Request
 		kept, deleted := e.RecordingStates()
 		apierr.WriteJSON(w, map[string]any{"days": e.RecordingDays(), "recordings": kept, "deleted": deleted})
 	})
+	s.minutesRoutes(engine)
 }

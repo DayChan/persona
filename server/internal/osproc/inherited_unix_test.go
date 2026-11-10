@@ -5,22 +5,27 @@ package osproc
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/nwverse/persona/server/internal/osproc/osproctest"
 )
 
 // TestMain lets the test binary be the processes of TestSealInherited: the reporter (osproctest) and the process in
-// the middle (sealHelperEnv).
+// the middle (sealHelperEnv); and the process of TestReapInherited (reapHelperEnv).
 func TestMain(m *testing.M) {
 	osproctest.ReportIfAsked()
 	if mode := os.Getenv(sealHelperEnv); mode != "" {
 		os.Exit(sealHelper(mode))
+	}
+	if mode := os.Getenv(reapHelperEnv); mode != "" {
+		os.Exit(reapHelper(mode))
 	}
 	os.Exit(m.Run())
 }
@@ -59,6 +64,44 @@ func sealHelper(mode string) int {
 	}
 	b, _ := json.Marshal(res)
 	fmt.Printf("%s%s\n", sealHelperPrefix, b)
+	return 0
+}
+
+// reapHelperEnv runs the test binary as the process of TestReapInherited: it starts a child it never waits for, then
+// replaces itself with the test binary again (syscall.Exec), as the resident node does on a restart. The new image
+// calls ReapInherited first when the value is "reap", not when it is "leave".
+const reapHelperEnv = "PERSONA_TEST_REAP_HELPER"
+
+// reapExecedEnv marks the image after that exec.
+const reapExecedEnv = "PERSONA_TEST_REAP_EXECED"
+
+const reapHelperPrefix = "reap-helper: "
+
+func reapHelper(mode string) int {
+	if os.Getenv(reapExecedEnv) == "" {
+		child := exec.Command("sleep", "60")
+		if err := child.Start(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Printf("%schild %d\n", reapHelperPrefix, child.Process.Pid)
+		exe, err := os.Executable()
+		if err == nil {
+			err = syscall.Exec(exe, os.Args, append(os.Environ(), reapExecedEnv+"=1"))
+		}
+		fmt.Fprintln(os.Stderr, "exec:", err)
+		return 1
+	}
+	if mode == "reap" {
+		ReapInherited()
+	}
+	// A child this image starts is still its exec.Cmd's to wait for: ReapInherited waits for the pids it found only.
+	own := "ok"
+	if err := exec.Command("true").Run(); err != nil {
+		own = err.Error()
+	}
+	fmt.Printf("%sready %s\n", reapHelperPrefix, own)
+	_, _ = io.Copy(io.Discard, os.Stdin)
 	return 0
 }
 

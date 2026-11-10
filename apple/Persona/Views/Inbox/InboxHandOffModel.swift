@@ -190,9 +190,19 @@ final class InboxHandOffModel {
 
     static func marksDone(_ target: Target) -> Bool { target != .main }
 
+    /// Whether a hand-off can go to this Agent now: one that takes messages, still live, on a computer that is online.
+    static func takes(_ session: Session, online: (MachineRef) -> Bool) -> Bool {
+        !session.assistant && session.canSend && session.state.isLive && online(session.machineRef)
+    }
+
+    /// The same for a remembered target's session (#2121): an Agent that can't take it now counts as gone.
+    static func takes(_ key: SessionKey, model: AppModel) -> Bool {
+        model.session(key).map { takes($0) { model.machine($0)?.online == true } } ?? false
+    }
+
     /// The Agents a hand-off may target, latest first. Shared by the sheet and the event page's bar.
     static func agents(_ sessions: [Session], limit: Int, online: (MachineRef) -> Bool) -> [Session] {
-        sessions.filter { !$0.assistant && $0.canSend && $0.state.isLive && online($0.machineRef) }
+        sessions.filter { takes($0, online: online) }
             .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
             .prefix(limit).map { $0 }
     }
@@ -259,7 +269,8 @@ final class InboxHandOffModel {
                 text = InboxHandOffSheet.message(try await deps.load(itemID), ask: ask)
             } catch {
                 // Nothing went yet: it never says to look in the chat.
-                self.error = error.isOffline || Self.mayHaveGone(error) ? String(localized: "Can't reach the hub") : error.shown
+                self.error = error.isOffline ? String(localized: "Can't reach the hub")
+                    : error.isTimeout ? String(localized: "The request timed out. Try again later.") : error.shown
                 return false
             }
         }

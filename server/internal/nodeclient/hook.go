@@ -12,7 +12,6 @@ import (
 
 	"github.com/nwverse/persona/server/internal/herdr"
 	"github.com/nwverse/persona/server/internal/host"
-	"github.com/nwverse/persona/server/internal/lazyre"
 	"github.com/nwverse/persona/server/internal/procinfo"
 )
 
@@ -203,11 +202,23 @@ func ClaudeDir(home string) string {
 	return filepath.Join(home, ".claude")
 }
 
-// sessionIDRe is what a Claude Code session id looks like (a UUID).
-var sessionIDRe = lazyre.New(`^[0-9a-fA-F-]{8,64}$`)
-
-// ValidSessionID says whether id looks like a Claude Code session id (the node's validID too).
-func ValidSessionID(id string) bool { return sessionIDRe.MatchString(id) }
+// ValidSessionID says whether id looks like a Claude Code session id (a UUID; the node's validID too): 8 to 64 hex
+// digits and hyphens, as `^[0-9a-fA-F-]{8,64}$` says. Every character it allows is one byte, so counting bytes is
+// counting characters. A loop, not that regexp: the session list checks each row's id every second, and the match
+// was about 8% of a resting node's CPU.
+func ValidSessionID(id string) bool {
+	if len(id) < 8 || len(id) > 64 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		switch c := id[i]; {
+		case '0' <= c && c <= '9', 'a' <= c && c <= 'f', 'A' <= c && c <= 'F', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
 
 // ReadClaudeSessionID reads the session id out of a claude's sessions/<pid>.json ("" when missing or invalid).
 func ReadClaudeSessionID(path string) string {

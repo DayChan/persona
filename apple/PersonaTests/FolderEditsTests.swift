@@ -62,7 +62,8 @@ struct FolderEditsTests {
         let gone = APIError(status: 404, message: "~/a is not there", fields: ["code": "not_found"])
         #expect(FolderEdits.message(gone) != gone.message)
         let other = APIError(status: 502, message: "~/a is on another disk", fields: ["code": "internal"])
-        #expect(FolderEdits.message(other) == "~/a is on another disk")
+        #expect(FolderEdits.message(other).contains("HTTP 502"))
+        #expect(!FolderEdits.message(other).contains("~/a"))
     }
 
     @Test func folderNames() {

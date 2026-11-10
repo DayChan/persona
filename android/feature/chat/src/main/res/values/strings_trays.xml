@@ -29,6 +29,9 @@
     <string name="chat_tray_draft_changed">The draft changed. Review the latest version before sending.</string>
     <string name="chat_tray_caught_up">All caught up</string>
     <string name="chat_tray_accept">Accept</string>
+    <string name="chat_tray_finish_now">Finish now</string>
+    <string name="chat_tray_follow_recommendation">Follow recommendation</string>
+    <string name="chat_tray_finish_failed">Couldn\'t finish this task. Try again.</string>
     <string name="chat_tray_recommended">Recommended: %1$s</string>
     <string name="chat_tray_accept_changed">The acceptance request changed. Review the latest round.</string>
     <string name="chat_tray_cancelled">Cancelled</string>

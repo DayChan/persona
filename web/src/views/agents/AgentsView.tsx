@@ -60,9 +60,11 @@ function AgentList({ onToggleSidebar }: { onToggleSidebar: () => void }) {
 
 function BoundedAgentList({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const prefs = useAgentPrefs();
+  const { sessions, loaded, error, hints } = useAgentList();
   return <div className="flex h-full flex-col">
     <Header title={t("agents-agentsview.title")} sub={t("agents-agentsview.subtitle")} onToggleSidebar={onToggleSidebar} />
     <div className="min-h-0 flex-1 overflow-y-auto"><div className={SESSION_LIST_STYLE.personalPage}>
+      {loaded && !error && sessions.length > 0 && <SourceNotice hints={hints} />}
       <PagedSessionList root={personalSessions} path="/agents/sessions" identity={personalIdentity} compare={personalOrder} event="agents" personal renderRow={(s) => <div className={SESSION_LIST_STYLE.personalRow}>
         <a href={href({ name: "agents", id: s.id })} onClick={(e) => onLinkClick(e, { name: "agents", id: s.id })} className="flex min-w-0 flex-1 items-center gap-2">
           <AgentAvatar s={s} size={SESSION_LIST_METRICS.avatar} /><span className={SESSION_LIST_STYLE.personalTitle}>{s.title || t("lib-format.untitled_session")}</span>
@@ -70,9 +72,25 @@ function BoundedAgentList({ onToggleSidebar }: { onToggleSidebar: () => void }) 
         </a>
         <button type="button" aria-label={t(prefs.pins.includes(s.id) ? "agents-agentsview.unpin" : "agents-agentsview.pin")} onClick={() => updateAgentPrefs((x) => togglePin(x, s.id))} className={SESSION_LIST_STYLE.pinButton}><Icon name="pin" size={SESSION_LIST_METRICS.icon} /></button>
       </div>} />
+      {loaded && !error && !sessions.length && hints.map((h) => <p key={h} className="mb-1 px-2 text-[13px] text-ink-3">{h}</p>)}
       <RemovedAgents />
     </div></div>
   </div>;
+}
+
+/** Sources that list nothing (failing, or not set up) while others list Agents: one quiet notice above those Agents, so
+ *  the missing ones don't go unnoticed. An empty list shows the same hints on their own. */
+export function SourceNotice({ hints }: { hints: string[] }) {
+  if (!hints.length) return null;
+  return (
+    <div role="status" className="mb-3 flex items-start gap-2 px-2 py-1.5">
+      <span className="mt-[3px] flex size-3.5 shrink-0 items-center justify-center text-orange"><Icon name="warning" size={13} stroke={2.2} /></span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] leading-[1.45] text-ink-2">{t("agents-agentsview.sources_unavailable")}</p>
+        {hints.map((h) => <p key={h} className="text-[12px] leading-[1.45] text-ink-3">{h}</p>)}
+      </div>
+    </div>
+  );
 }
 
 /** "Removed (N)" at the end of the page, folded (as All chats keeps its archived ones): the conversations removed from
@@ -131,6 +149,7 @@ function LegacyAgentList({ onToggleSidebar }: { onToggleSidebar: () => void }) {
           {error && <p className="text-[13px] text-red">{error}</p>}
           {loaded && !error && !groups.length && (q || !hints.length) && <p className="text-[13px] text-ink-3">{q ? t("agents-agentsview.no_match") : t("agents-agentsview.empty")}</p>}
           {loaded && !error && !sessions.length && !q && hints.map((h) => <p key={h} className="mb-1 text-[13px] text-ink-3">{h}</p>)}
+          {loaded && !error && sessions.length > 0 && <SourceNotice hints={hints} />}
           {groups.map((g, i) => (
             <section key={g.key} className="mb-4 overflow-hidden rounded-card bg-surface shadow-card" style={{ animation: `fade-up 420ms ${EASE} ${i * 60}ms both` }}>
               <h2 className="flex items-center gap-2 px-4 pt-3 pb-1 text-[12px] font-medium text-ink-3">

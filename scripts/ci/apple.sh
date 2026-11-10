@@ -136,32 +136,8 @@ if [ "$LANE" = all ] || [ "$LANE" = ios ]; then
     -destination 'generic/platform=iOS' -derivedDataPath "$OUTPUT/ios-device" \
     -disableAutomaticPackageResolution "${UNSIGNED[@]}" build
 
-  # sim-boot is the sole creation/boot entry, with a fresh stock simulator (not
-  # paired to a real hub), pinned to the validated compiler-compatible runtime.
-  SIM_STARTED=1
-  ci_run 'Create and boot stock iOS 26.0 test simulator' 1000 bash -c \
-    'SIM_BOOT_TIMEOUT=900 "$1" --profile stock --runtime "$4" --device-type "iPhone 17 Pro" "$2" > "$3" 2> >(tee "$5" >&2)' \
-    -- "$SOURCE/scripts/app/sim-boot.sh" "$SIM_NAME" "$OUTPUT/simulator.log" "$IOS_RUNTIME" "$OUTPUT/simulator-boot.log"
-  # Accept only the helper's single UDID, never a partial/error log.
-  SIM=$(python3 -I - "$OUTPUT/simulator.log" <<'PY'
-import re, sys
-matches = re.findall(r"(?m)^([0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12})$", open(sys.argv[1]).read())
-if len(matches) != 1:
-    sys.exit("apple-ci: FAIL simulator helper did not return exactly one UDID")
-print(matches[0])
-PY
-  )
-  # The real EventKit round-trip uses only this disposable simulator's store.
-  # TCC grants can precede installation of the synthetic CI app.
-  CI_BUNDLE_ID=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["app"]["bundle_id"])' "$PERSONA_CONFIG")
-  # On a just-booted stock simulator the grant waits for the device's own services: 54.5 s on a passing hosted run,
-  # over 60 s on a failing one (#1402). A single attempt with room to spare; a hang still ends the lane.
-  ci_run 'Grant Reminders access to the owned test app' 300 xcrun simctl privacy "$SIM" grant reminders "$CI_BUNDLE_ID"
-  export TEST_RUNNER_PERSONA_EVENTKIT_ROUNDTRIP=1
-
-  IOS_TESTS=("${XCODE[@]}" -scheme Persona -destination "platform=iOS Simulator,id=$SIM" \
-    -destination-timeout 120 -derivedDataPath "$OUTPUT/ios-tests" -parallel-testing-enabled NO \
-    -disableAutomaticPackageResolution "${TEST_SIGNING[@]}")
+  IOS_COMMON=("${XCODE[@]}" -scheme Persona -derivedDataPath "$OUTPUT/ios-tests" \
+    -parallel-testing-enabled NO -disableAutomaticPackageResolution "${TEST_SIGNING[@]}")
   # Explicit fixture-only exclusions, not evidence of those integrations passing.
   # Swift Testing method selectors include (); without it disabled integration
   # cases remain selected and appear as unexpected skips in the result bundle.
@@ -174,10 +150,62 @@ PY
   printf '%s\n' 'apple-ci: excluded integration cases: old-hub lab; relay/APNs payload lab; native video fixture; real video HTTP fixture; destructive HTML loop (dedicated external watchdog required). UI tests are a separate mock-hub/screenshot lane.'
   # WebKit suites must run in separate batches, not interleave in Swift Testing
   # despite @MainActor or xcodebuild's parallel-testing switch (#2025).
-  ci_run 'iOS offline unit and design/token tests' 1800 "${IOS_TESTS[@]}" "${IOS_EXCLUSIONS[@]}" \
-    -only-testing:PersonaTests \
-    -skip-testing:PersonaTests/AssistantHTMLCardTests -skip-testing:PersonaTests/AssistantHTMLSecurityTests \
-    -resultBundlePath "$OUTPUT/ios-unit.xcresult" test
+  # Compile before creating the device: compilation cannot consume its readiness deadline.
+  # The full execution retains exactly the same suite selection.
+  IOS_UNIT_SELECTION=("${IOS_EXCLUSIONS[@]}" -only-testing:PersonaTests
+    -skip-testing:PersonaTests/AssistantHTMLCardTests -skip-testing:PersonaTests/AssistantHTMLSecurityTests)
+  # A generic destination must retain the host's single runnable architecture.
+  ci_run 'Build iOS offline unit tests' 1800 "${IOS_COMMON[@]}" \
+    -destination 'generic/platform=iOS Simulator' ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES \
+    "${IOS_UNIT_SELECTION[@]}" build-for-testing
+
+  # Split the former 1000-second preparation budget into creation (100) and real
+  # hosted readiness (900). A device state or running service is not a test gate.
+  # sim-boot remains the creation entry, with a fresh stock simulator (not
+  # paired to a real hub), pinned to the validated compiler-compatible runtime.
+  SIM_STARTED=1
+  ci_run 'Create stock iOS 26.0 test simulator' 100 bash -c \
+    '"$1" --create-only --profile stock --runtime "$4" --device-type "iPhone 17 Pro" "$2" > "$3" 2> >(tee "$5" >&2)' \
+    -- "$SOURCE/scripts/app/sim-boot.sh" "$SIM_NAME" "$OUTPUT/simulator.log" "$IOS_RUNTIME" "$OUTPUT/simulator-boot.log"
+  # Accept only the helper's single UDID, never a partial/error log.
+  SIM=$(python3 -I - "$OUTPUT/simulator.log" <<'PY'
+import re, sys
+matches = re.findall(r"(?m)^([0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12})$", open(sys.argv[1]).read())
+if len(matches) != 1:
+    sys.exit("apple-ci: FAIL simulator helper did not return exactly one UDID")
+print(matches[0])
+PY
+  )
+  IOS_TESTS=("${IOS_COMMON[@]}" -destination "platform=iOS Simulator,id=$SIM" -destination-timeout 120)
+  # Xcode owns boot, installation and test-host launch. The existing hosted suite
+  # and its strict result check must both finish inside the readiness deadline.
+  CI_BUNDLE_ID=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["app"]["bundle_id"])' "$PERSONA_CONFIG")
+  python3 "$CI_ROOT/scripts/ci/apple_launch_diagnostics.py" \
+    --record "$OUTPUT/simulator-readiness-context.json" --udid "$SIM" --bundle-id "$CI_BUNDLE_ID"
+  ci_run 'Verify hosted iOS test readiness' 900 bash -c '
+    set -euo pipefail
+    checker="$1"; bundle="$2"; log="$3"; shift 3
+    {
+      "$@" -only-testing:PersonaTests/TypeScaleTests -resultBundlePath "$bundle" test-without-building
+      python3 "$checker" "$bundle" TypeScaleTests
+    } 2>&1 | tee "$log"
+  ' -- "$CI_ROOT/scripts/ci/apple_result.py" "$OUTPUT/ios-readiness.xcresult" "$OUTPUT/simulator-readiness.log" "${IOS_TESTS[@]}"
+
+  # The real EventKit round-trip uses only this disposable simulator's store.
+  # TCC grants can precede installation of the synthetic CI app.
+  # On a just-booted stock simulator the grant waits for the device's own services: 54.5 s on a passing hosted run,
+  # over 60 s on a failing one (#1402). A single attempt with room to spare; a hang still ends the lane.
+  # A successful Xcode test can leave its destination shut down. Start only our device if needed;
+  # boot initiation and the single required TCC grant share the original permission deadline.
+  ci_run 'Grant Reminders access to the owned test app' 300 bash -c '
+    set -euo pipefail
+    "$1" --start-only --profile stock "$2" >/dev/null
+    xcrun simctl privacy "$2" grant reminders "$3"
+  ' -- "$SOURCE/scripts/app/sim-boot.sh" "$SIM" "$CI_BUNDLE_ID"
+  export TEST_RUNNER_PERSONA_EVENTKIT_ROUNDTRIP=1
+
+  ci_run 'iOS offline unit and design/token tests' 1800 "${IOS_TESTS[@]}" "${IOS_UNIT_SELECTION[@]}" \
+    -resultBundlePath "$OUTPUT/ios-unit.xcresult" test-without-building
   result ios-unit TypeScaleTests IconVocabularyTests TokenRatchetTests StyleSpecTests
   ci_run 'iOS HTML card tests (separate batch)' 600 "${IOS_TESTS[@]}" \
     -only-testing:PersonaTests/AssistantHTMLCardTests -resultBundlePath "$OUTPUT/ios-html-card.xcresult" test

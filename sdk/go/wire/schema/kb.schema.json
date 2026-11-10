@@ -157,7 +157,8 @@
         "recent": {"type": "string"},
         "links": {"type": "array", "items": {"$ref": "#/$defs/KBEntry"}},
         "moments": {"type": "array", "items": {"$ref": "#/$defs/KBMomentRef"}},
-        "segments": {"type": "array", "items": {"$ref": "#/$defs/KBRecordingSegment"}}
+        "segments": {"type": "array", "items": {"$ref": "#/$defs/KBRecordingSegment"}},
+        "minutes": {"description": "A recording's meeting minutes, once written (docs/assistant/meeting-minutes.md); kept as the hub sends them."}
       },
       "required": ["kind", "id", "path", "meta"]
     },

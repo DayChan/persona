@@ -24,6 +24,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -70,6 +72,10 @@ fun MessageItem(
     titleIconLabel: String? = null,
     /** An event heading above the sender and source conversation. Other message rows keep their layout. */
     heading: String? = null,
+    /** In a selection (#2576): picked or not, drawn as a check before the avatar; null outside one. */
+    checked: Boolean? = null,
+    /** In a selection, a row that can't be picked (an agent's card, a done item): faded. */
+    dimmed: Boolean = false,
     extra: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     val palette = PersonaTheme.palette
@@ -78,9 +84,15 @@ fun MessageItem(
     val prominent = status == Status.NeedsYou
     val badge = when (source) { MessageSource.Lark -> PhIcons.ChatsCircle; MessageSource.Mail -> PhIcons.EnvelopeSimple; MessageSource.Other -> null }
     val badgeColor = if (style == AppStyle.Glass) (if (source == MessageSource.Mail) palette.needsYou.dot else palette.working.dot) else null
-    val click = Modifier.selectedRow(selected).onSecondaryClick(onLongClick).combinedClickable(role = Role.Button, onClick = onClick, onLongClick = onLongClick)
+    val click = Modifier.selectedRow(selected || checked == true).onSecondaryClick(onLongClick)
+        .then(if (checked != null) Modifier.semantics { toggleableState = androidx.compose.ui.state.ToggleableState(checked) } else Modifier)
+        .combinedClickable(role = if (checked != null) Role.Checkbox else Role.Button, onClick = onClick, onLongClick = onLongClick)
     val body: @Composable ColumnScope.() -> Unit = {
         Row(verticalAlignment = Alignment.Top) {
+            if (checked != null) {
+                JCheckMark(androidx.compose.ui.state.ToggleableState(checked), Modifier.padding(top = Tokens.Space.s))
+                Spacer(Modifier.width(Tokens.Space.m))
+            }
             JAvatar(group ?: sender, size = if (prominent) 42.dp else 38.dp, icon = avatarIcon, badge = badge, badgeColor = badgeColor, image = avatar)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -117,6 +129,7 @@ fun MessageItem(
             }
         }
     }
+    val modifier = if (dimmed) modifier.alpha(0.45f) else modifier
     when {
         style == AppStyle.Board -> {
             val shape = RoundedCornerShape(10.dp)

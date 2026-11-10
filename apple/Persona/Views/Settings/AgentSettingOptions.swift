@@ -7,6 +7,7 @@ import Foundation
 nonisolated enum AgentSettingOptions {
     private static let names: [String: [String: String]] = [
         "effortLevel": Dictionary(uniqueKeysWithValues: SessionModes.effortLevels.map { ($0.id, $0.title) }),
+        "permissions.defaultMode": Dictionary(uniqueKeysWithValues: SessionModes.permissionModes.map { ($0.id, $0.title) }),
         "autoUpdatesChannel": [
             "latest": String(localized: "Latest", comment: "Claude Code update channel"),
             "stable": String(localized: "Stable", comment: "Claude Code update channel"),

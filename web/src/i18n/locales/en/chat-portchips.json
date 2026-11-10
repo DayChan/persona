@@ -1,0 +1,5 @@
+{
+  "stopped": "Stopped",
+  "open_hint": "Opens this page of {machine} in Preview",
+  "gone_hint": "This port is no longer listening"
+}

@@ -102,7 +102,7 @@ func (h *Hub) rosterManagers(ctx context.Context, ids []string) []string {
 		}
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		idents, err := s.BusIdentities(ctx)
+		idents, err := h.busIdentities(ctx, s)
 		if err != nil {
 			return out
 		}

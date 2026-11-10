@@ -1,0 +1,17 @@
+{
+  "card": {
+    "type": "ring",
+    "title": "有负数",
+    "segments": [
+      {
+        "label": "收入",
+        "value": 500
+      },
+      {
+        "label": "退款",
+        "value": -20
+      }
+    ]
+  },
+  "view": null
+}

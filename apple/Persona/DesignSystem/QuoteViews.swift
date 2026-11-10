@@ -297,11 +297,14 @@ struct UserBubbleBody: View {
     var text: String
     /// The paths in `text`: linked where they are there on the machine (`PathText`).
     var paths: [PathRef] = []
+    /// The comment blocks the message led with (`MessageComments.inBubble`), and the plain quote before them.
+    var comments: [MessageComment] = []
+    var lead: String?
     /// The new conversation layout (#1666, `ChatLayout`): the user's box is pale blue under the primary text color.
     @Environment(\.chatLayout) private var layout
 
     var body: some View {
-        if quotes.isEmpty {
+        if quotes.isEmpty, comments.isEmpty, lead == nil {
             words.padding(.horizontal, Theme.Space.l).padding(.vertical, Theme.Space.m)
                 .background(fill, in: .rect(cornerRadius: Theme.Radius.bubble, style: .continuous))
         } else {
@@ -314,6 +317,7 @@ struct UserBubbleBody: View {
     private var words: some View {
         PathText(text: text, refs: paths, link: layout.on ? Theme.accent : Theme.userBubbleLink)
             .font(Theme.Font.body).lineHeight(.body).foregroundStyle(layout.on ? Color.primary : Theme.userBubbleText)
+            .selectableInLift(text, as: .plain(layout.on ? Color.primary : Theme.userBubbleText)) // #603
             #if os(macOS)
             .textSelection(.enabled) // drag to select and ⌘C, as on the web (#2542)
             #endif
@@ -321,9 +325,11 @@ struct UserBubbleBody: View {
 
     private var quoted: some View {
         WidestColumn {
-            if !quotes.isEmpty {
+            if !quotes.isEmpty || !comments.isEmpty || lead != nil {
                 VStack(alignment: .leading, spacing: Theme.Space.xs) {
                     ForEach(quotes) { QuoteBlock(ref: $0) }
+                    if let lead { QuoteBlock(ref: .quote(lead, from: "", msg: "")) }
+                    ForEach(Array(comments.enumerated()), id: \.offset) { i, c in CommentQuote(comment: c, number: i + 1) }
                 }
                 .padding(.horizontal, Theme.Space.s)
                 .padding(.top, Theme.Space.s)

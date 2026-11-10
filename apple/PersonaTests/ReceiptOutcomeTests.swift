@@ -15,6 +15,17 @@ struct ReceiptOutcomeTests {
         TodoItem(id: "todo_example", title: "Example task", doneAt: done ? Date(timeIntervalSince1970: 100) : nil)
     }
 
+    /// A receipt names the task as it is called now (#3036): renamed after the receipt was written, the receipt follows;
+    /// with the to-do gone from the list it keeps the name it was written with.
+    @Test func aReceiptUsesTheTodosTitleNow() {
+        var renamed = todo(done: false)
+        renamed.title = "Renamed task"
+        #expect(ReceiptCard.title(receipt(), todo: renamed) == "Renamed task")
+        #expect(ReceiptCard.title(receipt(), todo: nil) == "Example task")
+        renamed.title = "  "
+        #expect(ReceiptCard.title(receipt(), todo: renamed) == "Example task")
+    }
+
     @Test func doneOnlyOnceTheTodoIsDone() {
         #expect(ReceiptCard.outcome(receipt(summary: "Merged the fix"), todo: todo(done: true)) == .done)
         #expect(ReceiptCard.outcome(receipt(summary: "Waiting for the soak test"), todo: todo(done: false)) == .stopped)

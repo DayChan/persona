@@ -536,7 +536,7 @@ func (h *Hub) busManagers(ctx context.Context) []busManagerBrief {
 	if s == nil {
 		return out
 	}
-	list, err := s.BusIdentities(ctx)
+	list, err := h.busIdentities(ctx, s)
 	if err != nil {
 		h.logf("bus: identities: %v", err)
 	}
@@ -552,6 +552,7 @@ func (h *Hub) busManagers(ctx context.Context) []busManagerBrief {
 // left (busEnded) until its keepalive hangs up.
 func (h *Hub) busRosterChanged(ctx context.Context, except *busConn) {
 	gen := h.bus.rosterGen.Add(1) // before the list: the list of a later change sees every change before it
+	h.forgetIdentities()          // and it is read afresh
 	list := h.busManagers(ctx)
 	h.bus.mu.Lock()
 	var to []*busConn

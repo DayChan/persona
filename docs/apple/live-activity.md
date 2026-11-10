@@ -317,7 +317,19 @@ Each received push redraws both the Dynamic Island and the Lock Screen, so the h
 - Both are stored on the hub per device (`PUT /api/v1/devices/{id}/prefs`), with a copy in the App's UserDefaults (`LiveActivityController.settings`),
   synced from the hub on every return to the foreground. If Persona's Live Activities are disabled in system settings, this section says so and offers Open Settings.
 - Disconnecting the hub (forgetting the server) ends the activity: its buttons point to the old hub. Before that the App revokes its credential there, and the hub drops its activity and push-to-start tokens with it, so no new activity is started remotely (`docs/protocol/multi-hub.md` "Push and notifications"). A hub the App couldn't reach keeps them until this device is revoked in Settings › Devices on another device.
-- No separate "watch one Agent" activity: Fleet already includes every running Agent, and a second activity would stack two on the Lock Screen; add `kind: agent` if needed later.
+- No separate "watch one Agent" activity: Fleet already includes every running Agent, and a second activity would stack two on the Lock Screen; add `kind: agent` if needed later. The only other activity is a recording's ("Recording" below), which exists only while the phone records.
+
+## Recording (`RecordingActivityAttributes`)
+
+A second, independent activity while the phone records (docs/apple/recording.md, "Meeting recordings"); it has nothing to do with the hub.
+
+- `apple/LiveActivity/RecordingActivityAttributes.swift` (app and extension): `recordingID` in the attributes; `ContentState` is `phase` (`recording` / `paused` / `interrupted` by a call), `runningSince` (Unix seconds, while recording), `elapsed` (where the time stands while paused), `title`, `meeting`, `marks`. A few hundred bytes. The name is the system's identity: never rename it.
+- `RecordingActivity` (`apple/Persona/Recording/`, iOS only) follows `RecordingCapture` and the recording's entry with `withObservationTracking`: one activity per recording, requested when recording starts (`pushType: nil`, local only), updated on pause, a call, a bookmark or a new title, ended at once when it stops; one left over from a killed app is ended. The time is `Text(timerInterval:)` from `runningSince`, so a running recording sends no updates: each segment and transcript save recomputes the content, which keeps the earlier `runningSince` and so compares equal.
+- `relevanceScore` 2 (Fleet's are at most 1): while recording, the Dynamic Island shows the recording, and Fleet stays on the Lock Screen below it.
+- Drawn by `apple/PersonaWidgets/RecordingLiveActivity.swift`: the Lock Screen has the red mark, name, "Meeting · 2 bookmarks" (or "Paused", "Paused by a call · Open Persona to continue"), the time, and Bookmark / Stop; the compact island has the mark and the time (fixed width `IslandMetrics.recordingTimerWidth`, room for "1:23:45"; at limited width only the mark), the minimal one the mark, the expanded one all of it. Colors are `Palette.recordingRed` / `recordingButton` (white words on it, 4.6:1), fixed in both appearances.
+- Buttons (`apple/LiveActivity/RecordingIntents.swift`): `StopRecordingIntent`, `AddRecordingBookmarkIntent`, `LiveActivityIntent`s with `.alwaysAllowed` (they work locked, as a voice memo's) and an optional `recordingID` (a stale activity's button acts on nothing). The bodies run in the app (`MeetingRecorder.stop` / `addMark`).
+- `StartMeetingRecordingIntent` (an `AudioRecordingIntent`) needs this activity: the system stops a recording started that way without one, so `MeetingRecorder.startMeeting` requests it (`RecordingActivity.refresh`) before returning.
+- Screenshots: `-showMeetingSample recording|paused|interrupted` shows a made-up meeting 12:34 in, with no microphone; UI test `MeetingRecordingUITests.testLiveActivityShots` takes the compact, expanded and Lock Screen shots.
 
 ## Verification
 

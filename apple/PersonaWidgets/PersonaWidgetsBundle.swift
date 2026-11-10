@@ -12,6 +12,8 @@ struct PersonaWidgetsBundle: WidgetBundle {
         ExtensionSystemWidget()
         FleetLiveActivity()
         CompatibleFleetLiveActivity()
+        RecordingLiveActivity()
+        MeetingRecordingControl()
         AskPersonaControl()
         PersonaAgentsControl()
         CompatibleAssistantControl()

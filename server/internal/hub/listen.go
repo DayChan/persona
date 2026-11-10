@@ -31,9 +31,12 @@ var inherited struct {
 // process: it takes the sockets systemd passed (inheritedListeners) and makes whatever else it was handed past stderr
 // close-on-exec (osproc.SealInherited). Taken any later, they reached what the hub had started by then, the manager
 // first, and from it every node, extension and agent it ran: each held the hub's port open for as long as it lived.
+// It also reaps what an earlier image of this process left running (osproc.ReapInherited): after a self-update or a
+// rollback (execKeepingListeners) the old hub's manager and watchdog are this one's children.
 func claimInherited() {
 	inheritedListeners()
 	osproc.SealInherited()
+	osproc.ReapInherited()
 }
 
 // inheritedListeners takes the sockets systemd passed to this process, once: the environment is cleared so the

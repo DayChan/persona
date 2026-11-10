@@ -51,6 +51,7 @@ import Testing
             RecordingSegment(index: 1, start: 30, duration: 30),
         ]
         try lib.save(entry)
+        try Data([0]).write(to: lib.audio(entry.id, 1))
         let runner = RecordingTranscription(library: lib) { url, _ in
             #expect(url.lastPathComponent == "seg-001.m4a")
             return [RecordingSentence(start: 2, end: 4, text: "继续")]
@@ -60,5 +61,25 @@ import Testing
         #expect(lib.entry(entry.id)?.sentences.map(\.text) == ["已保存", "继续"])
         #expect(lib.entry(entry.id)?.sentences.last?.start == 32)
         #expect(RecordingLibrary(root: root).entry(entry.id)?.transcribedAll == true)
+    }
+
+    /// A segment whose audio is gone gets no text, and the ones after it are still transcribed (a long recording used to
+    /// stop at it for good).
+    @Test func missingAudioDoesNotHoldUpTheRest() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let lib = RecordingLibrary(root: root)
+        var entry = try lib.create(source: .phone)
+        entry.active = false; entry.expectedSegments = 3
+        entry.segments = (0..<3).map { RecordingSegment(index: $0, start: Double($0) * 60, duration: 60) }
+        try lib.save(entry)
+        try Data([0]).write(to: lib.audio(entry.id, 0))
+        try Data([0]).write(to: lib.audio(entry.id, 2)) // segment 1's audio is missing
+        let runner = RecordingTranscription(library: lib) { url, _ in [RecordingSentence(start: 1, end: 2, text: url.lastPathComponent)] }
+        runner.enqueue(entry.id)
+        for _ in 0..<100 where lib.entry(entry.id)?.transcribedAll != true { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(lib.entry(entry.id)?.transcribedAll == true)
+        #expect(lib.entry(entry.id)?.sentences.map(\.text) == ["seg-000.m4a", "seg-002.m4a"])
+        #expect(runner.errors[entry.id] == nil)
     }
 }

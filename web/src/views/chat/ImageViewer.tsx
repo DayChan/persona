@@ -20,7 +20,7 @@ import { useChatActions } from "./chat-actions";
 import { t } from "../../i18n";
 
 // Drawn only while an image is edited: its own chunk, fetched by the idle preload or the first edit (lib/lazy-page.ts).
-const ImageEditor = lazyPage(() => import("./ImageEditor").then((m) => m.ImageEditor));
+const ImageEditor = lazyPage(() => import("./ImageEditor").then((m) => m.ImageEditor), { idle: true });
 
 export interface ViewerImage {
   id: string;

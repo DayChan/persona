@@ -8,7 +8,7 @@
   add a hub, rename a group, set the current hub, disconnect one hub (if others remain in the group), or disconnect an entire group.
 - Agents, Machines, interactions that need you, and Agent requests in the Inbox display all groups together. With multiple groups, machine names include the group name ("MacBook · Company").
   The Machines page has separate sections by group, with a connection-status dot in each header. The menu at the top left of Agents gains a "hub" selector to show just one group.
-- The Persona assistant, Inbox, and hub-related settings (models, connectors, devices, notifications…) belong to each hub and are **not merged**. They display the "current hub":
+- The Persona assistant, Inbox, the avatar (#2406, [persona.md](../apple/persona.md) "On the phone": each hub keeps its own choice), and hub-related settings (models, connectors, devices, notifications…) belong to each hub and are **not merged**. They display the "current hub":
   switch it in the Persona top-bar menu, at the top left of the Inbox, or at the top of the Settings home page.
 - With only one group, none of these additions appear, and the UI is exactly as before (screenshots compared pixel by pixel; see "Tests").
 
@@ -118,6 +118,7 @@
 
 - Unit tests in `apple/PersonaTests/MultiHubTests.swift`: unchanged default-group keys and JSON, other-group keys, mesh-field decoding, grouping (merge / one-sided / transitive / split / pairing the same hub twice),
   new group ids, candidate addresses and routing, hello decoding, event group stamping, Fleet merging, multi-group connection status, and per-group push keys.
+  The avatar with two hubs (the current one's, a choice sent to it alone, the old local choice moved up only to the first) is in `apple/PersonaTests/AvatarSyncTests.swift`.
 - UI tests in `apple/PersonaUITests/MultiHubTests.swift`: three fake hubs in two groups (one group has two hubs): merged lists label groups, allow actions target the right hub, disconnecting one group leaves the other unaffected,
   and a group switches to its other hub if one goes down. See [testing.md](../operations/testing.md) ("Multiple hubs") for starting fake hubs.
 - Zero changes with only one group: using the same mock and launch arguments, capture 14 screens × light/dark before and after, then compare pixel by pixel. Differences were confined to random noise in the system spinner and glass highlights (testing.md, "Multiple hubs").

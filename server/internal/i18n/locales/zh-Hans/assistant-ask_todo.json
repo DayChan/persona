@@ -5,5 +5,8 @@
   "notes_options_multi": "选项（可以多选）：",
   "notes_option": "- {label}",
   "notes_option_described": "- {label}：{description}",
-  "notes_how": "在这条待办里记下你的决定（或在它的话题里回复），决定会发回那段对话，待办随后关闭。不记决定直接关掉，那段对话会收到「这个问题不用答了」。"
+  "notes_how": "在这条待办里记下你的决定（或在它的话题里回复），决定会发回那段对话，待办随后关闭。不记决定直接关掉，那段对话会收到「这个问题不用答了」。",
+  "overdue_title": "过了截止还在等你决定",
+  "option_recommended_default": "推荐 · {when} 前没回复就按这个执行",
+  "option_recommended_irreversible": "推荐 · 截止 {when}（撤不回，到期不会自动执行）"
 }

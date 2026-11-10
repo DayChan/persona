@@ -45,6 +45,24 @@ func BenchmarkSendSessions(b *testing.B) {
 	}
 }
 
+// BenchmarkSendSessionsChanged is sendSessions of a list one session of which changed since the last one: the list
+// goes out (here to io.Discard), as on each change of a machine with 80 or 300 sessions.
+func BenchmarkSendSessionsChanged(b *testing.B) {
+	for _, rows := range []int{80, 300} {
+		b.Run(fmt.Sprint(rows), func(b *testing.B) {
+			n, _ := testNode(b)
+			n.peer = rpc.New("n", io.Discard)
+			list := sentRows(rows)
+			n.sendSessions(list)
+			b.ReportAllocs()
+			for b.Loop() {
+				list[0].Rev++
+				n.sendSessions(list)
+			}
+		})
+	}
+}
+
 // A list the manager holds already is encoded into the buffer kept for it and dropped, allocating nothing (#2826): it
 // was 9 allocations and 67 KB for 80 rows.
 func TestSessionsChangedSkipAllocatesNothing(t *testing.T) {

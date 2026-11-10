@@ -196,3 +196,28 @@ func BenchmarkClipJSONNested(b *testing.B) {
 	b.ReportMetric(float64(len(raw)), "raw-bytes/item")
 	b.ReportMetric(float64(len(out)), "bytes/item")
 }
+
+// Near the minimum share, the note may cost more than the removed tail. Measure that decision across many strings.
+func BenchmarkClipJSONNearShare(b *testing.B) {
+	for _, tc := range []struct {
+		name string
+		text string
+	}{
+		{"ASCII", strings.Repeat("y", minInputShare+30)},
+		{"HTML", strings.Repeat(`<a href="x">&lt;</a>`, 15)[:minInputShare+30]},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			items := make([]map[string]string, 20_000)
+			for i := range items {
+				items[i] = map[string]string{"text": tc.text}
+			}
+			raw, _ := json.Marshal(map[string]any{"items": items})
+			var out json.RawMessage
+			b.ReportAllocs()
+			for b.Loop() {
+				out = clipJSON(raw)
+			}
+			b.ReportMetric(float64(len(out)), "bytes/item")
+		})
+	}
+}

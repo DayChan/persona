@@ -5,5 +5,8 @@
   "notes_options_multi": "Options (more than one can be chosen):",
   "notes_option": "- {label}",
   "notes_option_described": "- {label}: {description}",
-  "notes_how": "Record your decision on this to-do (or reply in its topic): it goes back to that conversation and the to-do closes. Closing it without a decision tells the conversation the question was dropped."
+  "notes_how": "Record your decision on this to-do (or reply in its topic): it goes back to that conversation and the to-do closes. Closing it without a decision tells the conversation the question was dropped.",
+  "overdue_title": "Past its deadline, still waiting for you",
+  "option_recommended_default": "Recommended · taken if there is no answer by {when}",
+  "option_recommended_irreversible": "Recommended · deadline {when} (cannot be undone, never taken automatically)"
 }

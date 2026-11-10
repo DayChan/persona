@@ -140,17 +140,18 @@ final class LarkMedia {
         return head + "manager=" + value + String(url[hash...])
     }
 
-    /// Where the player streams `url` from: a hub path under the hub's address, a named manager's as `url(_:manager:)`
-    /// names it, its query kept (AVPlayer sends no header but the bearer); a full URL as it is.
+    /// Where the player streams `url` from: a hub path under the hub's address with its query kept, a named manager's as
+    /// `url(_:manager:)` names it (AVPlayer sends no header but the bearer), through the hub's tunnel or proxy when the
+    /// app routes it there (HubTransport); a full URL as it is.
     nonisolated static func streamURL(_ url: String, hub: URL, manager: String?) -> URL {
         guard url.hasPrefix("/") else { return URL(string: url) ?? hub }
-        guard let manager, !manager.isEmpty, !url.hasPrefix("//"), let named = URLComponents(string: Self.url(url, manager: manager)),
-              var c = URLComponents(url: hub, resolvingAgainstBaseURL: false) else { return hub.appending(path: url) }
+        guard !url.hasPrefix("//"), let named = URLComponents(string: Self.url(url, manager: manager)),
+              var c = URLComponents(url: hub, resolvingAgainstBaseURL: false) else { return HubTransport.resolve(hub.appending(path: url), hub: hub) }
         var base = c.percentEncodedPath
         while base.hasSuffix("/") { base.removeLast() }
         c.percentEncodedPath = base + named.percentEncodedPath
         c.percentEncodedQuery = named.percentEncodedQuery
-        return c.url ?? hub.appending(path: url)
+        return HubTransport.resolve(c.url ?? hub.appending(path: url), hub: hub)
     }
 
     private nonisolated static let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")

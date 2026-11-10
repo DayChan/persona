@@ -53,7 +53,7 @@ export class ApiError extends Error {
   isJson: boolean;
   /** The hub logs a failed request under this id (X-Request-Id): for a report, not for the message itself. */
   requestId?: string;
-  constructor(status: number, message: string, body: Record<string, unknown>, isJson = true, requestId?: string) {
+  constructor(status: number, message: string, body: Record<string, unknown>, isJson = true, requestId?: string, readonly requestPath?: string) {
     super(message);
     this.status = status;
     this.body = body;
@@ -61,7 +61,14 @@ export class ApiError extends Error {
     this.requestId = requestId;
   }
   get code(): string | undefined {
-    return typeof this.body.code === "string" ? this.body.code : undefined;
+    const code = typeof this.body.code === "string" ? this.body.code : undefined;
+    const path = this.requestPath?.split("?")[0];
+    // Older hubs lost this business code. Match only their exact refusal on knowledge/recording routes,
+    // never a phrase in an arbitrary internal error. Keep the original body for diagnostics.
+    const knowledge = path === "/kb" || path?.startsWith("/kb/") || path === "/kb-search"
+      || path === "/recordings" || path?.startsWith("/recordings/");
+    if (knowledge && this.status === 503 && code === "internal" && this.body.detail === "the knowledge base is off") return "kb_disabled";
+    return code;
   }
 }
 
@@ -112,7 +119,7 @@ export class HubTimeoutError extends Error {
   }
 }
 
-type ApiOptions = RequestInit & { json?: unknown; token?: string; tokenOwner?: string; onResponse?: (headers: Headers) => void };
+type ApiOptions = RequestInit & { json?: unknown; token?: string; tokenOwner?: string; onResponse?: (headers: Headers, status: number) => void };
 
 /** `tokenOwner`: explicit credentials opt into 401 recovery only while both the token and credential generation are current.
  *  `timeout`: ms before a read gives up with HubTimeoutError (default READ_TIMEOUT_MS for GET, none otherwise; 0: none). */
@@ -189,7 +196,10 @@ async function request<T>(path: string, init: ApiOptions): Promise<T> {
     if (!isAbort(e)) requestCrumb(method, path, 0);
     throw e;
   }
-  if (intercepted(res)) {
+  // A 304 answers a request that sent a validator (If-None-Match): the caller keeps what it has. It is neither the
+  // sign-in layer's redirect nor an error.
+  const notModified = res.status === 304 && headers.has("If-None-Match");
+  if (!notModified && intercepted(res)) {
     requestCrumb(method, path, res.status);
     reloadForSignIn(); // the layer in front takes over the page and sends it to its sign-in
     throw new ApiError(res.status || 401, t("lib-api.hub_no_response"), {}, false);
@@ -205,13 +215,13 @@ async function request<T>(path: string, init: ApiOptions): Promise<T> {
     data = { error: /^\s*</.test(text) ? "" : text };
     isJson = false;
   }
-  if (!res.ok) {
+  if (!res.ok && !notModified) {
     requestCrumb(method, path, res.status);
     if (res.status === 401 && owner !== undefined && owner === credentialOwner() && (init.token === undefined || init.token === getToken())) onUnauthorized();
     const msg = typeof data.error === "string" && data.error ? data.error : `HTTP ${res.status}`;
-    throw new ApiError(res.status, msg, data, isJson, res.headers?.get("X-Request-Id") ?? undefined);
+    throw new ApiError(res.status, msg, data, isJson, res.headers?.get("X-Request-Id") ?? undefined, path);
   }
-  onResponse?.(res.headers);
+  onResponse?.(res.headers, res.status);
   return compatibleEnvelope(data) as T;
 }
 
@@ -262,10 +272,13 @@ export function isTransient(e: unknown): boolean {
   return e instanceof ApiError && [502, 503, 504].includes(e.status) && (!e.isJson || (!e.code && e.body.delivered === undefined));
 }
 
-/** The hub answered for a computer that did not (docs/protocol/protocol.md "Error body"): what became of the computer and
- *  what to do next, by code, not "the hub can't respond". `delivered: none` marks the plainly offline one, where nothing
- *  went out. The hub's own words stay on the ApiError (`message`, `body.detail`). */
-function computerFailureText(e: ApiError): string | undefined {
+/** A coded business refusal is an answer, not evidence of a hub outage. `delivered: none` marks a plainly offline
+ * computer where nothing went out. Original fields stay on ApiError for diagnostics, never interpolated here. */
+function businessFailureText(e: ApiError): string | undefined {
+  if (e.code === "kb_disabled") return t("lib-api.knowledge_disabled");
+  if (e.code === "kb_unavailable") return t("lib-api.knowledge_unavailable");
+  if (e.code === "kb_read_only") return t("lib-api.knowledge_read_only");
+  if (e.code === "assistant_offline") return t("lib-api.manager_offline");
   if (e.code === "node_unreachable") return t(e.body.delivered === "none" ? "lib-api.computer_offline" : "lib-api.computer_dropped");
   if (e.code === "timeout") return t("lib-api.computer_timeout");
   return undefined;
@@ -273,11 +286,12 @@ function computerFailureText(e: ApiError): string | undefined {
 
 export function errorText(e: unknown): string {
   if (e instanceof ApiError) {
-    const computer = computerFailureText(e);
-    if (computer) return computer;
+    const business = businessFailureText(e);
+    if (business) return business;
     // Keep both the status and the original reason for diagnostics and existing error-specific explanations.
     const status = `HTTP ${e.status}`;
-    const detail = e.message && e.message !== status ? `${status}: ${e.message}` : status;
+    const detail = e.code === "internal" && e.status >= 500 ? status
+      : e.message && e.message !== status ? `${status}: ${e.message}` : status;
     if (e.status === 404 || e.code === "not_found" || /^not[ _]found$/i.test(e.message.trim())) {
       return t("lib-api.not_found", { detail });
     }

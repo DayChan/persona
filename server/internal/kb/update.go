@@ -251,6 +251,9 @@ func (e *Engine) Get(kind, id string, recentChars int) (*Detail, error) {
 		var segs []RecordingSegment
 		_ = json.Unmarshal(recording["segments.json"], &segs)
 		d.Segments = nonNilSegments(segs)
+		if raw, err := os.ReadFile(e.Store.path(kind, id, "minutes.json")); err == nil && json.Valid(raw) {
+			d.Minutes = raw
+		}
 		if recentChars > 0 {
 			raw := recording["transcript.md"]
 			d.Recent = clip(string(raw), recentChars)

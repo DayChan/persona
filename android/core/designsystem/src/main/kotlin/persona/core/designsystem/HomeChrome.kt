@@ -10,12 +10,14 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
@@ -26,6 +28,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
 class HomeChrome(
     val items: List<NavItem>,
@@ -52,10 +56,7 @@ fun JShellDrawer(
     val density = LocalDensity.current
     val shape = RoundedCornerShape(HomeTokens.drawerPageRadius)
     val close = stringResource(R.string.designsystem_close)
-    val background = if (PersonaTheme.style == AppStyle.Glass) {
-        if (PersonaTheme.darkTheme) HomeTokens.drawerDark else HomeTokens.drawerLight
-    } else palette.surfaceOpaque
-    BoxWithConstraints(modifier.fillMaxSize().background(background)) {
+    BoxWithConstraints(modifier.fillMaxSize().background(sidebarBackground())) {
         val drawerWidth = (maxWidth * HomeTokens.drawerFraction).coerceAtMost(HomeTokens.drawerMaximum)
         if (opened || progress > 0f) {
             Box(Modifier.width(drawerWidth).fillMaxHeight().statusBarsPadding().navigationBarsPadding()) {
@@ -77,3 +78,41 @@ fun JShellDrawer(
         }
     }
 }
+
+/**
+ * The same sidebar as a column beside the page, the way an open iPhone Duo and an iPad show it (a regular window):
+ * [width] wide, the page from [pageStart] on (past a separating fold). [shown] slides it out and back; nothing about it
+ * is modal. Without [sidebar] (a phone, a folded foldable) the page fills the box exactly as before, and it stays the
+ * same composition either way, so folding or unfolding keeps everything the page holds.
+ */
+@Composable
+fun JSidebarColumn(
+    sidebar: (@Composable () -> Unit)?,
+    width: Dp,
+    pageStart: Dp,
+    shown: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val progress by animateFloatAsState(if (shown) 1f else 0f,
+        tween(if (PersonaTheme.reduceMotion) Tokens.Motion.reduced else PersonaTheme.motion.standard), label = "sidebar-column")
+    val palette = PersonaTheme.palette
+    val visible = sidebar != null && progress > 0f
+    Box(modifier.fillMaxSize()) {
+        if (visible) Box(Modifier.width(width).fillMaxHeight()
+            .graphicsLayer { translationX = -(1f - progress) * width.toPx() }
+            .background(sidebarBackground())) {
+            Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+                androidx.compose.runtime.CompositionLocalProvider(LocalHomeDrawer provides (PersonaTheme.style == AppStyle.Glass)) { sidebar?.invoke() }
+            }
+            Box(Modifier.align(Alignment.TopEnd).width(Tokens.Space.xxs / 2).fillMaxHeight().background(palette.line))
+        }
+        Box(Modifier.fillMaxSize().padding(start = if (sidebar != null) pageStart * progress else 0.dp)) { content() }
+    }
+}
+
+/** The sidebar's own surface, whether it is a drawer or a column. */
+@Composable
+private fun sidebarBackground(): Color = if (PersonaTheme.style == AppStyle.Glass) {
+    if (PersonaTheme.darkTheme) HomeTokens.drawerDark else HomeTokens.drawerLight
+} else PersonaTheme.palette.surfaceOpaque

@@ -67,13 +67,24 @@ type PaneSplitResult struct {
 	Terminal string `json:"terminal"`
 }
 
-// PaneGitResult is what panes.git did in a pane's or workspace's directory. Message is a one-line summary for a toast,
-// Output what git printed (cut short).
+// PaneGitResult is what panes.git did in a pane's or workspace's directory. Outcome is what came of it, for clients to
+// say in their own language (GitOutcome…); Message the same in English for older clients; Output what git printed
+// (cut short).
 type PaneGitResult struct {
 	Op      string `json:"op"`
+	Outcome string `json:"outcome,omitempty"`
 	Message string `json:"message"`
 	Output  string `json:"output,omitempty"`
 }
+
+// The outcomes of panes.git (#1888).
+const (
+	GitOutcomeFetched       = "fetched"
+	GitOutcomeUpToDate      = "up_to_date"
+	GitOutcomePulled        = "pulled"
+	GitOutcomeNothingToPush = "nothing_to_push"
+	GitOutcomePushed        = "pushed"
+)
 
 // WorktreePrepare is what worktree.prepare knows of a workspace's repository, for the "New worktree…" dialog. Path is the
 // directory the host puts a repository's checkouts under (`<dir>/<repo>`): a checkout of branch b goes in

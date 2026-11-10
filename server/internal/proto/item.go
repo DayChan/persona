@@ -137,6 +137,9 @@ type Item struct {
 	IsError   bool            `json:"is_error,omitempty"`
 	Image     *Image          `json:"image,omitempty"`
 	Queued    bool            `json:"queued,omitempty"` // user input typed while the agent worked, absorbed mid-turn
+	// Outcome: what a tool_result's call came to (status, exit code, patch, git…), set by the node from the
+	// runtime's record; absent on other items and from older nodes (ToolOutcome).
+	Outcome *ToolOutcome `json:"outcome,omitempty"`
 	// ClientMsgID: this item came from the message an app sent with this client_msg_id (session.send): its words,
 	// its pictures, or the notice it became (/compact). Set by the node, which ties the transcript's line to the send
 	// (node/echo.go); absent for anything else and from older nodes. docs/protocol/protocol.md "Matching pending messages".

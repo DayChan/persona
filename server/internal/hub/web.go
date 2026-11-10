@@ -3,7 +3,9 @@ package hub
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"embed"
+	"encoding/base64"
 	"errors"
 	"io"
 	"io/fs"
@@ -13,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nwverse/persona/server/internal/webasset"
@@ -35,12 +38,18 @@ var webDist embed.FS
 // have. A first-screen asset the web build also wrote as name.br (webasset.BrotliSuffix) goes out as that copy to a
 // client that takes br (serveBrotli). The data dir's files are plain and gzipResponses compresses them as it sends
 // them, as before; its .br copies are not sent.
+//
+// Hashed assets are kept for a year. Everything else at the root (index.html, sw.js, the manifest, the icons) keeps its
+// name across builds, so it is no-cache: checked again on every load, and a 304 while it has not changed. The data
+// dir's files revalidate by their Last-Modified; the built-in copy's have no modification time, so they carry an ETag
+// of their content (rootTags).
 func webApp(dir string) http.Handler {
 	embedded, _ := fs.Sub(webDist, "webdist")
 	return webFrom(dir, embedded)
 }
 
 func webFrom(dir string, embedded fs.FS) http.Handler {
+	tags := &rootTags{}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -81,9 +90,11 @@ func webFrom(dir string, embedded fs.FS) http.Handler {
 				file = "index.html"
 			}
 		}
+		root := rootFile(file)
 		switch {
-		// the service worker and the manifest (docs/web/web.md "Install as an app") are checked again on every load, like the shell
-		case file == "index.html", file == "sw.js", file == "manifest.webmanifest":
+		// the shell, the service worker, the manifest and the icons (docs/web/web.md "Install as an app") are checked again on
+		// every load
+		case root:
 			w.Header().Set("Cache-Control", "no-cache")
 		case strings.HasPrefix(name, "assets/"):
 			// Vite names them by content hash
@@ -95,7 +106,7 @@ func webFrom(dir string, embedded fs.FS) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		if file == "index.html" {
-			serveIndex(w, r, site)
+			serveIndex(w, r, site, builtIn, tags)
 			return
 		}
 		if builtIn && asset && brotliWanted(r) && serveBrotli(w, r, site, name) {
@@ -117,8 +128,60 @@ func webFrom(dir string, embedded fs.FS) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+		if builtIn && root {
+			if tag, ok := tags.of(site, file); ok {
+				setETag(w, r, tag, st.Size(), file)
+			}
+		}
 		http.ServeContent(w, r, path.Base(file), st.ModTime(), rs)
 	})
+}
+
+// rootFile: a file beside index.html that keeps its name across builds (the shell, sw.js, the manifest, the icons,
+// compatibility-bootstrap.js). Not the licenses, which the build may keep gzipped (webasset.Precompressible) and which
+// are served as before.
+func rootFile(file string) bool {
+	return !strings.Contains(file, "/") && file != webasset.Licenses
+}
+
+// rootTags is the ETag of each root file of the built-in copy, worked out on its first request and kept by name: the
+// embedded files never change while the hub runs (webFrom keeps one per copy).
+type rootTags struct{ m sync.Map }
+
+func (t *rootTags) of(site fs.FS, name string) (string, bool) {
+	if v, ok := t.m.Load(name); ok {
+		return v.(string), true
+	}
+	b, err := fs.ReadFile(site, name)
+	if err != nil {
+		return "", false
+	}
+	tag := contentTag(b)
+	t.m.Store(name, tag)
+	return tag, true
+}
+
+// contentTag is a strong ETag of b: the first 128 bits of its SHA-256.
+func contentTag(b []byte) string {
+	sum := sha256.Sum256(b)
+	return `"` + base64.RawURLEncoding.EncodeToString(sum[:16]) + `"`
+}
+
+// setETag sets the response's ETag to tag, weak when gzipResponses will compress the answer (gzipWriter weakens a 200's
+// tag itself, and a 304 must carry the one the 200 would have). A file whose type cannot be told by name gets none:
+// gzipWriter would sniff its bytes to decide.
+func setETag(w http.ResponseWriter, r *http.Request, tag string, size int64, name string) {
+	ct := w.Header().Get("Content-Type")
+	if ct == "" {
+		ct = mime.TypeByExtension(path.Ext(name))
+	}
+	if ct == "" {
+		return
+	}
+	if gzipWanted(r) && size >= gzipMinSize && webasset.CompressibleType(ct) {
+		tag = "W/" + tag
+	}
+	w.Header().Set("ETag", tag)
 }
 
 // isFile: name is in site and not a directory.
@@ -257,8 +320,9 @@ func (g *gunzipSeeker) Read(p []byte) (int, error) {
 
 // serveIndex serves index.html with its <base> at the sub-path a reverse proxy serves the hub under (docs/web/web.md "Subpaths"):
 // the page's files are relative to it and lib/base.ts reads it for the API, the WebSocket and the page's routes. The
-// same file answers differently per X-Forwarded-Prefix, so a cache must key on it (Vary).
-func serveIndex(w http.ResponseWriter, r *http.Request, site fs.FS) {
+// same file answers differently per X-Forwarded-Prefix, so a cache must key on it (Vary). The built-in copy's ETag is
+// that of the bytes sent: at the root the file's (kept in tags), under a sub-path worked out each time.
+func serveIndex(w http.ResponseWriter, r *http.Request, site fs.FS, builtIn bool, tags *rootTags) {
 	b, err := fs.ReadFile(site, "index.html")
 	if err != nil {
 		http.NotFound(w, r)
@@ -269,7 +333,18 @@ func serveIndex(w http.ResponseWriter, r *http.Request, site fs.FS) {
 		mod = st.ModTime()
 	}
 	w.Header().Add("Vary", "X-Forwarded-Prefix")
-	http.ServeContent(w, r, "index.html", mod, bytes.NewReader(withBase(b, forwardedPrefix(r))))
+	prefix := forwardedPrefix(r)
+	body := withBase(b, prefix)
+	if builtIn {
+		tag, ok := contentTag(body), true
+		if prefix == "" {
+			tag, ok = tags.of(site, "index.html")
+		}
+		if ok {
+			setETag(w, r, tag, int64(len(body)), "index.html")
+		}
+	}
+	http.ServeContent(w, r, "index.html", mod, bytes.NewReader(body))
 }
 
 // maxPrefix bounds X-Forwarded-Prefix: a proxy's sub-path is a few short segments.

@@ -1,6 +1,7 @@
 package persona.android.di
 
 import persona.core.contracts.api.HubSent
+import persona.core.contracts.api.SentItem
 import persona.core.contracts.api.SentPage
 
 /**
@@ -16,5 +17,10 @@ internal class SelectedGroupSent(private val selected: () -> Group) : HubSent {
     override suspend fun page(before: Long?, limit: Int?, connector: String?): SentPage {
         val group = selected()
         return group.hub.page(before, limit, connector).inGroup(group.namespace)
+    }
+
+    override suspend fun recall(id: Long): SentItem? {
+        val group = selected()
+        return group.hub.recall(id)?.let { SentPage(listOf(it)).inGroup(group.namespace).items.single() }
     }
 }

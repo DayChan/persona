@@ -678,7 +678,8 @@ func (n *Node) replaySpool(ctx context.Context, sp *spool) (retry bool) {
 		case time.Since(e.At) > spoolMaxAge:
 			stale++
 		case e.Kind == "hook" && n.ahead.behind(e):
-			ahead++ // its session had a new hook since: older news than what the manager heard
+			n.replayQuestion(e) // stale news is dropped, but a resumed hook still needs its exact question state
+			ahead++             // its session had a new hook since: older news than what the manager heard
 		case e.Kind == "hook":
 			if err := n.replayHook(e); err != nil {
 				return false // a hook.event write fails only when the connection is gone: all kept for the next one
@@ -898,6 +899,24 @@ func (n *Node) retryNotificationsOnce(ctx context.Context, sp *spool) (again boo
 	return again
 }
 
+// replayQuestion restores the lifecycle of a managed AskUserQuestion without creating a card. It also runs for an
+// event whose stale hook.event is dropped: that filtering is only about news, never about a live hook's pairing (#2382).
+func (n *Node) replayQuestion(e spoolEntry) {
+	var in hookInput
+	if json.Unmarshal(e.Request.Input, &in) != nil || e.Request.ReportOnly || in.ToolName != "AskUserQuestion" {
+		return
+	}
+	switch in.HookEventName {
+	case "PreToolUse":
+		n.questions.before(in, e.At)
+	case "PermissionRequest":
+		n.questions.pair(in, e.Request.Attempt, false, e.At)
+	case "PostToolUse":
+		in.ToolInput = questionInputWithoutAnswers(in.ToolInput)
+		n.questions.complete(in, e.At)
+	}
+}
+
 // replayHook is what handleHook does with an event before it asks the phone (bookkeeping and the report), for a hook
 // that standby answered: no card, it is long over or asks again by itself.
 func (n *Node) replayHook(e spoolEntry) error {
@@ -917,6 +936,7 @@ func (n *Node) replayHook(e spoolEntry) error {
 		}
 	}
 	n.rememberTranscript(in)
+	n.replayQuestion(e)
 	p := hookEventParams(in, stopSig, req.ReportOnly)
 	p["spool_id"], p["spooled_at"] = e.ID, e.At
 	return n.peer.Notify("hook.event", p)

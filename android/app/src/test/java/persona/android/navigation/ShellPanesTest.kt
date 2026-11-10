@@ -71,6 +71,13 @@ class ShellPanesTest {
         assertNull(detailOf(listOf(AssistantRoute, ConnectionSettingsRoute)))
     }
 
+    @Test fun settingsPagesTheListMarksOpenBesideIt() {
+        // Settings › Assistant and a provider from Settings › Providers: the list's rows compare with these keys.
+        listOf(AssistantSettingsRoute, ModelProviderRoute("example")).forEach { key ->
+            assertEquals(key.toString(), key, detailOf(listOf(SettingsRoute, key)))
+        }
+    }
+
     @Test fun aSpacePageOpensBesideTheListAndChatsGoOnTopOfIt() {
         val space = SpaceRoute("machine/space")
         selected = AppTab.Agents

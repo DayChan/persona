@@ -14,6 +14,10 @@
   "change_recording_days": "Keep recordings in the knowledge base: {before} → {after} days",
   "title_done_needs_delivery": "Done means live and checked",
   "change_done_needs_delivery": "“Done means live and checked”: {before} → {after}",
+  "title_leaders": "Leader conversations",
+  "change_leaders": "Leader conversations (they supervise the tasks they hand out): {before} → {after}",
   "title_model_tiers": "Agent presets",
-  "change_model_tier": "{profile} · {tier}: {before} → {after}"
+  "change_model_tier": "{profile} · {tier}: {before} → {after}",
+  "title_review_sample_percent": "Share of finished tasks to spot-check",
+  "change_review_sample_percent": "Share of finished tasks to spot-check: {before}% → {after}%"
 }

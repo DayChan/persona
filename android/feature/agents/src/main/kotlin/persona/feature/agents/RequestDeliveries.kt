@@ -33,6 +33,14 @@ internal object RequestDeliveries {
     fun locks(delivery: RequestDelivery?): Boolean = delivery != null && delivery != RequestDelivery.Retry
 
     /**
+     * Whether the request sheet closes: an answer was delivered since it opened ([atOpen] the delivery then). A sheet
+     * opened on an answered request (a history item) stays open, read-only; one still sending, unconfirmed or to
+     * retry stays too (#2821).
+     */
+    fun closesSheet(atOpen: RequestDelivery?, now: RequestDelivery?): Boolean =
+        atOpen != RequestDelivery.Sent && now == RequestDelivery.Sent
+
+    /**
      * Removes the entries whose request left the pending list so the map does not keep growing. An answer that is
      * still sending, or is waiting for its check, stays: the check decides what happens to it.
      */

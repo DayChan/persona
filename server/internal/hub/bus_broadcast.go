@@ -108,6 +108,9 @@ func (h *Hub) relayBroadcastFrom(from string, message json.RawMessage) error {
 		h.toWanting(extensionOperationsFeature, out)
 		return nil
 	}
+	if typ == "inbox" { // before the apps hear it: the list they ask for then is fetched afresh (inbox_answers.go)
+		h.inboxAnswers.changed(from)
+	}
 	h.broadcastRaw(typ, out)
 	return nil
 }

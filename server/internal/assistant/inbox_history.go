@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nwverse/persona/server/internal/apierr"
@@ -31,6 +32,7 @@ const (
 var (
 	errInboxHistoryLimit  = i18n.ErrEnglish("inbox-errors.history_limit", i18n.Args{"max": inboxHistoryMax})
 	errInboxHistoryCursor = i18n.ErrEnglish("inbox-errors.history_cursor")
+	errInboxHistoryZone   = i18n.ErrEnglish("inbox-errors.history_zone")
 )
 
 // inboxHistoryCursor is where the next page starts: the last item's done_at (RFC 3339) and id.
@@ -66,6 +68,75 @@ func (s *Service) inboxHistoryRoutes() {
 		}
 		apierr.WriteJSON(w, page)
 	})
+	// ?tz=<IANA zone> (required) and ?sources=all, as above: how many items each calendar day of the history has
+	// there, so the apps' Done shows every day's count and jumps to one with ?before= (#2967).
+	s.handle("GET /api/v1/inbox/done/days", func(w http.ResponseWriter, r *http.Request) {
+		if !s.inboxUp(w, r) {
+			return
+		}
+		tz := r.URL.Query().Get("tz")
+		loc, ok := askedZone(tz)
+		if !ok {
+			apierr.Write(w, http.StatusBadRequest, errInboxHistoryZone)
+			return
+		}
+		days, err := s.inboxDoneDays(r.Context(), tz, loc, r.URL.Query().Get("sources") == "all")
+		if err != nil {
+			s.logf("inbox: history days: %v", err)
+			apierr.WriteCode(w, http.StatusServiceUnavailable, assistantwire.CodeInboxUnavailable, errInboxUnavailable)
+			return
+		}
+		apierr.WriteJSON(w, inboxDoneDays{TZ: tz, Days: days})
+	})
+}
+
+// inboxDoneDays is GET /api/v1/inbox/done/days' answer: the zone it counted in and the days, newest first.
+type inboxDoneDays struct {
+	TZ   string        `json:"tz"`
+	Days []db.InboxDay `json:"days"`
+}
+
+// askedZone is the time zone a request names: an IANA name the hub knows. Not "Local" (the machine's, which the hub's
+// user is not in) nor empty (UTC by LoadLocation's rule, which would quietly count the wrong days).
+func askedZone(tz string) (*time.Location, bool) {
+	if tz == "" || tz == "Local" || len(tz) > 64 {
+		return nil, false
+	}
+	loc, err := time.LoadLocation(tz)
+	return loc, err == nil
+}
+
+// inboxDoneDays counts the done items per calendar day in loc (named tz): the database's, or the ones memory holds
+// when there is none, as the history's pages are.
+func (s *Service) inboxDoneDays(ctx context.Context, tz string, loc *time.Location, connectors bool) ([]db.InboxDay, error) {
+	if st := s.inboxDB(); st != nil {
+		days, err := st.DoneInboxDays(ctx, tz, connectors)
+		if days == nil && err == nil {
+			days = []db.InboxDay{}
+		}
+		return days, err
+	}
+	b := &s.inbox
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.doneDays(loc, connectors), nil
+}
+
+// doneDays counts the done items memory holds per calendar day in loc, newest day first, as the database counts them
+// (DoneInboxDays). Under b.mu.
+func (b *inboxBook) doneDays(loc *time.Location, connectors bool) []db.InboxDay {
+	counts := map[string]int{}
+	for _, it := range b.items {
+		if it.DoneAt != nil && (connectors || it.Connector == nil) {
+			counts[it.DoneAt.In(loc).Format(time.DateOnly)]++
+		}
+	}
+	days := make([]db.InboxDay, 0, len(counts))
+	for day, n := range counts {
+		days = append(days, db.InboxDay{Day: day, Count: n})
+	}
+	slices.SortFunc(days, func(x, y db.InboxDay) int { return strings.Compare(y.Day, x.Day) })
+	return days
 }
 
 // inboxHistoryQuery reads a history request's page.

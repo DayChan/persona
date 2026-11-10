@@ -17,5 +17,16 @@
   "sent_now": "Sent to {agent}",
   "move_up": "Move up",
   "move_down": "Move down",
-  "moved": "Order changed"
+  "moved": "Order changed",
+  "mark_photo_one": "{count} photo",
+  "mark_photo_other": "{count} photos",
+  "mark_video_one": "{count} video",
+  "mark_video_other": "{count} videos",
+  "mark_file_one": "{count} file",
+  "mark_file_other": "{count} files",
+  "mark_context_one": "{count} context",
+  "mark_context_other": "{count} contexts",
+  "mark_join": ", ",
+  "photos_as_paths_one": "Couldn't bring back a photo from your computer, so its path is in the input instead.",
+  "photos_as_paths_other": "Couldn't bring back {count} photos from your computer, so their paths are in the input instead."
 }

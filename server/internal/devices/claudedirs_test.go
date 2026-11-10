@@ -432,3 +432,71 @@ func TestBlockClaudeDirsDuringRemember(t *testing.T) {
 		t.Fatalf("remembered %v", seen)
 	}
 }
+
+// A node.configure that names neither claude_dirs nor keep_sessions makes the node forget its config directories
+// (node/node.go): the hub adds them to every such call, whoever makes it — the botmux and herdr switches, an
+// extension's agent filters through CallNode — and leaves a call that says what is kept as it is.
+func TestConfigureKeepsClaudeDirs(t *testing.T) {
+	h := newTestDevices(t)
+	ctx := context.Background()
+	m, seen := herdrMac(t, h, "mac", false)
+	m.cfg.ClaudeConfigDirs = []string{"/home/me/.config/cc/work"}
+	m.cfg.ClaudeStartDir = "/home/me/.persona/claude"
+	if err := h.opts.Store.PutSetting(ctx, claudeDirsKey("mac"), []string{"/home/me/.config/cc/found"}); err != nil {
+		t.Fatal(err)
+	}
+	want := m.claudeDirs(ctx)
+	if len(want) != 3 {
+		t.Fatalf("configured, start and remembered dirs: %v", want)
+	}
+	mux := h.Handler(http.NotFoundHandler())
+	if code, _ := call(t, mux, "PUT", "/api/v1/machines/mac/botmux", `{"on": false}`); code != 200 {
+		t.Fatalf("botmux: %d", code)
+	}
+	if code, _ := call(t, mux, "PUT", "/api/v1/machines/mac/herdr", `{"autostart": false}`); code != 200 {
+		t.Fatalf("herdr: %d", code)
+	}
+	if _, err := h.CallNode(ctx, "mac", "node.configure", json.RawMessage(`{"agent_filters":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.CallNode(ctx, "mac", "node.configure", json.RawMessage(`{"keep_sessions":["s1"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	configures := func() []map[string]any {
+		var out []map[string]any
+		for _, c := range seen() {
+			if c["method"] == "node.configure" {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+	eventually(t, 2*time.Second, "four node.configure calls", func() bool { return len(configures()) == 4 })
+	dirsOf := func(c map[string]any) []string {
+		var out []string
+		for _, d := range c["claude_dirs"].([]any) {
+			out = append(out, d.(string))
+		}
+		return out
+	}
+	for _, key := range []string{"botmux", "herdr_autostart", "agent_filters"} {
+		i := slices.IndexFunc(configures(), func(c map[string]any) bool { _, ok := c[key]; return ok })
+		if i < 0 {
+			t.Fatalf("no node.configure with %s: %v", key, configures())
+		}
+		c := configures()[i]
+		if _, ok := c["claude_dirs"]; !ok {
+			t.Fatalf("%s: the node would forget its dirs: %v", key, c)
+		}
+		if got := dirsOf(c); !slices.Equal(got, want) {
+			t.Fatalf("%s: claude_dirs %v, want %v", key, got, want)
+		}
+	}
+	i := slices.IndexFunc(configures(), func(c map[string]any) bool { _, ok := c["keep_sessions"]; return ok })
+	if i < 0 {
+		t.Fatalf("no node.configure with keep_sessions: %v", configures())
+	}
+	if _, ok := configures()[i]["claude_dirs"]; ok {
+		t.Fatalf("a call that only changes what is kept got dirs: %v", configures()[i])
+	}
+}

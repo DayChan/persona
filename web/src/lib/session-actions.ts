@@ -47,11 +47,18 @@ export const BYPASS_MODE = "bypassPermissions";
 export const BYPASS_WARNING = t("lib-session-actions.bypass_warning");
 
 /** An assistant conversation (the main one too) switches to any mode, "Allow all" included: the hub restarts its
- * Claude with the new mode (#2416). Other agents keep SWITCHABLE_MODES. */
-const ASSISTANT_MODES = PERMISSION_MODES.map((m) => (m.id === BYPASS_MODE ? { ...m, detail: t("lib-session-actions.mode_bypass_permissions_assistant_detail") } : m));
+ * Claude with the new mode (#2416). So does an agent whose Claude was started with a flag that puts "Allow all" in
+ * its mode cycle (`bypass`: Session.bypass_available, or it is in that mode now; #1379). Other agents keep
+ * SWITCHABLE_MODES. */
+const ALL_MODES = PERMISSION_MODES.map((m) => (m.id === BYPASS_MODE ? { ...m, detail: t("lib-session-actions.mode_bypass_permissions_assistant_detail") } : m));
 
-export function switchableModes(assistant: boolean | undefined, agent?: string): ModeOption[] {
-  return assistant || agent === "agy" ? ASSISTANT_MODES : SWITCHABLE_MODES;
+export function switchableModes(assistant: boolean | undefined, agent?: string, bypass?: boolean): ModeOption[] {
+  return assistant || agent === "agy" || bypass ? ALL_MODES : SWITCHABLE_MODES;
+}
+
+/** Whether a running agent's Claude can be switched to "Allow all" (see switchableModes). */
+export function canSwitchToBypass(s: Session): boolean {
+  return Boolean(s.bypass_available || s.permission_mode === BYPASS_MODE);
 }
 
 export function modeTitle(id?: string): string {
@@ -62,9 +69,12 @@ export function effortTitle(id?: string): string {
   return id ? (EFFORTS.find((m) => m.id === id)?.title ?? CODEX_EFFORTS.find((m) => m.id === id)?.title ?? id) : "";
 }
 
-/** Claude Code shows the two chips (its TUI's bottom bar); Codex, a compatible CLI and runtimes have no such switches. */
+/** The two chips (Claude Code's TUI bottom bar). The node says where they work (`capabilities.modes`, #1843): a runtime
+ *  that applies them (Orca, Antigravity), never a Claude outside Persona's terminals. An older node does not say, and the
+ *  chips follow the agent: Claude Code in Persona's terminals, Antigravity; Codex, a compatible CLI and other sources not. */
 export function hasModes(s: Session | undefined): boolean {
   if (!s || s.assistant) return false;
+  if (typeof s.capabilities?.modes === "boolean") return s.capabilities.modes;
   if (s.agent === "agy") return true;
   if (s.source_kind) return false;
   return !s.agent || s.agent === "claude";

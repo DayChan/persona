@@ -3,7 +3,11 @@
   "hub_no_response": "The hub took too long to answer. It may be restarting, or the network may be down. Try again in a moment.",
   "not_found": "Content not found, or this version doesn't support this feature. Refresh the page or check for updates to the hub and your computer's software. ({detail})",
   "server_error": "The service ran into a problem. Try again later. If it keeps failing, check that the hub is running properly. ({detail})",
-  "hub_unavailable": "The hub can't respond right now. Try again later. If it keeps failing, check that the hub and your computer's software are running properly. ({detail})",
+  "hub_unavailable": "The service couldn't complete this request. Try again later. ({detail})",
+  "knowledge_disabled": "This manager has turned off the knowledge base. Enable it in the manager configuration to use it.",
+  "knowledge_unavailable": "The knowledge base isn't ready yet. Try again shortly.",
+  "knowledge_read_only": "The knowledge base is read-only. Change the manager configuration before editing or syncing recordings.",
+  "manager_offline": "The manager is offline or restarting. Try again shortly.",
   "computer_offline": "This computer is offline. Make sure it's on and connected to the internet and that Persona Link is running, then try again.",
   "computer_dropped": "The connection to this computer dropped. Reconnect it, check whether your last action went through, then try again.",
   "computer_timeout": "The request timed out. The computer may be busy or the network unstable. Check whether it went through, then try again later."

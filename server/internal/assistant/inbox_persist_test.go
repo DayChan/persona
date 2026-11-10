@@ -43,8 +43,8 @@ func (s *inboxOrderStore) PutInboxItem(ctx context.Context, id string, data []by
 	return nil
 }
 
-func (s *inboxOrderStore) InboxItems(ctx context.Context, doneSince time.Time) ([][]byte, error) {
-	return s.inboxMemStore.InboxItems(ctx, doneSince)
+func (s *inboxOrderStore) InboxItems(ctx context.Context, doneSince time.Time, each func(raw []byte) error) error {
+	return s.inboxMemStore.InboxItems(ctx, doneSince, each)
 }
 
 func (s *inboxOrderStore) DeleteInboxSource(ctx context.Context, source string, ids []string) ([]string, error) {
@@ -52,6 +52,30 @@ func (s *inboxOrderStore) DeleteInboxSource(ctx context.Context, source string, 
 		s.deleteOnce.Do(func() { close(s.deleteEntered) })
 	}
 	return s.inboxMemStore.DeleteInboxSource(ctx, source, ids)
+}
+
+// inboxCutStore's start read breaks off after the first row.
+type inboxCutStore struct{ *inboxMemStore }
+
+func (s inboxCutStore) InboxItems(ctx context.Context, doneSince time.Time, each func(raw []byte) error) error {
+	n := 0
+	return s.inboxMemStore.InboxItems(ctx, doneSince, func(raw []byte) error {
+		if n++; n > 1 {
+			return errMuteStoreDown
+		}
+		return each(raw)
+	})
+}
+
+// A start read that breaks off midway takes in nothing (the rows decoded before it are dropped) and is read again the
+// next time, as one that fails at once.
+func TestInboxLoadBrokenMidwayTakesNothing(t *testing.T) {
+	st := newInboxMemStore()
+	st.rows["a"], st.rows["b"] = []byte(`{"id":"a","source":"mail"}`), []byte(`{"id":"b","source":"mail"}`)
+	h := New(Options{Hub: newFakeHub().withMachine(), Store: func() Store { return inboxCutStore{st} }, Logf: t.Logf})
+	if err := h.inboxReady(context.Background()); !errors.Is(err, errInboxUnavailable) || h.inbox.loaded.Load() || len(h.inbox.items) != 0 {
+		t.Fatalf("a read broken after one row: %v, loaded %v, %d items in memory", err, h.inbox.loaded.Load(), len(h.inbox.items))
+	}
 }
 
 func (s *inboxOrderStore) hasRow(id string) bool {

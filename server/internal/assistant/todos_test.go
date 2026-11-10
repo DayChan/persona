@@ -507,6 +507,39 @@ func TestTodoReopenOrder(t *testing.T) {
 	}
 }
 
+// A supervisor finishing acceptance after the user's direct completion must not replace
+// the user marker with done_by=review, which would reopen the task on later agent activity.
+func TestUserCompletionWinsLateSupervisorAcceptance(t *testing.T) {
+	g := newGatedTodoStore(todoTestDB(t))
+	e := newTodoEnv(t, g)
+	ctx := context.Background()
+	todo, err := e.s.createTodo(ctx, "Review rollout", "Choose a rollout", "conv1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.f.setSessions("box", idleAgent(time.Now().Add(-time.Hour)))
+	if err := e.s.linkTodoAgent(ctx, todo.ID, "box", "s1", "Rollout", "/code/app", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	e.s.superviseTodo(ctx, todo.ID, "conv1", nil, 0)
+	var status int
+	var closed bool
+	var reviewErr error
+	raceTodoWrites(g,
+		func() { status = e.do("PATCH", "/api/v1/todos/"+todo.ID, `{"done":true}`).Code },
+		func() { closed, reviewErr = e.s.reviewDoneTodo(ctx, todo.ID, "Accepted later", true) })
+	if status != http.StatusOK || closed || reviewErr != nil {
+		t.Fatalf("PATCH %d, review closed %v: %v", status, closed, reviewErr)
+	}
+	reloadTodos(t, e.s)
+	e.s.taskWorking(ctx, "box", "s1")
+	stored, err := g.GetTodo(ctx, todo.ID)
+	got := todoNow(e.s, todo.ID)
+	if err != nil || stored.DoneAt == nil || stored.DoneBy != "" || got.DoneAt == nil || got.DoneBy != "" {
+		t.Fatalf("the user's completion changed: memory %+v, store %+v, error %v", got, stored, err)
+	}
+}
+
 // The todos not read yet (the store failing) are no empty list: the routes answer 503 and the report is left out
 // (the hub keeps the last one); once the store answers they are read.
 func TestTodosCacheReliability(t *testing.T) {

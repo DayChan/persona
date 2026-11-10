@@ -188,4 +188,6 @@ var Routes = []string{
 	"PUT /api/v1/recordings/{id}",
 	"DELETE /api/v1/recordings/{id}",
 	"GET /api/v1/recordings",
+	"POST /api/v1/recordings/{id}/minutes",
+	"POST /api/v1/recordings/{id}/minutes/todos",
 }

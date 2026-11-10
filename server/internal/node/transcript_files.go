@@ -33,15 +33,19 @@ func (n *Node) startingSession(id string) bool {
 // (resumed under another profile or copied to another project: the new writes go to the new copy, the old one stays):
 // the newest is the one. A known path, reported by a hook or found here, is looked for again after half a minute, and
 // stays a candidate: a hook may name a file outside the directories searched.
-func (n *Node) transcriptPath(id string) string {
-	p := n.findTranscriptPath(id)
+func (n *Node) transcriptPath(id string) string { return n.transcriptPathIn(id, nil) }
+
+// transcriptPathIn is transcriptPath with a Codex rollout's stat taken from a list pass (codexListPass; nil: stat'ed
+// here): the list stats each rollout already, and this ran again for every row every second.
+func (n *Node) transcriptPathIn(id string, pass *codexListPass) string {
+	p := n.findTranscriptPath(id, pass)
 	if !n.scopedTranscriptAllows(p) {
 		return ""
 	}
 	return p
 }
 
-func (n *Node) findTranscriptPath(id string) string {
+func (n *Node) findTranscriptPath(id string, pass *codexListPass) string {
 	// A runtime's session whose conversation is a Claude transcript (runtimetranscript.go): that one's file.
 	if t := n.runtimes.transcriptOf(id); t != "" {
 		id = t
@@ -51,7 +55,7 @@ func (n *Node) findTranscriptPath(id string) string {
 	}
 	if src, ok := n.codexSource(id); ok && !n.ownedAssistantSource(id) {
 		if src.path != "" {
-			if _, err := os.Stat(src.path); err == nil {
+			if _, err := pass.stat(src.path); err == nil {
 				return src.path
 			}
 		}

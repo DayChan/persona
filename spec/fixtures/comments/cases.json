@@ -1,0 +1,353 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "write_code_comment",
+      "description": "A code comment: number, file and lines, the code in a fence with its language, a blank line, the note.",
+      "source": "web/src/lib/comments.ts commentBlock / parseCommentBlock, web/src/lib/drafts.ts withQuoteBlock / splitQuotes; comments.test.ts \"writes a code comment\"",
+      "input": {
+        "comments": [
+          {
+            "quoted": "const a = 1;\nconst b = 2;",
+            "note": "Why not use a constant?",
+            "code": {
+              "file": "src/app.ts",
+              "from": 12,
+              "to": 13,
+              "lang": "ts"
+            }
+          }
+        ],
+        "text": ""
+      },
+      "expected": {
+        "message": "> Code comment 1\n> File: src/app.ts:12-13\n> ```ts\n> const a = 1;\n> const b = 2;\n> ```\n> \n> Why not use a constant?"
+      }
+    },
+    {
+      "name": "write_old_side_diff_truncated",
+      "description": "Removed lines only: Side: old; the diff's commit as its first 8 characters; lines left out counted in Truncated.",
+      "source": "web/src/lib/comments.ts commentBlock / parseCommentBlock, web/src/lib/drafts.ts withQuoteBlock / splitQuotes; comments.test.ts \"says which diff\"",
+      "input": {
+        "comments": [
+          {
+            "quoted": "-let city = cache.city\n-let temp = cache.temp",
+            "note": "These two lines carried the old fallback.",
+            "code": {
+              "file": "Shared/Forecast.swift",
+              "from": 30,
+              "to": 31,
+              "old": true,
+              "diff": "commit 0123abcd",
+              "lang": "diff",
+              "omitted": 3
+            }
+          }
+        ],
+        "text": ""
+      },
+      "expected": {
+        "message": "> Code comment 1\n> File: Shared/Forecast.swift:30-31\n> Side: old\n> Diff: commit 0123abcd\n> Truncated: the first 2 of 5 lines\n> ```diff\n> -let city = cache.city\n> -let temp = cache.temp\n> ```\n> \n> These two lines carried the old fallback."
+      }
+    },
+    {
+      "name": "write_fence_longer_than_code",
+      "description": "The fence is one backtick longer than the longest run in the code; no language, no note, no blank line.",
+      "source": "web/src/lib/comments.ts commentBlock / parseCommentBlock, web/src/lib/drafts.ts withQuoteBlock / splitQuotes; comments.test.ts \"uses a fence the code cannot close\"",
+      "input": {
+        "comments": [
+          {
+            "quoted": "```js",
+            "note": "",
+            "code": {
+              "file": "a.md",
+              "from": 1,
+              "to": 1
+            }
+          }
+        ],
+        "text": ""
+      },
+      "expected": {
+        "message": "> Code comment 1\n> File: a.md:1\n> ````\n> ```js\n> ````"
+      }
+    },
+    {
+      "name": "write_selected_text",
+      "description": "A comment on picked words: Selected text, the words as a nested quote, then the note.",
+      "source": "web/src/lib/comments.ts commentBlock / parseCommentBlock, web/src/lib/drafts.ts withQuoteBlock / splitQuotes; comments.test.ts \"writes picked words\"",
+      "input": {
+        "comments": [
+          {
+            "quoted": "first\nsecond",
+            "note": "needs a source"
+          }
+        ],
+        "text": ""
+      },
+      "expected": {
+        "message": "> Comment 1\n> Selected text:\n> > first\n> > second\n> \n> needs a source"
+      }
+    },
+    {
+      "name": "write_element",
+      "description": "An element comment: page, selector, component with its source, its text with whitespace runs as one space, the HTML.",
+      "source": "web/src/lib/preview.test.ts \"carries the page, the element\"",
+      "input": {
+        "comments": [
+          {
+            "quoted": "<button class=\"save\" type=\"submit\"><span>Save changes</span></button>",
+            "note": "Make it primary",
+            "element": {
+              "url": "http://localhost:5173/settings",
+              "selector": "main > form > button.save",
+              "component": "SaveButton",
+              "source": "src/components/SaveButton.tsx:12",
+              "text": "Save   changes"
+            }
+          }
+        ],
+        "text": ""
+      },
+      "expected": {
+        "message": "> Element comment 1\n> Page: http://localhost:5173/settings\n> Element: main > form > button.save\n> Component: SaveButton (src/components/SaveButton.tsx:12)\n> Text: Save changes\n> ```html\n> <button class=\"save\" type=\"submit\"><span>Save changes</span></button>\n> ```\n> \n> Make it primary"
+      }
+    },
+    {
+      "name": "write_element_source_truncated",
+      "description": "No component: Source alone; HTML lines left out counted; no note.",
+      "source": "web/src/lib/preview.test.ts \"cuts long HTML\"",
+      "input": {
+        "comments": [
+          {
+            "quoted": "<li>1</li>\n<li>2</li>",
+            "note": "",
+            "element": {
+              "url": "http://localhost:5173/list",
+              "selector": "ul > li",
+              "source": "src/List.tsx:3",
+              "omitted": 20
+            }
+          }
+        ],
+        "text": ""
+      },
+      "expected": {
+        "message": "> Element comment 1\n> Page: http://localhost:5173/list\n> Element: ul > li\n> Source: src/List.tsx:3\n> Truncated: the first 2 of 22 lines\n> ```html\n> <li>1</li>\n> <li>2</li>\n> ```"
+      }
+    },
+    {
+      "name": "write_review_with_summary",
+      "description": "A review: comments numbered in order with their review scope, blank lines between blocks, then the typed text.",
+      "source": "web/src/lib/comments.ts commentBlock / parseCommentBlock, web/src/lib/drafts.ts withQuoteBlock / splitQuotes; web/src/lib/session-review.test.ts",
+      "input": {
+        "comments": [
+          {
+            "quoted": "+let city: String?",
+            "note": "Optional: old caches have no city.",
+            "code": {
+              "file": "Shared/Forecast.swift",
+              "from": 7,
+              "to": 7,
+              "diff": "branch since 4f2a9c1",
+              "lang": "diff"
+            }
+          },
+          {
+            "quoted": " return cached\n+?? last",
+            "note": "Fall back to the last cache.",
+            "code": {
+              "file": "Shared/Forecast.swift",
+              "from": 30,
+              "to": 31,
+              "diff": "uncommitted",
+              "lang": "diff"
+            }
+          }
+        ],
+        "text": "Looks good once these two are fixed."
+      },
+      "expected": {
+        "message": "> Code comment 1\n> File: Shared/Forecast.swift:7\n> Diff: branch since 4f2a9c1\n> ```diff\n> +let city: String?\n> ```\n> \n> Optional: old caches have no city.\n\n> Code comment 2\n> File: Shared/Forecast.swift:30-31\n> Diff: uncommitted\n> ```diff\n>  return cached\n> +?? last\n> ```\n> \n> Fall back to the last cache.\n\nLooks good once these two are fixed."
+      }
+    },
+    {
+      "name": "write_note_trimmed",
+      "description": "The note is trimmed; a note of only whitespace leaves no blank line.",
+      "source": "web/src/lib/comments.ts commentBlock / parseCommentBlock, web/src/lib/drafts.ts withQuoteBlock / splitQuotes",
+      "input": {
+        "comments": [
+          {
+            "quoted": "```js",
+            "note": "  \n ",
+            "code": {
+              "file": "a.md",
+              "from": 1,
+              "to": 1
+            }
+          },
+          {
+            "quoted": "first\nsecond",
+            "note": "  hi \n"
+          }
+        ],
+        "text": "go"
+      },
+      "expected": {
+        "message": "> Code comment 1\n> File: a.md:1\n> ````\n> ```js\n> ````\n\n> Comment 2\n> Selected text:\n> > first\n> > second\n> \n> hi\n\ngo"
+      }
+    },
+    {
+      "name": "read_review",
+      "description": "A review read back: both code comments and the summary after them.",
+      "source": "web/src/lib/comments.ts commentBlock / parseCommentBlock, web/src/lib/drafts.ts withQuoteBlock / splitQuotes",
+      "input": {
+        "message": "> Code comment 1\n> File: Shared/Forecast.swift:7\n> Diff: branch since 4f2a9c1\n> ```diff\n> +let city: String?\n> ```\n> \n> Optional: old caches have no city.\n\n> Code comment 2\n> File: Shared/Forecast.swift:30-31\n> Diff: uncommitted\n> ```diff\n>  return cached\n> +?? last\n> ```\n> \n> Fall back to the last cache.\n\nLooks good once these two are fixed."
+      },
+      "expected": {
+        "quote": null,
+        "comments": [
+          {
+            "quoted": "+let city: String?",
+            "note": "Optional: old caches have no city.",
+            "code": {
+              "file": "Shared/Forecast.swift",
+              "from": 7,
+              "to": 7,
+              "diff": "branch since 4f2a9c1",
+              "lang": "diff"
+            }
+          },
+          {
+            "quoted": " return cached\n+?? last",
+            "note": "Fall back to the last cache.",
+            "code": {
+              "file": "Shared/Forecast.swift",
+              "from": 30,
+              "to": 31,
+              "diff": "uncommitted",
+              "lang": "diff"
+            }
+          }
+        ],
+        "rest": "Looks good once these two are fixed."
+      }
+    },
+    {
+      "name": "read_each_kind",
+      "description": "Every kind reads back to what was written (an element's text with its whitespace already collapsed).",
+      "source": "web/src/lib/comments.ts commentBlock / parseCommentBlock, web/src/lib/drafts.ts withQuoteBlock / splitQuotes; comments.test.ts \"reads both kinds back\"",
+      "input": {
+        "message": "> Code comment 1\n> File: Shared/Forecast.swift:30-31\n> Side: old\n> Diff: commit 0123abcd\n> Truncated: the first 2 of 5 lines\n> ```diff\n> -let city = cache.city\n> -let temp = cache.temp\n> ```\n> \n> These two lines carried the old fallback.\n\n> Comment 1\n> Selected text:\n> > first\n> > second\n> \n> needs a source\n\n> Element comment 1\n> Page: http://localhost:5173/settings\n> Element: main > form > button.save\n> Component: SaveButton (src/components/SaveButton.tsx:12)\n> Text: Save changes\n> ```html\n> <button class=\"save\" type=\"submit\"><span>Save changes</span></button>\n> ```\n> \n> Make it primary\n\n> Element comment 1\n> Page: http://localhost:5173/list\n> Element: ul > li\n> Source: src/List.tsx:3\n> Truncated: the first 2 of 22 lines\n> ```html\n> <li>1</li>\n> <li>2</li>\n> ```\n\ngo on"
+      },
+      "expected": {
+        "quote": null,
+        "comments": [
+          {
+            "quoted": "-let city = cache.city\n-let temp = cache.temp",
+            "note": "These two lines carried the old fallback.",
+            "code": {
+              "file": "Shared/Forecast.swift",
+              "from": 30,
+              "to": 31,
+              "old": true,
+              "diff": "commit 0123abcd",
+              "lang": "diff",
+              "omitted": 3
+            }
+          },
+          {
+            "quoted": "first\nsecond",
+            "note": "needs a source"
+          },
+          {
+            "quoted": "<button class=\"save\" type=\"submit\"><span>Save changes</span></button>",
+            "note": "Make it primary",
+            "element": {
+              "url": "http://localhost:5173/settings",
+              "selector": "main > form > button.save",
+              "component": "SaveButton",
+              "source": "src/components/SaveButton.tsx:12",
+              "text": "Save changes"
+            }
+          },
+          {
+            "quoted": "<li>1</li>\n<li>2</li>",
+            "note": "",
+            "element": {
+              "url": "http://localhost:5173/list",
+              "selector": "ul > li",
+              "source": "src/List.tsx:3",
+              "omitted": 20
+            }
+          }
+        ],
+        "rest": "go on"
+      }
+    },
+    {
+      "name": "read_plain_quote_first",
+      "description": "A plain quote first, then comment blocks: the quote stays a quote.",
+      "source": "web/src/lib/comments.ts commentBlock / parseCommentBlock, web/src/lib/drafts.ts withQuoteBlock / splitQuotes; comments.test.ts \"splits the leading blocks again\"",
+      "input": {
+        "message": "> quoted\n\n> Code comment 1\n> File: src/app.ts:12-13\n> ```ts\n> const a = 1;\n> const b = 2;\n> ```\n> \n> Why not use a constant?\n\ngo"
+      },
+      "expected": {
+        "quote": "quoted",
+        "comments": [
+          {
+            "quoted": "const a = 1;\nconst b = 2;",
+            "note": "Why not use a constant?",
+            "code": {
+              "file": "src/app.ts",
+              "from": 12,
+              "to": 13,
+              "lang": "ts"
+            }
+          }
+        ],
+        "rest": "go"
+      }
+    },
+    {
+      "name": "read_second_plain_block_stays_text",
+      "description": "A second block that is not a comment is not taken: it stays in the rest.",
+      "source": "web/src/lib/comments.ts commentBlock / parseCommentBlock, web/src/lib/drafts.ts withQuoteBlock / splitQuotes; comments.test.ts \"takes a second block only when it is a comment\"",
+      "input": {
+        "message": "> a\n\n> b\n\ntext"
+      },
+      "expected": {
+        "quote": "a",
+        "comments": [],
+        "rest": "> b\n\ntext"
+      }
+    },
+    {
+      "name": "read_note_starting_with_quote_mark",
+      "description": "A note whose first line starts with > stays the note: the picked words end at the blank line.",
+      "source": "web/src/lib/comments.ts commentBlock / parseCommentBlock, web/src/lib/drafts.ts withQuoteBlock / splitQuotes; comments.test.ts \"reads both kinds back\"",
+      "input": {
+        "message": "> Comment 1\n> Selected text:\n> > first\n> > second\n> \n> > not a quote\n> really"
+      },
+      "expected": {
+        "quote": null,
+        "comments": [
+          {
+            "quoted": "first\nsecond",
+            "note": "> not a quote\nreally"
+          }
+        ],
+        "rest": ""
+      }
+    },
+    {
+      "name": "read_no_quote",
+      "description": "A message that does not start with a > block has no quotes.",
+      "source": "web/src/lib/comments.ts commentBlock / parseCommentBlock, web/src/lib/drafts.ts withQuoteBlock / splitQuotes",
+      "input": {
+        "message": "no quote\n> later"
+      },
+      "expected": null
+    }
+  ]
+}

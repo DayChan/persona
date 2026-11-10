@@ -39,15 +39,31 @@ export function navRailTicks(lines: ChatLine[]): NavRailTick[] {
   const out: NavRailTick[] = [];
   for (const line of lines) {
     if (line.kind !== "segment") continue;
-    const msg = line.seg.user;
-    if (!msg || !isOwnMessage(msg) || isLoopTick(msg)) continue;
-    const preview = navRailPreview(wordsOf(msg));
-    const attachments = msg.images.length + (msg.files?.length ?? 0) + (msg.photos?.length ?? 0) + msg.contexts.length;
-    if (!preview && !attachments) continue;
-    const answer = responseExcerpt(line.seg);
-    out.push({ id: line.id, preview, ...(preview ? {} : { attachmentsOnly: attachments }), ...(answer ? { answerExcerpt: answer } : {}) });
+    const { seg } = line;
+    let read = ticksOf.get(line);
+    if (!read || read.seg !== seg || read.user !== seg.user || read.answer !== seg.answer || read.steps !== seg.steps) {
+      read = { seg, user: seg.user, answer: seg.answer, steps: seg.steps, tick: segmentTick(line) };
+      ticksOf.set(line, read);
+    }
+    if (read.tick) out.push(read.tick);
   }
   return out;
+}
+
+/** Each segment line's tick (null: none), read once per line object. stabilizeLines hands an unchanged line's object
+ *  on to the next push, so a push reads only the lines it changed (re-reading every answer was most of an items
+ *  push's script at 200 turns). The parts the tick is read from are kept with it, so a line given another question,
+ *  answer or steps is read again. The ticks are shared: read-only. */
+const ticksOf = new WeakMap<ChatLine, { seg: Segment; user: Segment["user"]; answer: Segment["answer"]; steps: Segment["steps"]; tick: NavRailTick | null }>();
+
+function segmentTick(line: Extract<ChatLine, { kind: "segment" }>): NavRailTick | null {
+  const msg = line.seg.user;
+  if (!msg || !isOwnMessage(msg) || isLoopTick(msg)) return null;
+  const preview = navRailPreview(wordsOf(msg));
+  const attachments = msg.images.length + (msg.files?.length ?? 0) + (msg.photos?.length ?? 0) + msg.contexts.length;
+  if (!preview && !attachments) return null;
+  const answer = responseExcerpt(line.seg);
+  return { id: line.id, preview, ...(preview ? {} : { attachmentsOnly: attachments }), ...(answer ? { answerExcerpt: answer } : {}) };
 }
 
 /** Prefer the answer, then visible text from this exchange only. Never inspect tool payloads, private reasoning,
@@ -82,18 +98,58 @@ export function navRailPreview(text: string): string {
 }
 
 /** The answer's start as one plain line: Markdown marks a preview does not render are stripped (links keep their
- *  text, headings and quotes their prefix, bold and code their marks), whitespace folds, and the result is capped. */
+ *  text, headings and quotes their prefix, bold and code their marks), whitespace folds, and the result is capped.
+ *  A long answer is read from its head when that gives the same result (excerptHead). */
 export function navRailExcerpt(raw: string): string {
-  return raw
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+  const head = excerptHead(raw);
+  if (head !== undefined) {
+    const out = plainLine(head);
+    if (out.length >= NAV_RAIL_EXCERPT_MAX) return out.slice(0, NAV_RAIL_EXCERPT_MAX);
+  }
+  return plainLine(raw.replace(COMMENT, "").replace(LINK, "$1")).slice(0, NAV_RAIL_EXCERPT_MAX);
+}
+
+const COMMENT = /<!--[\s\S]*?-->/g;
+const LINK = /\[([^\]]*)\]\([^)]*\)/g;
+/** How much of a long answer the excerpt reads first: several times what the card shows, so the head of an answer in
+ *  prose fills the excerpt; when it does not (a long comment or code block on top), the whole answer is read. */
+const EXCERPT_HEAD = 1024;
+
+/** The excerpt's steps after comments and links: line-start marks, bold and code marks, whitespace. */
+function plainLine(text: string): string {
+  return text
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/^>\s?/gm, "")
     .replace(/^[-+*]\s+/gm, "")
     .replace(/[*`]/g, "")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, NAV_RAIL_EXCERPT_MAX);
+    .trim();
+}
+
+/** A longer answer's first EXCERPT_HEAD characters through the end of their line, comments and links already replaced;
+ *  undefined when one of those starts in the head and might end after it. Every comment and link in the head is then
+ *  decided inside it, and the later steps look only within a line (a heading or list mark's spaces may run on past
+ *  the cut, but only past it), so the head's result is a prefix of the whole answer's and its first
+ *  NAV_RAIL_EXCERPT_MAX characters are the whole answer's excerpt when it has that many (nav-rail-cache.test.ts
+ *  checks this against the whole-text excerpt on random Markdown). */
+function excerptHead(raw: string): string | undefined {
+  const cut = raw.indexOf("\n", EXCERPT_HEAD) + 1;
+  if (cut <= 0 || cut === raw.length) return undefined;
+  const head = raw.slice(0, cut);
+  // A closer after the head completes anything still open at the cut: a comment or link that reaches into it may
+  // close only further on in the whole answer, so the head cannot stand for that answer.
+  let open = false;
+  const bare = (head + "-->").replace(COMMENT, (m: string, at: number) => {
+    if (at + m.length > head.length) open = true;
+    return "";
+  });
+  if (open) return undefined;
+  const text = bare.slice(0, -3);
+  const linked = (text + "](x)").replace(LINK, (m: string, words: string, at: number) => {
+    if (at + m.length > text.length) open = true;
+    return words;
+  });
+  return open ? undefined : linked.slice(0, -4);
 }
 
 /** Idle marks stay uniformly short; only an interactive preview creates bell-shaped focus shoulders. */

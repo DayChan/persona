@@ -46,11 +46,11 @@ func cachedPaneEnv(pid int) map[string]string {
 	return env
 }
 
-// pickedEnv takes the engine pane variables out of an environment listing (NAME=value, NUL- or space-separated:
-// /proc/<pid>/environ, ps -E).
+// pickedEnv takes the pane variables (paneEnvKeys: the engines', and tmux's) out of an environment listing (NAME=value,
+// NUL- or space-separated: /proc/<pid>/environ, ps -E).
 func pickedEnv(listing string) map[string]string {
 	out := map[string]string{}
-	for _, name := range enginePaneEnvs {
+	for _, name := range paneEnvKeys {
 		re, ok := paneEnvRes.Load(name)
 		if !ok {
 			re, _ = paneEnvRes.LoadOrStore(name, paneEnvRe(name))

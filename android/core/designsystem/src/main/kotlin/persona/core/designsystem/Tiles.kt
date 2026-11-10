@@ -121,14 +121,14 @@ fun JTile(
 
 /**
  * A value stepped down and up: − [value] +, the buttons the platform's touch size, [canDown] / [canUp] at the ends of
- * the range. The value is read out with the buttons.
+ * the range. The value is read out with the buttons; a null [value] is only − +, beside a field that shows and edits it.
  */
 @Composable
-fun JStepper(value: String, onDown: () -> Unit, onUp: () -> Unit, modifier: Modifier = Modifier, canDown: Boolean = true, canUp: Boolean = true, enabled: Boolean = true) {
+fun JStepper(value: String?, onDown: () -> Unit, onUp: () -> Unit, modifier: Modifier = Modifier, canDown: Boolean = true, canUp: Boolean = true, enabled: Boolean = true) {
     val palette = PersonaTheme.palette
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         JIconButton(PhIcons.Minus, stringResource(R.string.designsystem_stepper_minus), onDown, enabled = enabled && canDown, raised = false, tint = palette.ink2)
-        JChangingText(value, style = PersonaTheme.type.callout.copy(fontWeight = FontWeight.SemiBold), color = palette.ink)
+        value?.let { JChangingText(it, style = PersonaTheme.type.callout.copy(fontWeight = FontWeight.SemiBold), color = palette.ink) }
         JIconButton(PhIcons.Plus, stringResource(R.string.designsystem_stepper_plus), onUp, enabled = enabled && canUp, raised = false, tint = palette.ink2)
     }
 }

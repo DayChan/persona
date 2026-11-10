@@ -44,7 +44,7 @@ internal fun MessageContent(item: Item, user: Boolean, update: ChatTextUpdate? =
     Column(Modifier.fillMaxWidth().messageMenu(MessageTarget(item.id, model.plain, user, model.editText()))) {
         MessageContextGroup(model.contexts, "${item.id}/contexts", uri::openUri, alignEnd = user)
         AttachedFileCards(model.attached, alignEnd = user)
-        MessageParts(model.parts, user, item.id, boxed = boxed)
+        MessageParts(model.parts, user, item.id, boxed = boxed, streaming = update?.streaming == true)
         if (cut) FullTextButton(item) { whole = it } else ReaderEntry(text)
         if (update?.streaming == true) StreamingCursor()
         // An answer's documents as cards with their first page (iOS #1543), the rest as chips.
@@ -66,7 +66,8 @@ private fun StreamingCursor() {
 }
 
 @Composable
-private fun MessageParts(parts: List<MessagePart>, user: Boolean, id: String, onLastLine: ((Int) -> Unit)? = null, boxed: Boolean = false) {
+private fun MessageParts(parts: List<MessagePart>, user: Boolean, id: String, onLastLine: ((Int) -> Unit)? = null, boxed: Boolean = false,
+    streaming: Boolean? = null) {
     // Bubble padding below the last text line, so the reported extent reaches the bottom of the row.
     val bottomPadding = with(LocalDensity.current) { Tokens.Space.m.roundToPx() }
     // A reply's ```persona-view blocks are numbered across the whole text item: `<item id>/<n>`, the hub's key.
@@ -88,7 +89,7 @@ private fun MessageParts(parts: List<MessagePart>, user: Boolean, id: String, on
                 })
                 else AssistantAnswerFrame(boxed) {
                     ChatMarkdown(part.text, "$id/$index", selectable = false,
-                        viewKeys = { n -> persona.core.domain.views.AssistantFences.key(id, firstCard[index] + n) })
+                        viewKeys = { n -> persona.core.domain.views.AssistantFences.key(id, firstCard[index] + n) }, streaming = streaming)
                 }
             is MessagePart.Source -> JGroupItem(GroupPosition.Single) {
                 Column(Modifier.fillMaxWidth().padding(10.dp)) {

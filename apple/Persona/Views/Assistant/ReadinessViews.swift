@@ -154,6 +154,8 @@ struct ReadinessHomeCard: View {
             CodedFailureCard(failure: f, route: $route)
         } else if let step = store.current?.cardStep {
             stepCard(step)
+        } else if let probeError = store.probeError {
+            ReadinessCard(title: String(localized: "Tried a message, it didn't work"), detail: probeError, tone: .danger)
         } else if let probe = store.probe {
             ReadinessCard(title: probe.ok == true ? String(localized: "Tried it: it answers") : String(localized: "Tried a message, it didn't work"),
                           detail: probe.ok == true ? probe.answer : probe.error, tone: probe.ok == true ? .caution : .danger)
@@ -163,9 +165,11 @@ struct ReadinessHomeCard: View {
     private func stepCard(_ step: AssistantReadiness.Step) -> some View {
         let primary = step.action?.id
         let alt = step.altActions?.first?.id
-        return ReadinessCard(title: step.title ?? String(localized: "One more step"),
-                             detail: step.detail,
-                             tone: step.state == "problem" ? .danger : .caution,
+        let trying = primary == "test_assistant" || alt == "test_assistant"
+        let failed = trying ? store.probeError : nil
+        return ReadinessCard(title: failed == nil ? step.title ?? String(localized: "One more step") : String(localized: "Tried a message, it didn't work"),
+                             detail: failed ?? step.detail,
+                             tone: failed != nil || step.state == "problem" ? .danger : .caution,
                              actionTitle: primary.flatMap(ReadinessRoute.title),
                              action: primary.flatMap { a in ReadinessRoute.title(a).map { _ in { run(a, launcher: step.launcher, machine: machineName(step)) } } },
                              altTitle: alt.flatMap(ReadinessRoute.title),

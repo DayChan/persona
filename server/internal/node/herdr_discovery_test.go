@@ -426,9 +426,10 @@ func TestHerdrTraexStatusFromScreen(t *testing.T) {
 // shows changed, and only sessions.revs when just a transcript grew.
 func TestHerdrPollPushesChangedThenRevs(t *testing.T) {
 	n, f, home := herdrNode(t)
-	cwd := "/tmp/poll"
+	cwd := pollRepo(t)
+	cwdJSON, _ := json.Marshal(cwd)
 	p := writeTranscript(t, home, cwd, sidA, time.Now(),
-		`{"type":"user","timestamp":"2026-01-01T00:00:00Z","cwd":"/tmp/poll","message":{"role":"user","content":"hello"}}`)
+		`{"type":"user","timestamp":"2026-01-01T00:00:00Z","cwd":`+string(cwdJSON)+`,"message":{"role":"user","content":"hello"}}`)
 	f.reply("session.snapshot", snapshot(nil, nil,
 		[]any{claudeAgent(sidA, proto.StatusIdle, "w5:p1", "w5:t1", "w5", cwd, "poll")}, nil))
 	pushes, stop := pollNode(t, n)

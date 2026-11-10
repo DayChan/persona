@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -96,6 +97,83 @@ func TestReplacedMachineDoesNotDetachItsReplacement(t *testing.T) {
 	}
 	if !replacement.reachable() {
 		t.Fatal("the replacement went offline when the old connection closed")
+	}
+
+	replacement.stop()
+	done := make(chan struct{})
+	go func() { d.workers.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Error("replacement did not stop")
+	}
+}
+
+// A changed entry must carry the manager's own follows (Follow: a channel's turn) to its replacement, not only what the
+// hub watches: the assistant keeps its mark and never follows again, so a dropped follow left the channel without the
+// turn's items. A follow the old node did not take is asked again too, from where the old machine had read.
+func TestReplacedMachineKeepsTheManagersFollows(t *testing.T) {
+	d := newTestDevices(t)
+	oldNode := &testNode{refuseWatch: map[string]int{"s2": 1}}
+	newNode := &testNode{}
+	useOld := atomic.Bool{}
+	useOld.Store(true)
+	d.opts.DialNode = func(string) func(context.Context) (net.Conn, error) {
+		return func(ctx context.Context) (net.Conn, error) {
+			if useOld.Load() {
+				return oldNode.dial(ctx)
+			}
+			return newNode.dial(ctx)
+		}
+	}
+	entry := func(trust string) json.RawMessage {
+		b, _ := json.Marshal(MachineConfig{ID: "box", Name: "box", Kind: "ssh", Trust: trust})
+		return b
+	}
+	d.Configure(devicewire.Config{HubID: "hub-test", HubVersion: "test", Machines: []json.RawMessage{entry("")}})
+	old := d.cfgMachine("box")
+	eventually(t, 5*time.Second, "old connection", func() bool { return old.reachable() && len(oldNode.seen("sessions.list")) > 0 })
+
+	ctx := context.Background()
+	if err := d.Follow(ctx, "box", "s1", true); err != nil {
+		t.Fatalf("follow s1: %v", err)
+	}
+	if err := d.Follow(ctx, "box", "s2", true); err == nil {
+		t.Fatal("the old node took the watch of s2 it should refuse")
+	}
+	old.mu.Lock()
+	old.lastSeq["s1"] = 7 // read up to here on the old connection
+	unsettled := old.unsettled["s2"]
+	old.mu.Unlock()
+	if !unsettled {
+		t.Fatal("the refused follow of s2 is not unsettled")
+	}
+
+	useOld.Store(false)
+	d.Configure(devicewire.Config{HubID: "hub-test", HubVersion: "test", Machines: []json.RawMessage{entry("work")}})
+	replacement := d.cfgMachine("box")
+	if replacement == old {
+		t.Fatal("entry change did not replace the machine")
+	}
+	watched := func(id string) []string { return newNode.seen(`session.watch {"session_id":"` + id + `"`) }
+	eventually(t, 5*time.Second, "the follows watched on the replacement", func() bool {
+		return len(watched("s1")) > 0 && len(watched("s2")) > 0
+	})
+	if got := watched("s1")[0]; !strings.Contains(got, `"since_seq":7`) {
+		t.Fatalf("s1 watched again from the start, not where the old machine had read: %s", got)
+	}
+	eventually(t, 5*time.Second, "the refused follow settled on the replacement", func() bool {
+		replacement.mu.Lock()
+		defer replacement.mu.Unlock()
+		return replacement.followed["s1"] && replacement.followed["s2"] && !replacement.unsettled["s2"]
+	})
+
+	// The manager's unfollow reaches the replacement's node.
+	if err := d.Follow(ctx, "box", "s1", false); err != nil {
+		t.Fatalf("unfollow s1: %v", err)
+	}
+	if len(newNode.seen(`session.unwatch {"session_id":"s1"`)) == 0 {
+		t.Fatal("unfollowing s1 did not unwatch it on the replacement's node")
 	}
 
 	replacement.stop()

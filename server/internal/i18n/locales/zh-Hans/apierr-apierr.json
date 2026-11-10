@@ -12,5 +12,9 @@
   "claude_missing_terminal": "{machine} 上新开的终端标签页（{pane_shell}）找不到启动模型入口「{launcher}」要用的 Claude Code（「{missing}」）。请在终端看得到的地方安装 Claude Code，或者把它加到这个 shell 的 PATH 里。",
   "claude_missing_terminal_here": "这台电脑上新开的终端标签页（{pane_shell}）找不到启动模型入口「{launcher}」要用的 Claude Code（「{missing}」）。请在终端看得到的地方安装 Claude Code，或者把它加到这个 shell 的 PATH 里。",
   "terminal_default_shell": "默认的 shell",
-  "assistant_control_failed": "Claude 未能应用这项设置：{reason}"
+  "assistant_control_failed": "Claude 未能应用这项设置：{reason}",
+  "shell_waiting": "{machine} 上新开的终端标签停在一个提问上，Agent 没能启动：“{line}”。什么都没运行；这个标签会再留几分钟，可以去回答它。",
+  "shell_waiting_here": "这台电脑上新开的终端标签停在一个提问上，Agent 没能启动：“{line}”。什么都没运行；这个标签会再留几分钟，可以去回答它。",
+  "start_line_rejected": "{machine} 上新开的终端标签两次都没接住启动命令（它显示“{line}”）。什么都没运行；看看那个 shell 启动时做了什么，再重试。",
+  "start_line_rejected_here": "这台电脑上新开的终端标签两次都没接住启动命令（它显示“{line}”）。什么都没运行；看看那个 shell 启动时做了什么，再重试。"
 }

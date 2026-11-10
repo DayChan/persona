@@ -13,7 +13,7 @@
   "days_hours": "{d}d {h}h",
   "reset_in": "{countdown} 后重置",
   "reset_at": "{time} 重置",
-  "source_local": "本机",
+  "source_local": "电脑",
   "sources_title": "来源：{sources}",
   "problem_unreachable": "网关暂时读不到，显示的是上次的数字",
   "problem_rejected": "网关不认这把 Key，请到管理界面 → 用量来源更新。显示的是上次的数字",

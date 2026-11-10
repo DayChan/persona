@@ -74,7 +74,10 @@ func TestNodeSessionScopeUsageRejectsOtherCwdsAndSymlinkEscapes(t *testing.T) {
 	if err := os.Symlink(externalCodex, filepath.Join(filepath.Dir(ownCodex), filepath.Base(externalCodex))); err != nil {
 		t.Fatal(err)
 	}
-	got := n.usageFiles(now.Add(-time.Hour))
+	var got []string
+	for _, f := range n.usageFiles(now.Add(-time.Hour)) {
+		got = append(got, f.path)
+	}
 	want := []string{ownClaude, ownCodex}
 	sort.Strings(got)
 	sort.Strings(want)

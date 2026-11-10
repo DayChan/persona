@@ -54,7 +54,7 @@ const usage = `usage:
                            the built-in manager's own service: install (and start) it, remove it, show it
   persona-manager join|run|install|uninstall|status …
                            a manager made in the app: trade its install code, run it, install it as a service
-                           (docs/assistant/managers.md; persona-manager status -h for the details)
+                           (docs/assistant/managers.md; persona-manager manager -h for the details)
   persona-manager extension …  the extensions on this machine (docs/extensions/extensions.md "Command line")
   persona-manager voice     the built-in voice extension (the manager runs it)
   persona-manager tailcat-key  print the built-in manager's tailcat key (created the first time)

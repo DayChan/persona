@@ -10,7 +10,7 @@ D=".cache/persona-test-$(basename "$PWD")"
 # Resolve the hub's state directory, never prepare it: a test run must not create it or its old-name alias (#1424). The
 # resolver exports _PERSONA_STATE_DIR, so db.sh uses that one too.
 python3 scripts/persona_identity.py --service hub --prefix scripts/deploy/db.sh | ssh "$H" 'bash -s' >/dev/null
-ssh "$H" "mkdir -p ~/$D/sdk ~/$D/schema"
+ssh "$H" "mkdir -p ~/$D/sdk ~/$D/schema ~/$D/scripts/mock"
 rsync -a --delete --exclude bin server/ "$H":"$D/server/"
 # Go's local SDK replacement must keep the same sibling path as in this checkout, including embedded schemas.
 rsync -a --delete sdk/go/ "$H":"$D/sdk/go/"
@@ -24,6 +24,8 @@ rsync -a --delete schema/extension/ "$H":"$D/schema/extension/"
 # Wire, continuity and resolution tests read the shared fixtures next to server/ (../../../spec from a package),
 # and the resolution ones check the apps' Swift sources against them.
 rsync -a --delete spec/ "$H":"$D/spec/"
+# Hub inbox list tests read this shared mock fixture from ../../../scripts/mock.
+rsync -a scripts/mock/inbox_events.json "$H":"$D/scripts/mock/inbox_events.json"
 rsync -a --delete --prune-empty-dirs --include '*/' --include '*.swift' --exclude '*' apple/ "$H":"$D/apple/"
 # Some tests read docs next to the code they describe (docs/**/*.md).
 rsync -a --delete --prune-empty-dirs --include '*/' --include '*.md' --exclude '*' docs/ "$H":"$D/docs/"

@@ -14,5 +14,11 @@
   "sent_now": "{agent} に送信しました",
   "move_up": "上へ移動",
   "move_down": "下へ移動",
-  "moved": "順番を変更しました"
+  "moved": "順番を変更しました",
+  "mark_photo_other": "画像{count}枚",
+  "mark_video_other": "動画{count}本",
+  "mark_file_other": "ファイル{count}件",
+  "mark_context_other": "コンテキスト{count}件",
+  "mark_join": "、",
+  "photos_as_paths_other": "画像{count}枚をコンピュータから読み込めなかったため、代わりにパスを入力欄に入れました"
 }

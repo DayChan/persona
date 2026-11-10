@@ -115,6 +115,7 @@
   "op_title_uninstall": "卸载进度",
   "op_retry": "重试",
   "op_dismiss": "关闭",
+  "op_gone": "它已不在进行：管理器那边已经没有它了（可能重启过），可以重新开始。",
   "op_cancel": "取消",
   "op_review": "查看权限",
   "op_error": "原因：{error}",

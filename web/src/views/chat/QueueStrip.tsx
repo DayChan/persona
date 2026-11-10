@@ -2,16 +2,53 @@
 // chat (iOS QueueStrip). "Pull back to edit" pulls them back out of Claude (like ↑ in the terminal), puts that one in the
 // composer and re-queues the others in order; "Delete" drops it the same way; "Move up / down" re-queues them all in the
 // new order (#6088). A Claude takes them at its next step; "Send now" gives them to it at once, with Claude Code's own
-// send-now (a command it runs goes on in the background), once confirmed.
-import { useId, useState } from "react";
-import { api, errorText, sessionPath } from "../../lib/api";
-import { sendDraft } from "../../lib/drafts";
+// send-now (a command it runs goes on in the background), once confirmed. A queued message is only text, with what it
+// carried written into it (#3032): rows show its words and a mark per kind of attachment, and pulling it back puts the
+// words under what is typed, its photos back in the tray (read from the machine), its contexts back on their chips and
+// a file back as its path.
+import { useId, useMemo, useState } from "react";
+import { api, errorText, fileDownloadURL, sessionPath } from "../../lib/api";
+import { imagePayload, MAX_IMAGE, quotePath } from "../../lib/attachments";
+import { sendDraft, type DraftImage } from "../../lib/drafts";
+import { addContext, newContext, type ContextRef } from "../../lib/links";
 import { agentLabel } from "../../lib/mentions";
-import { keepAllBut, moved } from "../../lib/queue";
+import { keepAllBut, moved, parseQueued, queuedDraft, queuedMarks, type QueuedParts } from "../../lib/queue";
 import type { Session } from "../../lib/types";
 import { Button, Collapse, copyText, cx, Dialog, Menu, Spinner, toast, useMenu, type MenuItem } from "../../ui/atoms";
-import { Icon } from "../../ui/icons";
+import { Icon, type IconName } from "../../ui/icons";
 import { t } from "../../i18n";
+
+/** A photo of a queued message, read back from the session's machine for the composer's tray; null when it can't be. */
+async function readPhoto(mid: string, path: string, cwd?: string): Promise<DraftImage | null> {
+  try {
+    const r = await fetch(fileDownloadURL(mid, path, cwd, { inline: true }));
+    const blob = r.ok ? await r.blob() : null;
+    if (!blob || !blob.type.startsWith("image/") || blob.size > MAX_IMAGE) return null;
+    const name = path.split("/").pop() || "image.png";
+    return { name, ...(await imagePayload(new File([blob], name, { type: blob.type }))) };
+  } catch {
+    return null;
+  }
+}
+
+/** Puts a pulled-back message in the composer of `draftKey`, read apart. Photos the machine no longer gives back go in
+ *  as their paths, so nothing that was sent is lost. */
+export async function restoreQueued(draftKey: string, session: Session, p: QueuedParts) {
+  const text = queuedDraft(p);
+  if (text) sendDraft(draftKey, { type: "append", text });
+  // a kind this composer has no chip of its own for is shown as a quote and sent back as it came
+  for (const c of p.contexts) addContext(draftKey, { ...newContext(c.kind as ContextRef["kind"], c.title, c.url, c.text), ...(c.attrs ? { attrs: c.attrs } : {}) });
+  if (!p.photos.length) return;
+  const read = await Promise.all(p.photos.map((path) => readPhoto(session.machine_id, path, session.cwd)));
+  const lost: string[] = [];
+  read.forEach((img, i) => {
+    if (!img || !sendDraft(draftKey, { type: "image", image: img })) lost.push(p.photos[i]);
+  });
+  if (lost.length) {
+    sendDraft(draftKey, { type: "append", text: lost.map(quotePath).join(" ") });
+    toast(t("chat-queuestrip.photos_as_paths", { count: lost.length }), "error");
+  }
+}
 
 /** One line, "N queued", that opens the messages; `compact` (a phone on its side) is the tighter size. */
 export function QueueStrip({ session, draftKey, canEdit, compact }: { session: Session; draftKey: string; canEdit: boolean; compact?: boolean }) {
@@ -40,8 +77,8 @@ export function QueueStrip({ session, draftKey, canEdit, compact }: { session: S
     run(async () => {
       const r = await api<{ queue?: string[] }>(`${path}/queue`, { method: "POST", json: { keep: keepAllBut(queued.length, index) } });
       const pulled = r.queue ?? [];
-      if (!del && pulled[index] !== undefined) sendDraft(draftKey, { type: "append", text: pulled[index] });
       toast(del ? t("chat-queuestrip.deleted") : t("chat-queuestrip.pulled_back"), "ok");
+      if (!del && pulled[index] !== undefined) await restoreQueued(draftKey, session, parseQueued(pulled[index]));
     });
   const move = (index: number, by: number) => {
     const keep = moved(queued.length, index, by);
@@ -60,7 +97,7 @@ export function QueueStrip({ session, draftKey, canEdit, compact }: { session: S
 
   if (!queued.length) return null;
   const rows = queued.map((q, i) => (
-    <QueueRow key={`${i}:${q}`} n={i + 1} text={q} disabled={busy} canEdit={canEdit} onEdit={() => void act(i, false)} onDelete={() => void act(i, true)}
+    <QueueRow key={`${i}:${q}`} n={i + 1} raw={q} disabled={busy} canEdit={canEdit} onEdit={() => void act(i, false)} onDelete={() => void act(i, true)}
       onUp={canEdit && i > 0 ? () => move(i, -1) : undefined} onDown={canEdit && i < queued.length - 1 ? () => move(i, 1) : undefined} />
   ));
   const head = (
@@ -121,13 +158,30 @@ export function QueueStrip({ session, draftKey, canEdit, compact }: { session: S
   );
 }
 
-function QueueRow({ n, text, disabled, canEdit, onEdit, onDelete, onUp, onDown }: { n: number; text: string; disabled: boolean; canEdit: boolean; onEdit: () => void; onDelete: () => void; onUp?: () => void; onDown?: () => void }) {
+type MarkKind = ReturnType<typeof queuedMarks>[number]["kind"];
+const MARK_ICON: Record<MarkKind, IconName> = { photo: "image", video: "video", file: "file", context: "quote" };
+const markWords = (kind: MarkKind, count: number) =>
+  kind === "photo"
+    ? t("chat-queuestrip.mark_photo", { count })
+    : kind === "video"
+      ? t("chat-queuestrip.mark_video", { count })
+      : kind === "file"
+        ? t("chat-queuestrip.mark_file", { count })
+        : t("chat-queuestrip.mark_context", { count });
+
+function QueueRow({ n, raw, disabled, canEdit, onEdit, onDelete, onUp, onDown }: { n: number; raw: string; disabled: boolean; canEdit: boolean; onEdit: () => void; onDelete: () => void; onUp?: () => void; onDown?: () => void }) {
   const menu = useMenu();
+  const parts = useMemo(() => parseQueued(raw), [raw]);
+  const marks = queuedMarks(parts);
+  // the words, then what came with them in words (for the label and the tooltip: "2 photos, 1 context")
+  const carried = marks.map((m) => markWords(m.kind, m.count)).join(t("chat-queuestrip.mark_join"));
+  const words = parts.text;
+  const said = [words, carried].filter(Boolean).join(" · ");
   const items: MenuItem[] = [
     ...(onUp ? [{ key: "up", label: t("chat-queuestrip.move_up"), icon: "up" as const, onSelect: onUp }] : []),
     ...(onDown ? [{ key: "down", label: t("chat-queuestrip.move_down"), icon: "arrowDown" as const, onSelect: onDown }] : []),
     ...(canEdit ? [{ key: "edit", label: t("chat-queuestrip.pull_back"), icon: "pencil" as const, onSelect: onEdit }] : []),
-    { key: "copy", label: t("chat-queuestrip.copy"), icon: "copy", onSelect: () => void copyText(text) },
+    ...(words ? [{ key: "copy", label: t("chat-queuestrip.copy"), icon: "copy" as const, onSelect: () => void copyText(words) }] : []),
     ...(canEdit ? [{ key: "delete", label: t("chat-queuestrip.delete"), icon: "trash" as const, danger: true, onSelect: onDelete }] : []),
   ];
   return (
@@ -136,13 +190,22 @@ function QueueRow({ n, text, disabled, canEdit, onEdit, onDelete, onUp, onDown }
         type="button"
         onClick={menu.open}
         disabled={disabled}
-        title={text}
-        aria-label={t("chat-queuestrip.row_label", { n, text })}
+        title={said}
+        aria-label={t("chat-queuestrip.row_label", { n, text: said })}
         aria-haspopup="menu"
         className="flex w-full items-start gap-2 rounded-[8px] bg-inset px-2.5 py-1.5 text-left transition-colors hover:bg-hover disabled:opacity-60"
       >
         <span className="mt-px flex size-[18px] shrink-0 items-center justify-center rounded-full bg-accent-tint text-[10.5px] font-semibold text-accent-ink tabular-nums">{n}</span>
-        <span className="line-clamp-2 min-w-0 flex-1 text-[12.5px] leading-[18px] whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">{text}</span>
+        <span className="line-clamp-2 min-w-0 flex-1 text-[12.5px] leading-[18px] whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">
+          {marks.map((m) => (
+            <span key={m.kind} data-queue-mark={m.kind} aria-hidden className="mr-1.5 inline-flex items-center gap-0.5 align-[-2px] text-ink-3">
+              <Icon name={MARK_ICON[m.kind]} size={13} />
+              {m.count > 1 && <span className="text-[11px] font-medium tabular-nums">{m.count}</span>}
+            </span>
+          ))}
+          {/* a message with nothing typed (photos, a context) says what it carries */}
+          {words || <span className="text-ink-3">{carried}</span>}
+        </span>
         <Icon name="more" size={14} className="mt-0.5 shrink-0 text-ink-3" />
       </button>
       {menu.anchor && <Menu anchor={menu.anchor} onClose={menu.close} align="right" items={items} width={160} />}

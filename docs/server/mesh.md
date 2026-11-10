@@ -224,7 +224,7 @@ Admin UI ([admin.md](../operations/admin.md)):
 | `POST /api/v1/admin/machines/{id}/connector` | Re-pair a service computer: `{"pair_link","address"?}` |
 
 The CLI on the hub machine uses the same APIs (prefix `/api/v1/admin/cli/`, accepts only loopback + main token): `personad hub pair --peer`, `personad hub peer add '<linking code>'|-`,
-`personad hub peer list` (first reports whether this hub is primary or member), `personad hub peer remove <hub_id>`, `personad hub peer center [<hub_id>] [--confirm]`.
+`personad hub peer list` (first reports whether this hub is primary or member; other hubs' names, ids and addresses show control characters as `<ESC>` / `<U+XXXX>`), `personad hub peer remove <hub_id>`, `personad hub peer center [<hub_id>] [--confirm]`.
 Docker deployment on NAS: `sudo /usr/local/bin/docker exec personad /opt/persona/bin/personad hub …`.
 
 ## Plaintext links (optional, #4514)

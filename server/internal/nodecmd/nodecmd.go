@@ -116,6 +116,9 @@ func runNode(ctx context.Context, args []string, b Build) error {
 				exitNodeUsage(err)
 			}
 			osproc.SealInherited() // as the node on stdin / stdout does, below
+			// runResident replaces itself on a restart or update (syscall.Exec): what the previous image started (the
+			// update watchdog, the herdr server, bridges) is this one's child now, and only this reaps it.
+			osproc.ReapInherited()
 			capProcs()
 			return runResident(ctx, b, supervised)
 		case "tailcat":
@@ -147,6 +150,9 @@ func runNode(ctx context.Context, args []string, b Build) error {
 		}
 		return err
 	}
+	// Serving itself, it starts children: whatever a parent that exec'd into it left is reaped first, as the resident
+	// node does above. A relay starts none, so it skips the scan.
+	osproc.ReapInherited()
 	n, err := node.New(b.Version)
 	if err != nil {
 		return err

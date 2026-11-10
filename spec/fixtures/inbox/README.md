@@ -12,7 +12,7 @@
 | 只有 done_at 非空才是已处理，read、done_by 或 AI 处理状态都不能替代它。 | InboxModels 的 `isDone`；InboxView 的 `list` | `read_and_agent_do_not_change_tier`、`untriaged_and_done_test_assertions` |
 | 非空分段固定按需要你、知悉即可、已折叠、已处理排列。 | InboxView 的 `list`；InboxModels 的 `Tier.allCases` | `tiers_and_done_sections`、`empty_inbox` |
 | 默认展开 action 和 fyi，折叠后仍保留成员及标题计数。 | InboxView 的 `expanded`、`sectionHeader` | `tiers_and_done_sections`、`expanded_noise_and_done` |
-| hub 输出先按 updated_at 倒序，分拣档位不改变它的排序。 | `server/internal/assistant/inbox.go` 的 `Service.inboxList`（收件箱是管理者的，hub 原样转发） | `hub_orders_by_update`、`hub_order_reversed_input`、`hub_order_empty` |
+| hub 输出先按 updated_at 倒序，分拣档位不改变它的排序。 | `server/internal/assistant/inbox_api.go` 的 `Service.inboxList`（收件箱是管理者的，hub 原样转发） | `hub_orders_by_update`、`hub_order_reversed_input`、`hub_order_empty` |
 | iOS 未处理事项在段内保持输入顺序，不自行重排 updated_at。 | InboxStore 的 `apply`；InboxView 的 `list` | `input_order_is_authoritative` |
 | iOS 已处理事项按 done_at 倒序展示。 | InboxView 的 `shownDone` | `tiers_and_done_sections`、`expanded_noise_and_done` |
 | 来源筛选比较 account，飞书的筛选值为 feishu，邮箱的筛选值为账号 id。 | InboxView 的 `matches`、`filters` | `inbox_filter_feishu`、`inbox_filter_mail_account`、`source_filter_compares_account` |
@@ -85,3 +85,14 @@ Android 的目标断言应读取 expected，以后 iOS 跟进时补上比较键�
 ## 新增用例
 
 按主题追加用例并更新规则表，保证两个领域的 name 唯一。先编造输入并独立写 expected，再用真实实现对照；未知档位、空列表、交叉筛选、屏蔽例外和时间相等应分别覆盖。发现当前实现与新规则冲突时，明确标 compatibility 和 ios_expected，并写明谁需要跟进，不能悄悄改 expected。提交前检查 UTF-8、2 空格缩进和隐私扫描。
+
+## Hand to AI memory (`handoff_memory.json`)
+
+Hand to AI remembers, per source, the target an item was last handed to (#2121; `docs/assistant/inbox.md` "Item actions"). Every app follows the same rules:
+
+- `keys`: the source key is the item's `source`, `|`, and the most specific non-empty mute option, in the order `repo`, `chat`, `sender` (`tag:value`). An item without one has no key and no memory.
+- `resolve`: a remembered target is preselected and marked Last time.
+  - A remembered Agent that is no longer listed resolves to the main chat, with `gone` set so the app says so once.
+  - Nothing remembered, or an unreadable value, gives `null`: the platform's own default.
+  - Cases with `needs_new_chat` apply only where New Chat is a target.
+- `recency`: one entry per source, latest first, at most `limit` sources.

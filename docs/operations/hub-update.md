@@ -9,9 +9,12 @@ Implemented in 4 steps; after each step, the corresponding "Plan" is rewritten a
 `scripts/release/hub_release.py --config <private-config.json>` can run from a
 systemd user timer on a dedicated Linux build machine. It fetches the configured `source_branch` (default `main`) into an
 exclusive checkout (never a developer checkout), runs server vet/tests and race checks, script suites, web
-checks and the binary privacy scan, then publishes the tested commit. It reports
-`hub-release/worker` commit statuses. These are independent CI results, not GitHub
-Actions run results. This provides an execution path when hosted runner labels
+checks and the binary privacy scan, then publishes the tested commit. GitHub commit statuses are disabled by default.
+Only the JSON boolean `"report_commit_status": true` enables pending/success/failure
+reports (`hub-release/worker`, or the corresponding validation/manager context).
+Missing or false makes no status API requests; local logs, receipts and Hub
+publication metadata remain authoritative. This option does not rewrite historical
+statuses. Opted-in statuses are independent CI results, not GitHub Actions results. This provides an execution path when hosted runner labels
 have no available capacity or the operator cannot administer those runners.
 
 The private config supplies `repository`, `checkout`, `state_dir`, `update_url`

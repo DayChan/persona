@@ -79,5 +79,20 @@
   "rule_reason_command": "此记录无法标明受支持的聊天网关。请选择已更新节点的较新发送记录。",
   "rule_reason_unknown": "此连接器不提供此聊天的规则。",
   "rules_refresh": "刷新规则",
-  "rule_read_error": "无法加载聊天规则。请检查连接后刷新重试。"
+  "rule_read_error": "无法加载聊天规则。请检查连接后刷新重试。",
+  "recall": "撤回…",
+  "recall_do": "撤回消息",
+  "recall_confirm": "通过 {connector} 撤回这条消息？所有能看到它的人都将看不到它，且无法恢复。",
+  "recalled": "已撤回",
+  "recalled_at": "已于 {when} 撤回。",
+  "recall_forbidden": "只有你自己的、拥有完整权限的设备才能撤回消息。",
+  "recall_unsupported": "这个 Hub 的版本还不能撤回消息。请更新 Hub 后再试。",
+  "recall_not_found": "Hub 上已没有这条记录。",
+  "recall_not_recallable": "这条消息不能撤回。",
+  "recall_too_old": "这条消息发出太久，已不能撤回。",
+  "recall_already": "这条消息已经撤回过了。",
+  "recall_unavailable": "连接器已关闭、未登录或离线。请打开或登录后再试。",
+  "recall_no_database": "这个 Hub 没有数据库，不能撤回消息。",
+  "recall_unknown": "不确定消息是否已被删除。可以再试一次确认。",
+  "recall_refused": "消息没有撤回：{detail}"
 }

@@ -167,12 +167,13 @@ class HubSessionFilesTest {
         answer = """{"status":{"is_repo":true}}"""
         assertFalse(api.pull("machine", "/workspace").updated)
 
-        status = 502
-        answer = """{"error":"工作区有未提交的改动，请先在电脑上提交或 stash 后再拉取"}"""
+        // A refusal as the hub answers it (#1888): a 409 with the reason in the app's language, the node's words as the detail.
+        status = 409
+        answer = """{"code":"uncommitted_changes","delivered":"none","error":"工作区有未提交的改动，请先在电脑上提交或 stash，再拉取。","detail":"the working tree has uncommitted changes: commit or stash them first"}"""
         try { api.pull("machine", "/workspace"); fail("Expected HTTP failure") }
         catch (failure: HubFailure) {
-            assertEquals(502, failure.status)
-            assertEquals("工作区有未提交的改动，请先在电脑上提交或 stash 后再拉取", failure.message)
+            assertEquals(409, failure.status)
+            assertEquals("工作区有未提交的改动，请先在电脑上提交或 stash，再拉取。", failure.message)
         }
     }
 

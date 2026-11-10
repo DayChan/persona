@@ -11,5 +11,6 @@
   "too_deep": "依赖太深",
   "list_separator": "、",
   "has_dependents": "这些扩展要用它：{names}。连它们一起停用？",
-  "read_only": "扩展「{name}」写在 manager.json 里，请先在那里停用"
+  "read_only": "扩展「{name}」写在 manager.json 里，请先在那里停用",
+  "pack_member_not_on": "没能重新启用「{name}」：{error}"
 }

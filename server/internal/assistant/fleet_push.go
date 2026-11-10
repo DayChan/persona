@@ -257,6 +257,8 @@ func (s *Service) notifyFinishedNow(machine, id string, gen int, t fleetTimings)
 	if verdict == finishStale || verdict == finishHold {
 		return // the turn goes on: its mark waits for how it ends
 	}
+	// A supervision turn about a failed start ended: what it left of the start ends too (start_remedy.go, #2570).
+	go s.remedyTurnEnded(context.Background(), id)
 	// "Only long-running turns" is for turns the user started: a quick answer is read where it was asked. A morning briefing or a task notice
 	// has nobody waiting for it; a quick one was never pushed and the user had to go and look (#3438). The mark is
 	// used up by this turn whether it is pushed or dropped (notify_user, seen, muted): left over, the user's own next

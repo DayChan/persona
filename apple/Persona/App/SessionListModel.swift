@@ -34,6 +34,10 @@ import Observation
     @ObservationIgnored private var fetch: Fetch
     @ObservationIgnored private var fetchCounts: @MainActor (SessionListQuery) async throws -> SessionListCounts
     @ObservationIgnored var changed: (([Row]) -> Void)?
+    /// Rows a delta brought that are not in the window (sessions started after it was read, or further down): they
+    /// stay out of `rows`, as the window is frozen, but what looks sessions up by id still needs them (#2003: a
+    /// to-do's new agent was missing and shown as Follow Up while it worked).
+    @ObservationIgnored var outside: (([Row]) -> Void)?
 
     init(id: @escaping (Row) -> String, removalID: @escaping (String) -> String?,
          fetch: @escaping Fetch, counts: @escaping @MainActor (SessionListQuery) async throws -> SessionListCounts,
@@ -245,11 +249,15 @@ import Observation
                 let counts = try await self.fetchCounts(self.query)
                 try Task.checkCancellation()
                 guard self.generation == gen else { return }
+                let window = Set(self.rows.map(self.id))
                 let rows = self.rows.compactMap { row -> Row? in
                     let key = self.id(row)
                     return removals.contains(key) ? nil : upserts[key] ?? row
                 }
                 if rows != self.rows { self.rows = rows; self.changed?(rows) }
+                let beyond = upserts.filter { !window.contains($0.key) && !removals.contains($0.key) }
+                    .sorted { $0.key < $1.key }.map { $0.value }
+                if !beyond.isEmpty { self.outside?(beyond) }
                 if self.hasMore {
                     for key in removals { self.overlays[key] = nil; self.removed.insert(key) }
                     for (key, row) in upserts where !removals.contains(key) { self.overlays[key] = row; self.removed.remove(key) }

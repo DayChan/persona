@@ -2,14 +2,17 @@
 import UIKit
 
 /// The home screen icon's long-press menu (#3199): New Chat, Agents and Inbox, as Android's shortcuts and the web app's
-/// manifest have. They only open a page; with no hub paired the app stays on its welcome page.
+/// manifest have. They only open a page; with no hub paired the app stays on its welcome page. Record a Meeting starts
+/// recording too (docs/apple/recording.md「Meeting recordings」), with or without a hub: the text syncs once there is one.
 enum QuickAction: String, CaseIterable {
+    case meetingRecording = "persona.meeting-recording"
     case newConversation = "persona.new-conversation"
     case agents = "persona.agents"
     case inbox = "persona.inbox"
 
     var item: UIApplicationShortcutItem {
         let (title, symbol): (String, String) = switch self {
+        case .meetingRecording: (String(localized: "Record a Meeting"), Theme.Icon.recording)
         case .newConversation: (String(localized: "New Chat [Quick Actions ea4b29]"), Theme.Icon.compose)
         case .agents: ("Agents", Theme.Icon.agents)
         case .inbox: (String(localized: "Inbox"), Theme.Icon.inbox)
@@ -30,6 +33,8 @@ enum QuickAction: String, CaseIterable {
         let model = AppModel.shared
         model.shellSettings = false
         switch action {
+        case .meetingRecording:
+            Task { await MeetingRecorder.shared.startMeeting(inForeground: true) }
         case .newConversation:
             model.selectedTab = .assistant
             // As the drawer's New Chat: the shell takes Assistant back to its root (a pushed inbox included), the old tabs only

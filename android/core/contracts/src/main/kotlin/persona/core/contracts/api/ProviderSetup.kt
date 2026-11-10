@@ -74,6 +74,8 @@ interface ProviderSetup {
 @Serializable
 data class HubLauncher(
     @SerialName("name") val name: String,
+    /** The name the user gave it, shown instead of [name] where set. */
+    @SerialName("display_name") val displayName: String? = null,
     /** persona (kept by Persona) | zshrc (a machine's ~/.zshrc function) | path (a wrapper script on its PATH) */
     @SerialName("source") val source: String = "zshrc",
     /** launcher | api */

@@ -8,7 +8,7 @@ import persona.core.contracts.SecretRunRequest
 enum class AnswerAction(val wire: String) {
     ApproveAll("approve_all"), ApproveEdits("approve_edits"), ApproveStepwise("approve_stepwise"), Reject("reject"), Allow("allow"),
     Deny("deny"), Always("always"), CancelQuestion("cancel_question"), Dismiss("dismiss"), PickOption("pick_option"),
-    Advance("advance"), Submit("submit"), ScreenOption("screen_option"),
+    Advance("advance"), Submit("submit"), ScreenOption("screen_option"), ScreenSubmit("screen_submit"),
     TerminalText("terminal_text"), TerminalKeys("terminal_keys"), SubmitElicitation("submit_elicitation"),
     DeclineElicitation("decline_elicitation"), CancelElicitation("cancel_elicitation"),
 }
@@ -31,6 +31,8 @@ data class AnswerDraft(
     val other: Map<String, String> = emptyMap(),
     val optionIndex: Int = 0,
     val option: String = "",
+    /** A checkbox dialog's ticked option keys, sent whole by [AnswerAction.ScreenSubmit]. */
+    val selected: Set<String> = emptySet(),
     val text: String = "",
     val keys: List<String> = emptyList(),
     val fields: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap()),
@@ -94,7 +96,7 @@ object AnswerBuilder {
         val policyId = when (action) {
             AnswerAction.PickOption, AnswerAction.Advance, AnswerAction.Submit ->
                 if (context.entry == AnswerEntry.Notification) ApprovalAction.ChooseOption else ApprovalAction.Answer
-            AnswerAction.ScreenOption, AnswerAction.TerminalText, AnswerAction.TerminalKeys ->
+            AnswerAction.ScreenOption, AnswerAction.ScreenSubmit, AnswerAction.TerminalText, AnswerAction.TerminalKeys ->
                 if (context.entry == AnswerEntry.Notification) ApprovalAction.ChooseOption else ApprovalAction.ScreenAnswer
             AnswerAction.SubmitElicitation, AnswerAction.DeclineElicitation, AnswerAction.CancelElicitation -> return blocked()
             else -> ApprovalAction.entries.single { it.wire == action.wire }
@@ -152,11 +154,26 @@ object AnswerBuilder {
             AnswerAction.PickOption, AnswerAction.Advance, AnswerAction.Submit -> question(interaction.questions.orEmpty(), action, draft)
             AnswerAction.ScreenOption -> {
                 val option = screenOptions(interaction).firstOrNull { it.key == draft.option } ?: return blocked()
+                // A checkbox dialog: the tap ticks or unticks, and ScreenSubmit sends the whole set.
+                // "Chat about this" still goes as it is, as dialogMulti presses it.
+                if (interaction.dialog?.multi == true && option.kind != ScreenOptionKind.Chat) {
+                    if (option.kind != ScreenOptionKind.Plain) return blocked()
+                    val selected = if (option.key in draft.selected) draft.selected - option.key else draft.selected + option.key
+                    return AnswerResult(true, draft = draft.copy(selected = selected))
+                }
                 val text = draft.text.trim().takeIf { option.kind == ScreenOptionKind.TypeSomething }
                 if (option.kind == ScreenOptionKind.TypeSomething && text.isNullOrEmpty()) return blocked()
                 resolved(if (interaction.dialog != null) Resolution(option = option.key, text = text)
                     else if (text != null) Resolution(preKeys = listOf(option.key), text = text, keys = listOf("enter"))
                     else Resolution(keys = listOf(option.key)))
+            }
+            AnswerAction.ScreenSubmit -> {
+                val dialog = interaction.dialog ?: return blocked()
+                if (!dialog.multi) return blocked()
+                val options = screenOptions(interaction).map { it.key }.filter { it in draft.selected }
+                val text = draft.text.trim().takeIf { it.isNotEmpty() }
+                if (options.isEmpty() && text == null) return blocked()
+                resolved(Resolution(options = options, text = text))
             }
             AnswerAction.TerminalText -> if (draft.text.isEmpty()) blocked()
                 else resolved(Resolution(text = draft.text, keys = listOf("enter")))

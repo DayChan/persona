@@ -36,12 +36,12 @@ final class PersonalAgentRemoveTests: XCTestCase {
         guard let hub = ProcessInfo.processInfo.environment["PERSONA_PERSONAL_HUB"] else {
             throw XCTSkip("needs scripts/mock/mock_hub.py with MOCK_PERSONAL_AGENTS=1 (PERSONA_PERSONAL_HUB)")
         }
-        _ = try Data(contentsOf: URL(string: hub + "/mock/personal-agents?reset=1")!)
+        _ = try Data(contentsOf: URL(string: hub + "/mock/personal-agents?reset=1&state=configured")!)
         app = XCUIApplication()
         let pair = "persona://pair?url=" + hub.addingPercentEncoding(withAllowedCharacters: .alphanumerics)! + "&token=mock"
         app.launchArguments = ["-pairURL", pair, "-tab", "dev", "-dev.openChat", ""]
         app.launchPinned()
-        let personal = app.buttons.matching(label("Personal Agents", "个人 Agent")).firstMatch
+        let personal = app.buttons["agents.personal"]
         XCTAssertTrue(personal.waitForExistence(timeout: 30), app.debugDescription)
         personal.tap()
         XCTAssertTrue(row("代码评审").waitForExistence(timeout: 15), app.debugDescription)

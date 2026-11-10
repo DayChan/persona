@@ -21,6 +21,7 @@ import { ContextGroup } from "./ContextGroup";
 import { AttachedPhotos } from "./AttachedPhotos";
 import { useFullText } from "./FullText";
 import { FileCards, ReplyFiles } from "./FileCards";
+import { ReplyPorts } from "./PortChips";
 import { MessageActions } from "./MessageActions";
 import { QuoteStack } from "./Quote";
 import { PathText } from "../../ui/PathLinks";
@@ -204,6 +205,7 @@ export const Answer = memo(function Answer({ item, streaming, mid, sid, fade }: 
       </div>
       {full.more}
       {mid && sid && <ReplyFiles text={text} mid={mid} cwd={cwd} />}
+      {mid && sid && <ReplyPorts text={text} mid={mid} sid={sid} cwd={cwd} />}
     </MessageActions>
   );
 });

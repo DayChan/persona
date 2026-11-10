@@ -1,6 +1,7 @@
 package devices
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -32,6 +33,7 @@ const (
 // usageSource is a machine as the aggregator sees it.
 type usageSource struct {
 	id     string
+	name   string // what the computer is called now ("" for its id)
 	online bool
 	ask    func(ctx context.Context) (proto.UsageSnapshot, error)
 }
@@ -69,7 +71,7 @@ func (d *Devices) usageSources() []usageSource {
 		m.mu.Lock()
 		online := m.online
 		m.mu.Unlock()
-		out = append(out, usageSource{id: m.cfg.ID, online: online, ask: func(ctx context.Context) (proto.UsageSnapshot, error) {
+		out = append(out, usageSource{id: m.cfg.ID, name: m.name(), online: online, ask: func(ctx context.Context) (proto.UsageSnapshot, error) {
 			var snap proto.UsageSnapshot
 			err := m.call(ctx, "usage.windows", map[string]any{}, &snap)
 			return snap, err
@@ -130,9 +132,9 @@ func (u *usageWindowsHub) poll(ctx context.Context, sources []usageSource, now t
 	if u.byMachine == nil {
 		u.byMachine = map[string]usageAnswer{}
 	}
-	known := map[string]bool{}
+	known := map[string]string{} // id: name
 	for i, s := range sources {
-		known[s.id] = true
+		known[s.id] = cmp.Or(s.name, s.id)
 		if a := answers[i]; a != nil {
 			if a.at.IsZero() {
 				delete(u.byMachine, s.id)
@@ -143,12 +145,14 @@ func (u *usageWindowsHub) poll(ctx context.Context, sources []usageSource, now t
 	}
 	var all []proto.UsageAccount
 	for id, a := range u.byMachine {
-		if !known[id] || now.Sub(a.at) > usageHubMaxAge { // a machine taken out of hub.json, or one gone for days
+		name, ok := known[id]
+		if !ok || now.Sub(a.at) > usageHubMaxAge { // a machine taken out of hub.json, or one gone for days
 			delete(u.byMachine, id)
 			continue
 		}
 		for n, acct := range a.accounts { // a node answers its accounts in a fixed order (sorted by where it read them)
-			acct.Local, acct.Sources, acct.Problem, acct.Ref = true, nil, "", "" // what a node says of where it came from is not taken
+			// what a node says of where it came from is not taken: it is this machine, by the name it has now
+			acct.Local, acct.Machines, acct.Sources, acct.Problem, acct.Ref = true, []string{name}, nil, "", ""
 			acct.Origin = id + "/" + strconv.Itoa(n)
 			all = append(all, acct)
 		}
@@ -172,7 +176,7 @@ func (u *usageWindowsHub) poll(ctx context.Context, sources []usageSource, now t
 // window rolled over does not bring the old one back. Windows that have reset by now are dropped (their number is
 // the last period's) and an account with none left is not listed. Older than usageHubMaxAge is dropped; older than
 // usageHubStaleAfter (a gateway's: usageGatewayStaleAfter, or what it reported itself) is marked stale. The account
-// is named by a gateway when one knows it (a name somebody gave it), and says where it was seen (Local, Sources).
+// is named by a gateway when one knows it (a name somebody gave it), and says where it was seen (Local and Machines, Sources).
 // The most used account comes first, stale ones last; two accounts with one name are numbered by their id.
 func mergeUsageAccounts(in []proto.UsageAccount, now time.Time) []proto.UsageAccount {
 	var live []proto.UsageAccount
@@ -262,7 +266,7 @@ func mergeUsageAccounts(in []proto.UsageAccount, now time.Time) []proto.UsageAcc
 			model   string
 		}
 		bySlot := map[slot]proto.UsageWindow{}
-		var sources []string
+		var sources, machines []string
 		for _, m := range members {
 			if acct.Plan == "" && m.Plan != "" { // the newest sample that knows the plan names the account
 				acct.Plan = m.Plan
@@ -272,6 +276,7 @@ func mergeUsageAccounts(in []proto.UsageAccount, now time.Time) []proto.UsageAcc
 			}
 			acct.Local = acct.Local || m.Local
 			sources = append(sources, m.Sources...)
+			machines = append(machines, m.Machines...)
 			for _, w := range m.Windows {
 				k := slot{w.WindowMinutes, w.Model}
 				if _, ok := bySlot[k]; !ok {
@@ -289,14 +294,18 @@ func mergeUsageAccounts(in []proto.UsageAccount, now time.Time) []proto.UsageAcc
 			}
 			return a.Model < b.Model
 		})
-		acct.Sources = uniqueSorted(sources)
+		acct.Sources, acct.Machines = uniqueSorted(sources), uniqueSorted(machines)
 		acct.Ref, acct.Origin = firstOf(members, func(m proto.UsageAccount) string { return m.Ref }), firstOf(members, func(m proto.UsageAccount) string { return m.Origin })
 		acct.ID = usageAccountID(acct)
-		if len(newest.Sources) > 0 && !newest.Local {
-			acct.Stale = newest.Stale || now.Sub(acct.SampledAt) > usageGatewayStaleAfter
-		} else {
-			acct.Stale = now.Sub(acct.SampledAt) > usageHubStaleAfter
+		gateway := len(newest.Sources) > 0 && !newest.Local
+		after := usageHubStaleAfter
+		if gateway {
+			after = usageGatewayStaleAfter
 		}
+		// stale now (a gateway may say so itself), and when it will be if nothing newer comes (#1905)
+		acct.Stale = now.Sub(acct.SampledAt) > after || gateway && newest.Stale
+		staleAt := acct.SampledAt.Add(after)
+		acct.StaleAt = &staleAt
 		out = append(out, acct)
 	}
 

@@ -95,8 +95,11 @@ class PersonaOnlyTests(unittest.TestCase):
         # The watch widgets' shared sources, less the watch face's own (the Milk Frog), which visionOS does not draw.
         watch_face = {"Shared/WatchPetSnapshot.swift", "Shared/Design/WatchFaceTokens.swift"}
         shared = {item["path"] for item in targets["PersonaWatchWidgets"]["sources"] if item["path"].startswith("Shared/")}
-        self.assertLessEqual(watch_face, shared)
-        self.assertEqual({item["path"] for item in widget["sources"]}, (shared - watch_face) | {"PersonaVisionWidgets"})
+        watch_pet = {"Shared/WatchPetSnapshot.swift", "Shared/Design/WatchFaceTokens.swift"}
+        self.assertTrue(watch_pet.issubset(shared))
+        vision_sources = {item["path"] for item in widget["sources"]}
+        self.assertTrue(watch_pet.isdisjoint(vision_sources))
+        self.assertEqual(vision_sources, (shared - watch_pet) | {"PersonaVisionWidgets"})
         for target in (app, widget):
             self.assertEqual(target["entitlements"]["properties"]["com.apple.security.application-groups"], ["$(PERSONA_APP_GROUP)"])
             self.assertEqual(target["info"]["properties"]["PersonaAppGroup"], "$(PERSONA_APP_GROUP)")

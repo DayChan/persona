@@ -6,6 +6,7 @@ import { BASE } from "./base";
 import { enc, getToken } from "./api";
 import { MAX_CODE_LINES, truncateLines, type ElementSpot } from "./comments";
 import type { DraftQuote } from "./drafts";
+import { portLink } from "./port-links";
 import type { Port } from "./types";
 
 /** The hub feature that says it has previews. */
@@ -250,20 +251,11 @@ export function safeExternal(url: string): string | null {
 }
 
 /** The address a localhost link of a reply stands for on the session's computer: its port and path; null for one that
- *  is not a port of that computer (docs/operations/ports.md "Recognizing links"). */
-export function localhostLink(url: string): { port: number; path: string } | null {
-  let u: URL;
-  try {
-    u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `http://${url}`);
-  } catch {
-    return null;
-  }
-  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-  const host = u.hostname.toLowerCase();
-  if (!(host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1" || host === "0.0.0.0" || host === "[::1]")) return null;
-  const port = Number(u.port);
-  if (!port) return null;
-  return { port, path: u.pathname + u.search + u.hash || "/" };
+ *  is not a port of that computer (docs/operations/ports.md "Recognizing links in replies"). `hostnames`: that
+ *  computer's own name, which counts as well. */
+export function localhostLink(url: string, hostnames: readonly string[] = []): { port: number; path: string } | null {
+  const l = portLink(/^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `http://${url}`, hostnames);
+  return l && { port: l.port, path: l.path };
 }
 
 // ── a picked element as a comment ─────────────────────

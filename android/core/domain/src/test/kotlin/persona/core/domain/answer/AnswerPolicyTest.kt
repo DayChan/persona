@@ -51,6 +51,32 @@ class AnswerPolicyTest {
             context = AnswerContext(entry = AnswerEntry.Watch, locked = true)).allowed)
     }
 
+    /** A multi-select dialog is one path: a tap ticks, submit sends the whole set (and its free text) at once. */
+    @Test fun multiSelectDialogTicksOptionsAndSubmitsThemWhole() {
+        val dialog = Interaction("request", kind = "screen", dialog = ScreenDialog(multi = true, submit = "Next", options = listOf(
+            DialogOption("1", "预览"), DialogOption("3", "线上", checked = true),
+            DialogOption("4", "Type something.", kind = "type_something"), DialogOption("5", "Chat about this", kind = "chat"))))
+        // A tap neither answers nor resolves: it only moves the ticked set.
+        val ticked = AnswerBuilder.build(dialog, AnswerAction.ScreenOption, AnswerDraft(option = "1"))
+        assertTrue(ticked.allowed)
+        assertNull(ticked.resolution)
+        assertEquals(setOf("1"), ticked.draft.selected)
+        val unticked = AnswerBuilder.build(dialog, AnswerAction.ScreenOption, ticked.draft.copy(option = "1"))
+        assertEquals(emptySet<String>(), unticked.draft.selected)
+        // Nothing ticked and nothing typed: submit stays blocked.
+        assertFalse(AnswerBuilder.build(dialog, AnswerAction.ScreenSubmit).allowed)
+        val sent = AnswerBuilder.build(dialog, AnswerAction.ScreenSubmit, AnswerDraft(selected = setOf("3", "1"), text = " 补充 "))
+        assertEquals(listOf("1", "3"), sent.resolution?.options) // the dialog's order, not the tap order
+        assertEquals("补充", (sent.resolution?.text).zhAny())
+        // "Chat about this" hands the question back even in a multi-select dialog.
+        val chat = AnswerBuilder.build(dialog, AnswerAction.ScreenOption, AnswerDraft(option = "5"))
+        assertEquals("5", (chat.resolution?.option).zhAny())
+        // A single-choice dialog keeps the one-tap answer, and submit does not exist for it.
+        val single = dialog.copy(dialog = dialog.dialog!!.copy(multi = false))
+        assertEquals("1", (AnswerBuilder.build(single, AnswerAction.ScreenOption, AnswerDraft(option = "1")).resolution?.option).zhAny())
+        assertFalse(AnswerBuilder.build(single, AnswerAction.ScreenSubmit).allowed)
+    }
+
     @Test fun multipleQuestionsWaitForSubmitAndKeepCustomMultiselectAnswer() {
         val first = Question("第一题？", options = listOf(QuestionOption("选项")))
         val last = first.copy(question = "第二题？")

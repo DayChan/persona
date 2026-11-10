@@ -27,8 +27,21 @@ const RH = 26; // px per row
 const HEAD = 24; // the column letters' row
 const OVER_ROWS = 12;
 const OVER_COLS = 3;
+const STEP_ROWS = 8; // rows of scrolling between redraws
+const STEP_X = 256; // px of sideways scrolling between redraws
 
 type Cell = { r: number; c: number };
+
+/**
+ * The part of the grid worth drawing at a scroll position: body rows [r0, r1) (after the frozen ones) and the span
+ * [x0, x1) px across the columns, each covering what is on screen within the current step. It moves in steps, so
+ * scrolling redraws once per step and not on every pixel.
+ */
+function windowAt(top: number, left: number, w: number, h: number) {
+  const first = Math.floor(top / (STEP_ROWS * RH)) * STEP_ROWS;
+  const x0 = Math.floor(left / STEP_X) * STEP_X;
+  return { r0: Math.max(0, first - OVER_ROWS), r1: first + STEP_ROWS + Math.ceil(h / RH) + OVER_ROWS, x0, x1: x0 + STEP_X + w };
+}
 
 export function SheetView({ sheets, note }: { sheets: Sheet[]; note?: string }) {
   const [active, setActive] = useState(0);
@@ -80,18 +93,15 @@ function Grid({ sheet }: { sheet: Sheet }) {
   const covered = useMemo(() => coveredCells(merges), [merges]);
 
   const scroller = useRef<HTMLDivElement>(null);
-  const [view, setView] = useState({ top: 0, left: 0, w: 800, h: 600 });
+  const [win, setWin] = useState(() => windowAt(0, 0, 800, 600));
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el) return;
     let raf = 0;
     const update = () => {
       raf = 0;
-      setView((v) =>
-        v.top === el.scrollTop && v.left === el.scrollLeft && v.w === el.clientWidth && v.h === el.clientHeight
-          ? v
-          : { top: el.scrollTop, left: el.scrollLeft, w: el.clientWidth, h: el.clientHeight },
-      );
+      const n = windowAt(el.scrollTop, el.scrollLeft, el.clientWidth, el.clientHeight);
+      setWin((w) => (w.r0 === n.r0 && w.r1 === n.r1 && w.x0 === n.x0 && w.x1 === n.x1 ? w : n));
     };
     const later = () => {
       if (!raf) raf = requestAnimationFrame(update);
@@ -107,11 +117,11 @@ function Grid({ sheet }: { sheet: Sheet }) {
     };
   }, []);
 
-  // what is on screen, in body rows (after the frozen ones) and columns
-  const b0 = Math.max(0, Math.floor(view.top / RH) - OVER_ROWS);
-  const b1 = Math.min(bodyRows, Math.ceil((view.top + view.h) / RH) + OVER_ROWS);
-  const c0 = Math.max(0, columnAt(offsets, view.left) - OVER_COLS);
-  const c1 = Math.min(cols, columnAt(offsets, view.left + view.w) + 1 + OVER_COLS);
+  // what is drawn, in body rows (after the frozen ones) and columns; the columns follow the current widths
+  const b0 = win.r0;
+  const b1 = Math.min(bodyRows, win.r1);
+  const c0 = Math.max(0, columnAt(offsets, win.x0) - OVER_COLS);
+  const c1 = Math.min(cols, columnAt(offsets, win.x1) + 1 + OVER_COLS);
 
   const [anchor, setAnchor] = useState<Cell>({ r: 0, c: 0 });
   const [focus, setFocus] = useState<Cell>({ r: 0, c: 0 });
@@ -154,6 +164,7 @@ function Grid({ sheet }: { sheet: Sheet }) {
     return { r: Math.min(r, rows.length - 1), c: x < 0 ? -1 : c };
   };
   const drag = useRef<null | "cells" | "rows" | "cols">(null);
+  const dragTo = useRef<Cell>({ r: 0, c: 0 }); // the cell the drag reached, so moves within it set no state
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0 || e.target === scroller.current || (e.target as HTMLElement).dataset.resize) return; // the scroller itself: its scrollbars
     const hit = cellAt(e);
@@ -169,16 +180,17 @@ function Grid({ sheet }: { sheet: Sheet }) {
     if (hit.r < 0) {
       drag.current = "cols";
       if (!e.shiftKey) setAnchor({ r: 0, c: hit.c });
-      setFocus({ r: last.r, c: hit.c });
+      dragTo.current = { r: last.r, c: hit.c };
     } else if (hit.c < 0) {
       drag.current = "rows";
       if (!e.shiftKey) setAnchor({ r: hit.r, c: 0 });
-      setFocus({ r: hit.r, c: last.c });
+      dragTo.current = { r: hit.r, c: last.c };
     } else {
       drag.current = "cells";
       if (!e.shiftKey) setAnchor(hit);
-      setFocus(hit);
+      dragTo.current = hit;
     }
+    setFocus(dragTo.current);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
@@ -187,9 +199,10 @@ function Grid({ sheet }: { sheet: Sheet }) {
     if (!hit) return;
     const r = Math.max(0, hit.r);
     const c = Math.max(0, hit.c);
-    if (drag.current === "cols") setFocus({ r: rows.length - 1, c });
-    else if (drag.current === "rows") setFocus({ r, c: cols - 1 });
-    else setFocus({ r, c });
+    const next = drag.current === "cols" ? { r: rows.length - 1, c } : drag.current === "rows" ? { r, c: cols - 1 } : { r, c };
+    if (next.r === dragTo.current.r && next.c === dragTo.current.c) return; // a move inside the same cell draws nothing
+    dragTo.current = next;
+    setFocus(next);
   };
   const onPointerUp = () => {
     drag.current = null;

@@ -47,8 +47,9 @@ App 和网页把它画成图，飞书里显示成一行数字或一张小表。�
   `{"type":"line","title":"近 7 天步数","unit":"步","note":"平均 7,860 步","points":[{"label":"10/30","value":6420},{"label":"10/31","value":9105},{"label":"11/1","value":8230}]}`
 - **每餐热量**（几样东西比多少，也包括每次运动消耗）：`bar`：
   `{"type":"bar","title":"今天每餐热量","unit":"kcal","points":[{"label":"早餐","value":555},{"label":"午餐","value":900},{"label":"晚餐","value":750}]}`
-- **全天热量分配**（一个总数里各部分各占多少）：`stacked_bar`，`segments` 加上 `rest` 要等于 `total`：
-  `{"type":"stacked_bar","title":"今天的热量分配","subtitle":"推荐全天摄入","total":{"value":2250,"unit":"kcal"},"segments":[{"label":"早餐","value":555,"note":"已吃"},{"label":"午餐","value":900},{"label":"晚餐","value":750}],"rest":{"label":"弹性空间","value":45}}`
+- **全天热量分配**（一天里一个总数分成几部分，各占多少）：`ring`，画成圆环、中间写总数；`total` 比各部分多出的自动显示成「剩余」，不用自己算：
+  `{"type":"ring","title":"今天的热量分配","subtitle":"推荐全天摄入","total":{"value":2250,"unit":"kcal"},"segments":[{"label":"早餐","value":555,"note":"已吃"},{"label":"午餐","value":900},{"label":"晚餐","value":750}]}`
+  单天的分配不用 `stacked_bar`（只画一根横条，不好读）；比几天的总量用 `bar`（每天一根），看趋势用 `line`。
 - **单个关键指标**（今天的步数、昨晚睡了多久、最新的体重）：`stat`：
   `{"type":"stat","title":"今天步数","value":8432,"unit":"步","note":"比昨天 +12%"}`
 - **明细**（每样食物的量和热量、化验单的逐项结果、历次报告的同一项）用 Markdown 表格，不用卡片。

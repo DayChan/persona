@@ -392,3 +392,81 @@ func TestWebAppServesStoredBrotliCopies(t *testing.T) {
 		}
 	}
 }
+
+// The built-in copy's root files keep their names across builds and have no modification time: no-cache with an ETag
+// of their content, so a repeat load (the service worker's network-first icons, the shell) is a 304, not the file
+// again. index.html's covers the sub-path's <base>, and is weak when it goes gzipped. Hashed assets stay a year; the
+// data dir's root files revalidate by Last-Modified.
+func TestWebAppRevalidatesRootFiles(t *testing.T) {
+	icon := append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0, 1, 2, 3}, 600)...)
+	site := fstest.MapFS{
+		"index.html":      {Data: []byte(`<head><base href="/" /></head>` + strings.Repeat("<p>app</p>", 200))},
+		"app-icon-64.png": {Data: icon},
+		"sw.js":           {Data: []byte("self")},
+		"assets/App-1.js": {Data: []byte("export {};")},
+	}
+	h := gzipResponses(t.Logf, webFrom(t.TempDir(), site))
+	get := func(p string, header ...string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", p, nil)
+		for i := 0; i+1 < len(header); i += 2 {
+			r.Header.Set(header[i], header[i+1])
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	browser := "gzip, deflate, br, zstd"
+	for _, c := range []struct {
+		path, prefix, accept string
+		weak                 bool
+	}{
+		{"/app-icon-64.png", "", browser, false}, // not compressed: strong
+		{"/sw.js", "", browser, false},           // under gzipMinSize: sent as it is
+		{"/", "", browser, true},
+		{"/", "", "", false},
+		{"/s/laptop/abc", "/persona", browser, true},
+	} {
+		w := get(c.path, "Accept-Encoding", c.accept, "X-Forwarded-Prefix", c.prefix)
+		tag := w.Header().Get("ETag")
+		if w.Code != 200 || w.Header().Get("Cache-Control") != "no-cache" || tag == "" || strings.HasPrefix(tag, "W/") != c.weak {
+			t.Fatalf("%s %q %q: %d Cache-Control %q ETag %q", c.path, c.prefix, c.accept, w.Code, w.Header().Get("Cache-Control"), tag)
+		}
+		again := get(c.path, "Accept-Encoding", c.accept, "X-Forwarded-Prefix", c.prefix, "If-None-Match", tag)
+		if again.Code != http.StatusNotModified || again.Body.Len() != 0 || again.Header().Get("ETag") != tag {
+			t.Errorf("%s %q %q: revalidated %d, ETag %q, want 304 with %q", c.path, c.prefix, c.accept, again.Code, again.Header().Get("ETag"), tag)
+		}
+	}
+	// the sub-path's page is other bytes, so another tag: the root's does not revalidate it
+	root, sub := get("/").Header().Get("ETag"), get("/", "X-Forwarded-Prefix", "/persona").Header().Get("ETag")
+	if root == sub || get("/", "X-Forwarded-Prefix", "/persona", "If-None-Match", root).Code != 200 {
+		t.Errorf("sub-path index.html tag %q, root %q", sub, root)
+	}
+	if w := get("/assets/App-1.js"); !strings.Contains(w.Header().Get("Cache-Control"), "immutable") || w.Header().Get("ETag") != "" {
+		t.Errorf("asset: %v", w.Header())
+	}
+	// The data dir: Last-Modified as before, and no-cache too.
+	dir := t.TempDir()
+	for name, f := range site {
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, f.Data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	disk := webFrom(dir, nil)
+	w := httptest.NewRecorder()
+	disk.ServeHTTP(w, httptest.NewRequest("GET", "/app-icon-64.png", nil))
+	lm := w.Header().Get("Last-Modified")
+	if w.Header().Get("Cache-Control") != "no-cache" || lm == "" || w.Header().Get("ETag") != "" {
+		t.Fatalf("data dir icon: %v", w.Header())
+	}
+	r := httptest.NewRequest("GET", "/app-icon-64.png", nil)
+	r.Header.Set("If-Modified-Since", lm)
+	w = httptest.NewRecorder()
+	disk.ServeHTTP(w, r)
+	if w.Code != http.StatusNotModified {
+		t.Errorf("data dir icon revalidated: %d", w.Code)
+	}
+}

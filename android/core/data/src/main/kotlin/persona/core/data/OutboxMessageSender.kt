@@ -59,6 +59,14 @@ class OutboxMessageSender(
     private val processing = Mutex()
     private val initialized = CompletableDeferred<Unit>()
     private val reconcilers = mutableListOf<OutboxReconciler>()
+    /**
+     * Messages that came back waiting while the link was up, each with the code it fails with ([stall]). Memory only,
+     * under its own lock; the link going down starts every run again. Declared before `init`: its readiness collector
+     * clears them.
+     */
+    private val stalls = mutableMapOf<String, Stall>()
+    /** The one retry of the stalled messages, due in [StallRetryMillis]. */
+    private var stallRetry: Job? = null
     @Volatile private var mainResolver: MainConversationResolver? = null
     /** Transcript items that already showed a message (observeTranscript): the same item never shows a second. */
     private val claimed = mutableSetOf<Pair<SessionKey, String>>()
@@ -80,7 +88,7 @@ class OutboxMessageSender(
             for (ignored in wake) processing.withLock { drain() }
         }
         scope.launch {
-            transport.readyToSend.collect { if (it) wake.trySend(Unit) }
+            transport.readyToSend.collect { if (it) wake.trySend(Unit) else clearStalls() }
         }
         scope.launch {
             val deadlines = mutableMapOf<String, Job>()
@@ -339,11 +347,12 @@ class OutboxMessageSender(
                     // message is not queued behind it (docs/assistant/onboarding.md 4.4); the user fixes the step and retries.
                     is MainTarget.Refused -> {
                         store.transition(entry.clientMessageId, dispatchable, OutboxState.Refused, main.code)
+                        unstall(entry.clientMessageId)
                         continue
                     }
-                    MainTarget.NotYet -> {
-                        store.transition(entry.clientMessageId, dispatchable, OutboxState.WaitingForNetwork,
-                            "main_not_ready")
+                    is MainTarget.NotYet -> {
+                        if (store.transition(entry.clientMessageId, dispatchable, OutboxState.WaitingForNetwork,
+                                "main_not_ready")) stall(entry.clientMessageId, main.code)
                         return
                     }
                 }
@@ -370,11 +379,47 @@ class OutboxMessageSender(
     private suspend fun settle(id: String, from: Set<OutboxState>, result: MessageTransportResult): OutboxState {
         val state = classify(result)
         val error = (result as? MessageTransportResult.HubError)?.let { it.code ?: it.error }
-        if ((result as? MessageTransportResult.HubError)?.delivered == "none") {
+        val moved = if ((result as? MessageTransportResult.HubError)?.delivered == "none") {
             store.transition(id, from, state, error, newOperationId())
         } else store.transition(id, from, state, error)
+        if (moved && state == OutboxState.WaitingForNetwork) stall(id, error) else unstall(id)
         return state
     }
+
+    /**
+     * [id] came back waiting. Waiting for the link is what the outbox is for; while the link is up it means the hub
+     * cannot pass it on yet (the assistant restarting, a 5xx without a code, the main conversation not started), and
+     * nothing else would wake the queue: as on iOS (`OutboxWait`), it goes again every [StallRetryMillis] and after
+     * [StallLimitMillis] it is refused with [code], so the user sees why and can retry.
+     */
+    private fun stall(id: String, code: String?) {
+        if (!transport.readyToSend.value) return
+        synchronized(stalls) {
+            val stall = stalls[id]
+            if (stall != null) stall.code = code
+            else stalls[id] = Stall(scope.launch { delay(StallLimitMillis); giveUp(id) }, code)
+            if (stallRetry?.isActive != true) stallRetry = scope.launch { delay(StallRetryMillis); wake.trySend(Unit) }
+        }
+    }
+
+    private fun unstall(id: String) = synchronized(stalls) { stalls.remove(id)?.giveUp?.cancel() }
+
+    private fun clearStalls() = synchronized(stalls) {
+        stalls.values.forEach { it.giveUp.cancel() }
+        stalls.clear()
+        stallRetry?.cancel()
+        stallRetry = null
+    }
+
+    private suspend fun giveUp(id: String) {
+        processing.withLock {
+            val stall = synchronized(stalls) { stalls.remove(id) } ?: return
+            // The messages queued behind it go now.
+            if (store.transition(id, setOf(OutboxState.WaitingForNetwork), OutboxState.Refused, stall.code)) wake.trySend(Unit)
+        }
+    }
+
+    private class Stall(val giveUp: Job, var code: String?)
 
     private fun request(entry: OutboxEntry) =
         MessageRequest(hubScope, entry.session, entry.text, entry.clientMessageId, entry.clearDraft, opId = entry.operationId)
@@ -383,18 +428,19 @@ class OutboxMessageSender(
         data class Found(val session: SessionKey) : MainTarget
         /** The hub refused to start it with a setup code: nothing was created. */
         data class Refused(val code: String) : MainTarget
-        data object NotYet : MainTarget
+        /** Not started yet; [code] is why, if the hub said (the computer asleep, the assistant restarting). */
+        data class NotYet(val code: String = "main_not_ready") : MainTarget
     }
 
     private suspend fun resolveMain(): MainTarget {
         store.mainConversation()?.let { return MainTarget.Found(it) }
-        val resolver = mainResolver ?: return MainTarget.NotYet
+        val resolver = mainResolver ?: return MainTarget.NotYet()
         return try {
             val target = resolver.findMainConversation() ?: if (store.claimMainCreation()) {
                 resolver.createMainConversation()
             } else null
             if (target != null) store.bindMainConversation(target)
-            target?.let { MainTarget.Found(it) } ?: MainTarget.NotYet
+            target?.let { MainTarget.Found(it) } ?: MainTarget.NotYet()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
@@ -408,9 +454,10 @@ class OutboxMessageSender(
                 MainTarget.Refused(refusal)
             } else {
                 // The computer asleep or the assistant restarting: the hub answered and started nothing, so the next
-                // try (still a lookup first) may start it once they are back; the message keeps waiting meanwhile.
-                if (coded?.code in RetryLaterCodes) store.releaseMainCreation()
-                MainTarget.NotYet
+                // try (still a lookup first) may start it once they are back; the message waits meanwhile ([stall]).
+                val later = coded?.code?.takeIf { it in RetryLaterCodes }
+                if (later != null) store.releaseMainCreation()
+                later?.let { MainTarget.NotYet(it) } ?: MainTarget.NotYet()
             }
         }
     }
@@ -438,6 +485,10 @@ class OutboxMessageSender(
         private val dispatchable = setOf(OutboxState.Queued, OutboxState.WaitingForNetwork)
         private val hidden = setOf(OutboxState.Cancelled, OutboxState.Shown)
         private val refusals = setOf("input_draft", "dialog_open", "op_id_reused", "invalid", "stale_session")
+        /** A message that keeps coming back waiting while the link is up goes again this often (iOS retryOutboxSoon). */
+        private const val StallRetryMillis = 10_000L
+        /** …and is refused after this long, about six tries (iOS OutboxWait.connectedLimit). */
+        private const val StallLimitMillis = 60_000L
 
         /** The hub takes UUIDs only as operation ids. */
         fun newOperationId(): String = java.util.UUID.randomUUID().toString()
@@ -450,6 +501,8 @@ class OutboxMessageSender(
                 result.delivered == "unknown" -> OutboxState.Verifying
                 result.delivered == "yes" -> OutboxState.Sent
                 result.code in refusals || result.code in SetupFailureCodes -> OutboxState.Refused
+                // The computer asleep: it would wait for a link that is already up; refused at once with Retry (iOS).
+                result.code == "node_unreachable" && result.delivered == "none" -> OutboxState.Refused
                 result.delivered == "none" && result.retryable -> OutboxState.WaitingForNetwork
                 result.delivered == "none" -> OutboxState.Refused
                 else -> OutboxState.Unknown

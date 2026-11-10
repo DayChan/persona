@@ -210,6 +210,12 @@ export interface HubExtensionDetail extends HubExtension {
   contributions?: Contribution[];
   depends?: DependencyState[];
   extension_pack?: PackMember[];
+  /** A pack whose Enabled switch takes its installed members along (#1830); a hub before it switches the pack alone. */
+  pack_members_follow?: boolean;
+  /** The members switching the pack off switched off: switching it back on turns these on again. */
+  pack_off?: string[];
+  /** The installed members that are on: the ones switching the pack off switches off, named in its confirmation. */
+  pack_on?: { id: string; name: string }[];
 }
 
 // ── the hub ─────────────────────────────────────────────
@@ -388,6 +394,9 @@ export function listSummary(list?: HubExtension[] | null): string {
 }
 
 export const fieldLabel = (f: ExtensionField) => f.title || f.name;
+
+/** Whether flipping a switch of the field asks its x-confirm sentence first: only turning one on, and only with a sentence. */
+export const asksFirst = (f: ExtensionField, on: boolean) => on && !!f.confirm;
 
 /** The title with "(required)" when it has to be filled in and has no default to fall back to. */
 export const fieldTitle = (f: ExtensionField) => (f.required && f.default === undefined ? t("lib-extensions.field_required", { label: fieldLabel(f) }) : fieldLabel(f));

@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/nwverse/persona/server/internal/apierr"
+	"github.com/nwverse/persona/server/internal/clitext"
 	"github.com/nwverse/persona/server/internal/db"
 )
 
@@ -41,10 +43,15 @@ var accessChoices = []struct{ name, meaning string }{
 	{accessAny, "任何地方经 TLS 端口都能打开（局域网照旧）。暴露在公网上，只靠管理员密码和登录限流挡着"},
 }
 
-// AdminCommand runs `personad hub admin <args>`.
+// AdminCommand runs `personad hub admin <args>`. Help asked for prints the usage on stdout (exit 0); a usage mistake
+// is a clitext.UsageError (exit 2), found before hub.json is read.
 func AdminCommand(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return errors.New(adminUsage)
+		return clitext.UsageError(clitext.Named(adminUsage))
+	}
+	if adminHelpAsked(args) {
+		_, err := fmt.Fprintln(stdout, clitext.Named(adminUsage))
+		return err
 	}
 	switch args[0] {
 	case "access":
@@ -53,11 +60,20 @@ func AdminCommand(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		return adminResetPassword(ctx, dataDir(), args[1:], stdin, stdout, stderr)
 	case "setup-code":
 		if len(args) != 1 {
-			return errors.New(adminUsage)
+			return clitext.UsageError("admin setup-code takes no arguments\n" + clitext.Named(adminUsage))
 		}
 		return adminSetupCode(ctx, dataDir(), stdout)
 	}
-	return fmt.Errorf("unknown admin command %q\n%s", args[0], adminUsage)
+	return clitext.UsageError(fmt.Sprintf("unknown admin command %q\n%s", args[0], clitext.Named(adminUsage)))
+}
+
+// adminHelpAsked: help, -h or --help as the command, or after setup-code (which takes no arguments). access and
+// reset-password answer -h with their flags (flag.ErrHelp, exit 0).
+func adminHelpAsked(args []string) bool {
+	if args[0] == "help" || clitext.IsHelpArg(args[0]) {
+		return true
+	}
+	return args[0] == "setup-code" && slices.ContainsFunc(args[1:], clitext.IsHelpArg)
 }
 
 func adminAccessCommand(ctx context.Context, dir string, args []string, stdout, stderr io.Writer) error {

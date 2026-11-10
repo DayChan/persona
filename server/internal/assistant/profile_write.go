@@ -64,6 +64,10 @@ func (s *Service) putSettings(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, http.StatusBadRequest, errors.New("recording_days must be 1–365"))
 		return
 	}
+	if p := in.ReviewSamplePercent; p != nil && (*p < 0 || *p > 100) {
+		apierr.Write(w, http.StatusBadRequest, errors.New("review_sample_percent must be 0–100"))
+		return
+	}
 	if d := in.IdleCloseHours; d != nil && (*d < 0 || *d > maxIdleCloseHours) {
 		apierr.Write(w, http.StatusBadRequest, errors.New("idle_close_hours must be 0–8760"))
 		return
@@ -127,6 +131,9 @@ func (s *Service) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.DoneNeedsDelivery != nil {
 			v.DoneNeedsDelivery = in.DoneNeedsDelivery
+		}
+		if in.ReviewSamplePercent != nil {
+			v.ReviewSamplePercent = in.ReviewSamplePercent
 		}
 		if in.DefaultPermissionMode != "" {
 			v.DefaultPermissionMode = in.DefaultPermissionMode

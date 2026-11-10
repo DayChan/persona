@@ -102,7 +102,7 @@ class ReleaseWorkerTest(unittest.TestCase):
             directory = root / "runs" / sha
             directory.mkdir(parents=True)
             config = dict(state_directory=tmp, repository="example/app",
-                          application_id="com.example.app", certificate_sha256="c" * 64)
+                          application_id="com.example.app", certificate_sha256="c" * 64, report_commit_status=True)
             previous = dict(repository=config["repository"], source_sha="a" * 40, version_code=100001)
             worker.atomic_json(root / "published.json", previous)
             request = dict(repository=config["repository"], source_sha=sha,

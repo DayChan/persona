@@ -1,0 +1,13 @@
+{
+  "ready_title": "会议纪要整理好了",
+  "ready_body": "{name} · 决定 {decisions} 条 · 建议待办 {actions} 条",
+  "no_recording": "没有这条录音。",
+  "incomplete": "转写还没完成，完成后再整理纪要。",
+  "todo_forbidden": "这台设备不能创建待办。",
+  "no_actions": "至少选一条待办。",
+  "stale": "纪要已经更新，请刷新后再试。",
+  "unknown_action": "这份纪要里没有待办 {id}。",
+  "no_minutes": "这条录音还没有纪要。",
+  "todo_notes": "来自会议纪要「{meeting}」（{when}），原话在 {clock}。",
+  "todo_by": "原话里的期限：{by}"
+}

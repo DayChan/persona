@@ -55,7 +55,8 @@ import java.time.Instant
  */
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [35], qualifiers = "zh-w400dp-h1200dp-xhdpi")
+// Tall enough for the last manager's rows under the grouping switch (#2576): a lazy list builds only what is on screen.
+@Config(sdk = [35], qualifiers = "zh-w400dp-h1400dp-xhdpi")
 class InboxManagersShotsTest {
     @get:Rule val rule = createComposeRule()
 
@@ -107,7 +108,7 @@ class InboxManagersShotsTest {
         rule.setContent {
             PersonaTheme(darkTheme = dark, reduceMotion = true, style = style) {
                 CompositionLocalProvider(LocalManagerRoster provides shown) {
-                    Box(Modifier.testTag("shot").width(400.dp).height(1200.dp).background(PersonaTheme.palette.background)) {
+                    Box(Modifier.testTag("shot").width(400.dp).height(1400.dp).background(PersonaTheme.palette.background)) {
                         InboxScreen(OneInbox(InboxSnapshot(records = records)), navigator)
                     }
                 }

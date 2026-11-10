@@ -432,15 +432,15 @@ func TestNodeHostsAddBotmuxWhenInstalled(t *testing.T) {
 	old := botmuxBin
 	t.Cleanup(func() { botmuxBin = old })
 	botmuxBin = func() string { return "" }
-	if hs := nodeHosts(proto.EngineHerdr, true, nil); len(hs) != 1 {
+	if hs := nodeHosts(proto.EngineHerdr, true, nil); len(hs) != 2 || hs[1].Kind() != host.Tmux {
 		t.Fatalf("without botmux: %d hosts", len(hs))
 	}
 	botmuxBin = func() string { return "/opt/botmux/bin/botmux" }
 	hs := nodeHosts(proto.EngineHerdrBoth, true, nil)
-	if len(hs) != 3 || hs[0].Kind() != host.Herdr || hs[2].Kind() != host.Botmux {
+	if len(hs) != 4 || hs[0].Kind() != host.Herdr || hs[2].Kind() != host.Tmux || hs[3].Kind() != host.Botmux {
 		t.Fatalf("with botmux: %v", hs)
 	}
-	if hs := nodeHosts(proto.EngineHerdrBoth, false, nil); len(hs) != 2 {
+	if hs := nodeHosts(proto.EngineHerdrBoth, false, nil); len(hs) != 3 {
 		t.Fatalf("botmux not wanted: %v", hs)
 	}
 	if defaultHostKind(proto.EngineHerdrBoth) != host.Herdr {

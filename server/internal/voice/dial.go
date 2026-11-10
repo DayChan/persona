@@ -18,10 +18,17 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/nwverse/persona/server/internal/osproc"
 )
 
 // credential is the provider's Bearer credential: Key, the first line of KeyFile, or the first line KeyCommand
 // prints (run for every conversation, so a credential renewed elsewhere is picked up). None is allowed.
+//
+// KeyCommand runs in a session of its own: at its 20 s limit the whole group is killed, not just sh. A process it
+// leaves running that still holds its output (an agent it starts, cmd & echo token) is not waited for past
+// keyCommandWaitDelay once the command has exited; without it Output read the pipe until that process ended, and the
+// call start waited with it.
 func (p *Provider) credential(ctx context.Context) (string, error) {
 	switch {
 	case p.Key != "":
@@ -38,8 +45,12 @@ func (p *Provider) credential(ctx context.Context) (string, error) {
 		var stderr bytes.Buffer
 		cmd := exec.CommandContext(ctx, "sh", "-c", p.KeyCommand)
 		cmd.Stderr = &stderr
+		cmd.SysProcAttr = osproc.SessionGroupAttr()
+		cmd.Cancel = func() error { return osproc.StopGroup(cmd.Process.Pid, true) }
+		cmd.WaitDelay = keyCommandWaitDelay
 		out, err := cmd.Output()
-		if err != nil {
+		// ErrWaitDelay: the command exited 0 and only a process it left held the pipe; what it printed counts.
+		if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 			return "", fmt.Errorf("%s: key_command: %v %s", p.ID, err, strings.TrimSpace(stderr.String()))
 		}
 		if key := firstLine(out); key != "" {
@@ -50,19 +61,34 @@ func (p *Provider) credential(ctx context.Context) (string, error) {
 	return "", nil
 }
 
+// keyCommandWaitDelay is how long credential keeps reading KeyCommand's output after the command has exited.
+const keyCommandWaitDelay = time.Second
+
 func firstLine(b []byte) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
 	return strings.TrimSpace(line)
 }
 
-// httpClient reaches the provider: directly, or through its SSH machine. Both GET /models and the session's WebSocket
-// use it.
+// httpClient reaches the provider: directly, or through its SSH machine. GET /models, GET /voices and the session's
+// WebSocket use it. One client per SSH machine: its lists reuse one `ssh -W` connection, closed after 90 s idle (a
+// client per call left every list's ssh process open for good). An upgraded WebSocket is taken out of the pool.
 func (p *Provider) httpClient() *http.Client {
 	if p.SSH == "" {
 		return directClient
 	}
-	return &http.Client{Transport: &http.Transport{DialContext: sshDialer(p.SSH), TLSHandshakeTimeout: 15 * time.Second}}
+	if c, ok := sshClients.Load(p.SSH); ok {
+		return c.(*http.Client)
+	}
+	c, _ := sshClients.LoadOrStore(p.SSH, &http.Client{Transport: &http.Transport{
+		DialContext:         sshDialer(p.SSH),
+		TLSHandshakeTimeout: 15 * time.Second,
+		IdleConnTimeout:     90 * time.Second,
+	}})
+	return c.(*http.Client)
 }
+
+// sshClients is, per SSH machine, the client that reaches providers through it.
+var sshClients sync.Map
 
 // directClient reaches providers without an SSH machine: HTTPS through dialTLS; plain HTTP, and HTTPS through a proxy
 // set in the environment, as Go's default transport does. One shared pool.

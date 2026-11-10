@@ -1,5 +1,6 @@
 import BeautifulUI
 import MarkdownUI
+import PersonaKit
 import SwiftUI
 
 /// How each Claude Code tool is named and summarized in the chat.
@@ -316,17 +317,15 @@ enum ToolRunSummary {
         let i = c.input
         switch ToolPresentation.baseName(c.name) {
         case "Edit":
-            let d = i["diff"]?.string.map(ToolDiffMemo.unified)
-                ?? ToolDiffMemo.edit(old: i["old_string"]?.string ?? "", new: i["new_string"]?.string ?? "")
-            return (d.adds, d.dels)
+            if let diff = i["diff"]?.string { return ToolDiffMemo.unifiedCounts(diff) }
+            return ToolDiffMemo.editCounts(old: i["old_string"]?.string ?? "", new: i["new_string"]?.string ?? "")
         case "MultiEdit":
             return (i["edits"]?.array ?? []).reduce((0, 0)) { n, e in
-                let d = ToolDiffMemo.edit(old: e["old_string"]?.string ?? "", new: e["new_string"]?.string ?? "")
+                let d = ToolDiffMemo.editCounts(old: e["old_string"]?.string ?? "", new: e["new_string"]?.string ?? "")
                 return (n.0 + d.adds, n.1 + d.dels)
             }
         case "Write":
-            let d = ToolDiffMemo.edit(old: "", new: i["content"]?.string ?? "")
-            return (d.adds, d.dels)
+            return ToolDiffMemo.editCounts(old: "", new: i["content"]?.string ?? "")
         default:
             return (0, 0)
         }
@@ -511,16 +510,19 @@ struct ToolDetail: View {
                 CodeBlock(text: "$ " + (i["command"]?.string ?? ""), maxLines: 12)
             case "Edit":
                 // Codex: the patch as a unified diff; Claude: the old and new strings.
-                let diff = i["diff"]?.string.map(DiffView.init(unified:))
-                    ?? DiffView(old: i["old_string"]?.string ?? "", new: i["new_string"]?.string ?? "")
+                let key = "diff-" + call.id
+                let diff = i["diff"]?.string.map { DiffView(unified: $0, pinKey: key) }
+                    ?? DiffView(old: i["old_string"]?.string ?? "", new: i["new_string"]?.string ?? "", pinKey: key)
                 diffHeader(i["file_path"]?.string, [diff])
                 diff
             case "MultiEdit":
-                let diffs = (i["edits"]?.array ?? []).map { DiffView(old: $0["old_string"]?.string ?? "", new: $0["new_string"]?.string ?? "") }
+                let diffs = (i["edits"]?.array ?? []).enumerated().map { n, e in
+                    DiffView(old: e["old_string"]?.string ?? "", new: e["new_string"]?.string ?? "", pinKey: "diff-\(call.id)-\(n)")
+                }
                 diffHeader(i["file_path"]?.string, diffs)
                 ForEach(Array(diffs.enumerated()), id: \.offset) { _, d in d }
             case "Write":
-                let diff = DiffView(old: "", new: i["content"]?.string ?? "")
+                let diff = DiffView(old: "", new: i["content"]?.string ?? "", pinKey: "diff-" + call.id)
                 diffHeader(i["file_path"]?.string, [diff])
                 diff
             case "Read", "NotebookEdit":
@@ -858,19 +860,27 @@ struct FullOutputSheet: View {
     }
 }
 
-/// The chat's one diff: Edit / MultiEdit / Write (old and new text) and Codex's patches (a unified diff), on the Git
-/// page's line model (`DiffText.Line`, `DiffText.parse`; the Git page draws whole files with MonoTextView). Only the
-/// sign and the line's background are colored, the code stays label; long lines scroll sideways and a fade on the
-/// right says there is more. Long diffs show their start and Expand All.
+/// The chat's one diff: Edit / MultiEdit / Write (old and new text, compared line by line and word by word with
+/// `LineDiff`, #2915) and Codex's patches (a unified diff), on the Git page's line model (`DiffText.Line`,
+/// `DiffText.parse`; the Git page draws whole files with MonoTextView). Only the sign and the line's background are
+/// colored, and the words that changed in a changed line; the code stays label. Long lines scroll sideways and a fade
+/// on the right says there is more. Long diffs show their start (an edit's long stretches of unchanged lines folded)
+/// and Show All.
 nonisolated enum ToolDiffMemo {
     struct Content: Sendable {
         var lines: [DiffText.Line]
+        /// What shows until Show All: an edit's long stretches of unchanged lines folded into one row each.
+        var short: [DiffText.Line]
         var adds: Int
         var dels: Int
     }
 
     private enum Input: Hashable { case edit(String, String), unified(String) }
     nonisolated(unsafe) private static var values: [Input: Content] = [:]
+    /// Every diff's +N −N, apart from `values` and many more of them: an open work line's chips and changed files
+    /// (`ToolRunSummary.diff`) count all of its edits each time the chat's lines are rebuilt. Read from `values`, a
+    /// turn with more edits than it holds emptied it on every pass and compared every edit again on the main thread.
+    nonisolated(unsafe) private static var counts: [Input: (adds: Int, dels: Int)] = [:]
     private static let lock = NSLock()
 
     private static func cached(_ input: Input, make: () -> Content) -> Content {
@@ -881,29 +891,76 @@ nonisolated enum ToolDiffMemo {
         lock.lock()
         if values.count >= 64 { values.removeAll(keepingCapacity: true) }
         values[input] = value
+        remember(input, (value.adds, value.dels))
         lock.unlock()
         return value
     }
 
+    private static func counted(_ input: Input, make: () -> (adds: Int, dels: Int)) -> (adds: Int, dels: Int) {
+        lock.lock()
+        if let n = counts[input] { lock.unlock(); return n }
+        lock.unlock()
+        let n = make()
+        lock.lock()
+        remember(input, n)
+        lock.unlock()
+        return n
+    }
+
+    /// Under `lock`. A long session's worth (a few small values, and the texts the items hold anyway); then start over.
+    private static func remember(_ input: Input, _ n: (adds: Int, dels: Int)) {
+        if counts.count >= 4000 { counts.removeAll(keepingCapacity: true) }
+        counts[input] = n
+    }
+
+    /// The +N −N `edit(old:new:)` shows, without its lines: the work line's chips and changed files.
+    static func editCounts(old: String, new: String) -> (adds: Int, dels: Int) {
+        counted(.edit(old, new)) { LineDiff.counts(old: old, new: new) }
+    }
+
+    /// The +N −N `unified(_:)` shows, without keeping its lines.
+    static func unifiedCounts(_ text: String) -> (adds: Int, dels: Int) {
+        counted(.unified(text)) { tally(DiffText.parse(text)) }
+    }
+
+    private static func tally(_ lines: [DiffText.Line]) -> (adds: Int, dels: Int) {
+        var adds = 0, dels = 0
+        for line in lines {
+            if line.kind == .add { adds += 1 }
+            if line.kind == .del { dels += 1 }
+        }
+        return (adds, dels)
+    }
+
     static func edit(old: String, new: String) -> Content {
         cached(.edit(old, new)) {
-            let removed = old.isEmpty ? [] : old.components(separatedBy: "\n")
-            let added = new.isEmpty ? [] : new.components(separatedBy: "\n")
-            let lines = removed.enumerated().map { DiffText.Line(id: $0.offset, kind: .del, text: $0.element) }
-                + added.enumerated().map { DiffText.Line(id: removed.count + $0.offset, kind: .add, text: $0.element) }
-            return Content(lines: lines, adds: added.count, dels: removed.count)
+            let diff = LineDiff(old: old, new: new)
+            var lines: [DiffText.Line] = []
+            lines.reserveCapacity(diff.lines.count)
+            for (n, l) in diff.lines.enumerated() {
+                let kind: DiffText.Line.Kind = switch l.kind {
+                case .add: .add
+                case .del: .del
+                case .context: .context
+                }
+                lines.append(DiffText.Line(id: n, kind: kind, text: l.text, old: l.oldLine, new: l.newLine, changed: l.changed))
+            }
+            // A folded stretch takes the id of its first line, which it does not show.
+            let short: [DiffText.Line] = diff.shown().map { shown in
+                switch shown {
+                case .line(let n): lines[n]
+                case .folded(let r): DiffText.Line(id: r.lowerBound, kind: .hunk, text: String(localized: "… \(r.count) unchanged lines"))
+                }
+            }
+            return Content(lines: lines, short: short, adds: diff.adds, dels: diff.dels)
         }
     }
 
     static func unified(_ text: String) -> Content {
         cached(.unified(text)) {
             let lines = DiffText.parse(text)
-            var adds = 0, dels = 0
-            for line in lines {
-                if line.kind == .add { adds += 1 }
-                if line.kind == .del { dels += 1 }
-            }
-            return Content(lines: lines, adds: adds, dels: dels)
+            let n = tally(lines)
+            return Content(lines: lines, short: lines, adds: n.adds, dels: n.dels)
         }
     }
 
@@ -925,33 +982,45 @@ nonisolated enum ToolDiffMemo {
 
 struct DiffView: View {
     var lines: [DiffText.Line]
+    /// Until Show All (`ToolDiffMemo.Content.short`), at most `maxLines` of it.
+    var short: [DiffText.Line]
     var adds: Int
     var dels: Int
+    /// What the chat's pin knows it by (`chatPinned`): Show All keeps its top where it is on screen.
+    var pinKey: String
+    @Environment(\.chatPin) private var pin
     @State private var full = false
     @State private var moreRight = false
     private static let maxLines = 40
 
-    /// All of old removed, then all of new added (Claude's Edit has no line numbers or context).
-    init(old: String, new: String) {
-        let content = ToolDiffMemo.edit(old: old, new: new)
-        lines = content.lines
-        adds = content.adds
-        dels = content.dels
+    /// Old and new text compared (`LineDiff`): unchanged lines as context, a stretch of more than a few of them folded
+    /// into one row until Show All, removed lines before added ones, and in a line changed rather than rewritten, the
+    /// words that changed. Claude's Edit carries no line numbers, so none are shown. Past `LineDiff`'s budget, all of
+    /// old removed, then all of new added.
+    init(old: String, new: String, pinKey: String) {
+        self.init(ToolDiffMemo.edit(old: old, new: new), pinKey: pinKey)
     }
 
-    init(unified diff: String) {
-        let content = ToolDiffMemo.unified(diff)
+    init(unified diff: String, pinKey: String) {
+        self.init(ToolDiffMemo.unified(diff), pinKey: pinKey)
+    }
+
+    private init(_ content: ToolDiffMemo.Content, pinKey: String) {
         lines = content.lines
+        short = content.short
         adds = content.adds
         dels = content.dels
+        self.pinKey = pinKey
     }
 
     var body: some View {
-        let clipped = !full && lines.count > Self.maxLines
+        let shown = full ? lines : Array(short.prefix(Self.maxLines))
+        // Something is left out: lines past the cap, or a folded stretch (folding always takes away a row).
+        let clipped = shown.count < lines.count
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(clipped ? Array(lines.prefix(Self.maxLines)) : lines) { line($0) }
+                    ForEach(shown) { line($0) }
                 }
                 .padding(.vertical, Theme.Space.sm)
             }
@@ -969,21 +1038,27 @@ struct DiffView: View {
             .background(Theme.codeBackground)
             .clipShape(.rect(cornerRadius: Theme.Radius.control, style: .continuous))
             if clipped {
-                Button("Show All \(lines.count) Lines [Tool Views 3aed77]") { withAnimation { full = true } }.font(Theme.Font.labelMedium).lineLimit(1)
+                // Held in place: the rows it adds would push the diff's top, and the call's head above it, up under the
+                // top bar of the upside-down chat (docs/lessons/ios.md, "Every expander inside a chat row needs the pin").
+                Button("Show All \(lines.count) Lines [Tool Views 3aed77]") {
+                    toggleInPlace(pin, pinKey, animation: Theme.Motion.standard) { full = true }
+                }
+                .font(Theme.Font.labelMedium).lineLimit(1)
             }
         }
+        .chatPinned(pinKey)
     }
 
     private func line(_ l: DiffText.Line) -> some View {
-        let (sign, color, fill): (String, Color, Color) = switch l.kind {
-        case .add: ("+", Theme.Diff.add, Theme.Diff.addFill)
-        case .del: ("−", Theme.Diff.del, Theme.Diff.delFill)
-        default: (" ", .secondary, .clear)
+        let (sign, color, fill, emphasis): (String, Color, Color, Color) = switch l.kind {
+        case .add: ("+", Theme.Diff.add, Theme.Diff.addFill, Theme.Diff.addEmphasis)
+        case .del: ("−", Theme.Diff.del, Theme.Diff.delFill, Theme.Diff.delEmphasis)
+        default: (" ", .secondary, .clear, .clear)
         }
         let quiet = l.kind == .hunk || l.kind == .info
         return HStack(spacing: Theme.Space.sm) {
             Text(sign).foregroundStyle(color).scaledFrame(width: Theme.Size.dotXL)
-            Text(l.text.isEmpty ? " " : l.text).foregroundStyle(quiet ? Color.secondary : .primary)
+            Self.text(l, emphasis: emphasis).foregroundStyle(quiet ? Color.secondary : .primary)
                 #if os(macOS)
                 .textSelection(.enabled) // the text, not the +/− column, as on the web
                 #endif
@@ -993,6 +1068,18 @@ struct DiffView: View {
         .padding(.vertical, 1)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(fill)
+    }
+
+    /// The line's code, the words that changed (`DiffText.Line.changed`) on `emphasis` over the row's own fill.
+    private static func text(_ l: DiffText.Line, emphasis: Color) -> Text {
+        guard !l.changed.isEmpty else { return Text(l.text.isEmpty ? " " : l.text) }
+        var out = AttributedString()
+        for piece in LineDiff.pieces(l.text, changed: l.changed) {
+            var run = AttributedString(piece.text)
+            if piece.changed { run.backgroundColor = emphasis }
+            out += run
+        }
+        return Text(out)
     }
 }
 

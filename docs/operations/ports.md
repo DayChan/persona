@@ -44,6 +44,11 @@ WKWebView ─ http://localhost:5173 ─▶ local 127.0.0.1:5173 (App listens)
 - "This machine" is the machine the session runs on (for assistant chats, the hub machine).
 - These show up in: Agent replies (a row of badges under the message), Bash tool output (under the output once expanded), the top of the session (`Session.ports`),
   and when tapping such a link itself in a message or the terminal (`ChatActions.openLink` checks for port links first). These links are no longer preloaded (preloading would open the phone's own localhost).
+- A link to one of the hub's own pages (`/s/…`, `/todos`, `/persona/…`; a hub on the agent's machine) is no dev server: it gets no badge and opens as that page (#2696).
+- The web (#504) recognizes the same links (`web/src/lib/port-links.ts`) and draws the badges under an agent's finished answer (`views/chat/PortChips.tsx`): `:5173` with the page's
+  title, "Stopped" and dimmed once nothing listens there. A port some agent on that machine lists (`Session.ports`) is live; any other is asked about with `GET …/ports/{port}`
+  (`lib/port-presence.ts`: a live answer is kept a minute, a gone one 30 s, no answer 20 s). A badge, or the link itself, opens the page in the **Preview** panel ([preview.md](../web/preview.md)),
+  only on a hub with `preview` and for an agent's session with a working folder; assistant conversations get none.
 ## Forwarding
 
 ### Why "listen locally on the phone"

@@ -7,7 +7,9 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import persona.core.contracts.Session
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** The old App's SessionModesTest and ModelPickerTest (81dc6928), as iOS names the modes. */
@@ -67,6 +69,48 @@ class SessionModesTest {
             assertNull(chatModeHint(session.copy(model = model, permissionMode = "default", effort = "high"), res))
         }
         assertNull(chatModeHint(null, res))
+    }
+
+    @Test fun ultracodeShowsOnlyForTheUsersRunningClaudeOnAHubThatHasIt() {
+        val claude = Session(sessionId = "s", status = "idle")
+        val has = setOf(Ultracode.FEATURE)
+        assertTrue(Ultracode.offered(claude, has))
+        assertFalse(Ultracode.offered(claude, emptySet()))
+        assertFalse(Ultracode.offered(claude.copy(assistant = true), has))
+        assertFalse(Ultracode.offered(claude.copy(agent = "codex"), has))
+        assertFalse(Ultracode.offered(claude.copy(status = "offline"), has))
+        assertFalse(Ultracode.offered(claude.copy(sourceKind = "claude_cli"), has))
+        assertFalse(Ultracode.offered(null, has))
+        // The hint names it while it is on (unknown is not on); not on an offline row, which a resume starts off.
+        assertEquals("ultracode", chatModeHint(claude.copy(ultracode = true), res))
+        assertNull(chatModeHint(claude.copy(ultracode = null), res))
+        assertNull(chatModeHint(claude.copy(ultracode = true, status = "offline"), res))
+        assertNull(chatModeHint(claude.copy(ultracode = true), res, includeModes = false))
+    }
+
+    @Test fun theUltracodeSwitchStandsWhereItWasPutUntilTheNodeAnswers() {
+        val off = Session(sessionId = "s", status = "idle", ultracode = false)
+        assertFalse(Ultracode.shownOn(off, null))
+        assertTrue(Ultracode.shownOn(off, Ultracode.Ask(true)))
+        // Queued for the next turn: the queue flag holds it on, and says so.
+        val queued = off.copy(ultracodePending = true)
+        val answered = Ultracode.Ask(true, sending = false, answered = queued)
+        assertTrue(Ultracode.shownOn(queued, answered))
+        assertFalse(Ultracode.spent(queued, answered))
+        assertEquals("下一轮生效", Ultracode.line(queued, answered, res))
+        assertEquals("有一次切换在排队，这一轮结束后生效", Ultracode.line(queued, null, res))
+        assertEquals("下一轮生效，等这一轮结束", Ultracode.line(queued.copy(ultracodeNote = "等这一轮结束"), answered, res))
+        // The request came back before the push: still where it was put, until the session moves.
+        val back = Ultracode.Ask(true, sending = false, answered = off)
+        assertTrue(Ultracode.shownOn(off, back))
+        val on = off.copy(ultracode = true)
+        assertTrue(Ultracode.spent(on, back))
+        assertTrue(Ultracode.shownOn(on, null))
+        // The node's reason wins over what was asked, and is the line.
+        val refused = off.copy(ultracodeNote = "模型不支持")
+        assertFalse(Ultracode.shownOn(refused, Ultracode.Ask(true, sending = false, answered = refused)))
+        assertEquals("模型不支持", Ultracode.line(refused, null, res))
+        assertEquals("每个任务都编排多 Agent workflow · 很费额度 · 只对本会话", Ultracode.line(off, null, res))
     }
 
     @Test fun theHintNamesWhatIsNotTheDefault() {

@@ -253,37 +253,66 @@ private struct BriefChatRow: View {
 
 /// A to-do to verify: its title, verdict, what changed and the recommendation, then Open and its button (Accept, Got It or
 /// Take Recommendation), which turns into what happened.
-private struct BriefAcceptRow: View {
+struct BriefAcceptRow: View {
     var row: BriefBody.Row
     var group: String
+    var open: (() -> Void)? = nil
     private var actions: BriefActions { .shared }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.xxs) {
-            Text(row.title).font(Theme.Font.secondaryMedium)
-            if let verdict = row.verdict, !verdict.isEmpty { Text(verdict).font(Theme.Font.caption) }
-            if let detail = row.detail, !detail.isEmpty { Text(detail).font(Theme.Font.caption).foregroundStyle(.secondary) }
-            if let option = row.recommend, !option.isEmpty {
-                Text("Recommended: \(option)").font(Theme.Font.caption).foregroundStyle(.secondary)
+        if actions.outcome(accepting: row, group: group) != .completed {
+            VStack(alignment: .leading, spacing: Theme.Space.xxs) {
+                Text(row.title).font(Theme.Font.secondaryMedium)
+                if let verdict = row.verdict, !verdict.isEmpty { Text(verdict).font(Theme.Font.caption) }
+                if let detail = row.detail, !detail.isEmpty { Text(detail).font(Theme.Font.caption).foregroundStyle(.secondary) }
+                if let option = row.recommend, !option.isEmpty {
+                    Text("Recommended: \(option)").font(Theme.Font.caption).foregroundStyle(.secondary)
+                }
+                Text(briefMeta(row)).font(Theme.Font.caption).foregroundStyle(.secondary)
+                HStack(spacing: Theme.Space.s) {
+                    Spacer(minLength: 0)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: Theme.Space.s) { availableActions }
+                            .fixedSize(horizontal: true, vertical: false)
+                        Menu { availableActions } label: { Text("Actions").lineLimit(1) }
+                            .font(Theme.Font.captionStrong)
+                            .themedButton()
+                    }
+                }
+                .padding(.top, Theme.Space.xs)
             }
-            Text(briefMeta(row)).font(Theme.Font.caption).foregroundStyle(.secondary)
-            HStack(spacing: Theme.Space.s) {
-                Spacer(minLength: 0)
-                BriefOpenButton(title: row.title) { TasksStore.shared.detailTask = row.id }
-                if let take = row.take { button(take) }
-            }
-            .padding(.top, Theme.Space.xs)
+            .padding(.vertical, Theme.Space.xs)
         }
-        .padding(.vertical, Theme.Space.xs)
+    }
+
+    @ViewBuilder private var availableActions: some View {
+        BriefOpenButton(title: row.title) {
+            if let open { open() } else { TasksStore.shared.detailTask = row.id }
+        }
+        let outcome = actions.outcome(accepting: row, group: group)
+        if row.isDecision, outcome == nil || outcome == .busy {
+            Button {
+                Task { await actions.completeDirectly(row, group: group) }
+            } label: {
+                Text("Complete Directly").lineLimit(1)
+            }
+            .font(Theme.Font.captionStrong)
+            .themedButton()
+            .disabled(row.askedAt?.isEmpty != false || outcome == .busy)
+            .accessibilityLabel(String(localized: "Complete directly: \(row.title)"))
+            .accessibilityIdentifier("brief.complete.\(row.id)")
+        }
+        if let take = row.take { button(take) }
     }
 
     @ViewBuilder private func button(_ take: BriefBody.Row.Take) -> some View {
-        switch actions.outcome(accepting: row) {
+        switch actions.outcome(accepting: row, group: group) {
+        case .completed?: EmptyView()
         case .taken(let took)?: BriefOutcomeText(text: Self.taken(took), id: row.id)
         case .alreadyHandled?: BriefOutcomeText(text: String(localized: "Already handled"), id: row.id)
         case .hubTooOld?: BriefOutcomeText(text: String(localized: "The hub is too old for this button"), id: row.id)
         case .marked?, .busy?, nil:
-            let busy = actions.outcome(accepting: row) == .busy
+            let busy = actions.outcome(accepting: row, group: group) == .busy
             Button {
                 Task { await actions.accept(row, group: group) }
             } label: {
@@ -292,7 +321,7 @@ private struct BriefAcceptRow: View {
             }
             .font(Theme.Font.captionStrong)
             .themedButton(prominent: true)
-            .disabled(row.askedAt?.isEmpty != false)
+            .disabled(row.askedAt?.isEmpty != false || busy)
             .accessibilityLabel(take == .recommendation ? String(localized: "Take the recommendation for \(row.title)") : String(localized: "Accept: \(row.title)"))
             .accessibilityIdentifier("brief.accept.\(row.id)")
         }
@@ -338,12 +367,12 @@ private struct BriefLaterRow: View {
     }
 
     @ViewBuilder private var handled: some View {
-        switch actions.outcome(marking: row) {
+        switch actions.outcome(marking: row, group: group) {
         case .marked?: BriefOutcomeText(text: String(localized: "Marked as handled"), id: row.id)
         case .alreadyHandled?: BriefOutcomeText(text: String(localized: "Already handled"), id: row.id)
         case .hubTooOld?: BriefOutcomeText(text: String(localized: "The hub is too old for this button"), id: row.id)
-        case .taken?, .busy?, nil:
-            let busy = actions.outcome(marking: row) == .busy
+        case .completed?, .taken?, .busy?, nil:
+            let busy = actions.outcome(marking: row, group: group) == .busy
             Button {
                 Task { await actions.markHandled(row, group: group) }
             } label: {

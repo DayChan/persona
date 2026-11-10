@@ -68,6 +68,9 @@ type Engine struct {
 	Unindex func(kind string, ids []string)
 	// RecordingDaysFunc is how many days recordings are kept (the assistant's recording_days; nil or <= 0: 14).
 	RecordingDaysFunc func() int
+	// MinutesWritten is told when a recording's minutes for its current revision are written (minutes.go): the
+	// assistant pushes them. Called from the loop, outside the store's locks.
+	MinutesWritten func(ctx context.Context, r Recording, m Minutes)
 	// HandleKey is the hub's key for the senders' identity hints (handles.go); without it none are kept.
 	HandleKey []byte
 

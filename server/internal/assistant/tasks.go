@@ -82,9 +82,13 @@ type PlanTask struct {
 	Error     string            `json:"error,omitempty"`
 	ErrorCode string            `json:"error_code,omitempty"`
 	ErrorArgs map[string]string `json:"error_args,omitempty"`
+	// Start: the start being remedied after its agent did not start, or how that ended (start_remedy.go, #2570).
+	Start *StartRemedy `json:"start,omitempty"`
 	// defaulted: Launcher was filled in from a default by an earlier try of this start (startTaskAgent), not named by
 	// whoever planned the task, so a retry may still swap it for one its computer has (launcher_fit.go).
 	defaulted bool
+	// inPane: the kept tab this try starts in (task_retry), "" for a new one.
+	inPane string
 }
 
 // Readonly is a launch constraint, including for older saved plans and card edits.

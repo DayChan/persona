@@ -15,11 +15,13 @@ import kotlinx.coroutines.launch
 /**
  * Settings › hub (docs/android/android.md "Multiple hubs"): the phone's hub groups. A group is hubs linked by the hub mesh; the lists
  * show every group together, the hub-level pages (Persona, inbox, hub settings) show the selected one. Adding a hub
- * puts it into the group its mesh says, else it starts a new group.
+ * puts it into the group its mesh says, else it starts a new group. Each paired hub has its SSH tunnel and local proxy rows.
  */
 @Composable
-internal fun HubsScreen(hubs: HubGroups, onAdd: (() -> Unit)?, onBack: () -> Unit, footer: @Composable () -> Unit = {}) {
+internal fun HubsScreen(hubs: HubGroups, onAdd: (() -> Unit)?, onBack: () -> Unit, footer: @Composable () -> Unit = {},
+    tunnels: HubTunnelSettings? = null, onTunnel: (hubId: String, kind: TunnelKind) -> Unit = { _, _ -> }) {
     val groups by hubs.groups.collectAsState()
+    val tunnelInfos by (tunnels ?: HubTunnelSettings.None).hubs.collectAsState()
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf<HubGroupInfo?>(null) }
     var hubMenu by remember { mutableStateOf<Pair<HubGroupInfo, HubMemberInfo>?>(null) }
@@ -46,7 +48,8 @@ internal fun HubsScreen(hubs: HubGroups, onAdd: (() -> Unit)?, onBack: () -> Uni
         if (groups.isEmpty()) item { JEmptyState(stringResource(R.string.settings_hubs_empty_title), stringResource(R.string.settings_hubs_empty_body)) }
         groups.forEach { group ->
             item(key = "head-" + group.id) { JSectionHeader(group.name) }
-            val rows = group.hubs.size + 1
+            val withTunnels = group.hubs.filter { it.paired }.mapNotNull { hub -> tunnelInfos.firstOrNull { it.hubId == hub.hubId } }
+            val rows = group.hubs.size + 1 + 2 * withTunnels.size
             item(key = "state-" + group.id) {
                 JGroupItem(GroupPosition.of(0, rows)) {
                     JRow(if (group.state == ConnectionState.Online) stringResource(R.string.settings_hubs_connected) else group.state.label(), leadingIcon = PhIcons.TreeStructure,
@@ -59,6 +62,17 @@ internal fun HubsScreen(hubs: HubGroups, onAdd: (() -> Unit)?, onBack: () -> Uni
                         JRow(hub.name, leadingIcon = PhIcons.HardDrives, subtitle = hubText(hub),
                             value = if (hub.connected) stringResource(R.string.settings_hubs_in_use) else null,
                             onClick = if (hub.paired && group.hubs.count { it.paired } > 1) ({ hubMenu = group to hub }) else null)
+                    }
+                }
+            }
+            withTunnels.forEachIndexed { index, info ->
+                listOf(TunnelKind.Ssh, TunnelKind.Proxy).forEachIndexed { offset, kind ->
+                    item(key = "tunnel-" + group.id + "-" + info.hubId + "-" + kind) {
+                        JGroupItem(GroupPosition.of(group.hubs.size + 1 + 2 * index + offset, rows)) {
+                            JRow(tunnelRowTitle(kind, info.name.takeIf { withTunnels.size > 1 }),
+                                leadingIcon = if (kind == TunnelKind.Ssh) PhIcons.Terminal else PhIcons.ShareNetwork,
+                                value = stringResource(tunnelRowValue(info, kind)), onClick = { onTunnel(info.hubId, kind) })
+                        }
                     }
                 }
             }
@@ -103,6 +117,14 @@ internal fun HubsScreen(hubs: HubGroups, onAdd: (() -> Unit)?, onBack: () -> Uni
             destructive = true, confirmEnabled = !busy,
             confirm = stringResource(R.string.settings_hubs_disconnect) to { removingHub = null; run(R.string.settings_hubs_failed_disconnect) { hubs.removeHub(group.id, hub.hubId) } })
     }
+}
+
+@Composable
+private fun tunnelRowTitle(kind: TunnelKind, hub: String?): String = when {
+    kind == TunnelKind.Ssh && hub != null -> stringResource(R.string.settings_tunnel_ssh_of, hub)
+    kind == TunnelKind.Ssh -> stringResource(R.string.settings_tunnel_ssh)
+    hub != null -> stringResource(R.string.settings_tunnel_proxy_of, hub)
+    else -> stringResource(R.string.settings_tunnel_proxy)
 }
 
 @Composable

@@ -6,6 +6,7 @@ import persona.core.contracts.MachineBrowser
 import persona.core.contracts.api.DoctorReport
 import persona.core.contracts.api.MachineManagement
 import persona.core.contracts.api.UsageAccount
+import persona.core.contracts.api.hubCodedFailure
 import persona.core.designsystem.UiText
 import persona.core.designsystem.failureReasonText
 import persona.core.designsystem.hubAnswer
@@ -168,13 +169,16 @@ internal class MachineHealthViewModel(private val management: MachineManagement)
 
     // ── Subscription limits
 
-    /** Once a minute while the overview is in front (the route starts it only then). */
+    /**
+     * Once a minute while the overview is in front (the route starts it only then). A failed refresh (the assistant away, the hub out
+     * of reach) keeps the last answer, which liveAccounts ages by its `stale_at` (#1905); only an older hub without the route (404)
+     * means there is nothing to show.
+     */
     suspend fun pollUsage() {
         while (true) {
             try { mutable.update { it.copy(usage = management.usageWindows()) } }
             catch (cancelled: CancellationException) { throw cancelled }
-            // An older hub has no such route: nothing to show.
-            catch (_: Exception) { mutable.update { it.copy(usage = emptyList()) } }
+            catch (error: Exception) { if (hubCodedFailure(error)?.status == 404) mutable.update { it.copy(usage = emptyList()) } }
             delay(USAGE_POLL_MILLIS)
         }
     }

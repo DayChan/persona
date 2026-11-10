@@ -4,12 +4,15 @@
 // the click, so a change to some computer does not draw the whole chat or page again.
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadPages } from "../../lib/lazy-page";
 import { applyMachine, getState, reset } from "../../lib/store";
 import type { Machine } from "../../lib/types";
 import { useReadinessGate, type ReadinessGate } from "./Readiness";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// Add computer is its own chunk (views/LazyOverlay.tsx): in before it is drawn
+beforeAll(() => loadPages(), 60_000);
 
 const mac: Machine = { id: "mac", name: "Mac", online: true };
 let renders = 0;

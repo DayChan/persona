@@ -24,4 +24,12 @@ type SessionCapabilities struct {
 	Approve   bool `json:"approve"`
 	Terminal  bool `json:"terminal"`
 	Attach    bool `json:"attach"`
+	// Modes: the apps' permission mode and effort chips can change this session (session.modes). Absent (nil) from a node
+	// older than it, where the apps keep guessing from agent and source_kind; false where a change would only be refused
+	// (a Claude outside Persona's terminals, a runtime that did not declare caps.modes). A pointer so a hub that decodes
+	// an older node's row and encodes it again keeps it absent.
+	Modes *bool `json:"modes,omitempty"`
 }
+
+// CanModes is a Modes value.
+func CanModes(on bool) *bool { return &on }

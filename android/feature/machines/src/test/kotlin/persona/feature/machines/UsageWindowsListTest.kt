@@ -32,6 +32,20 @@ class UsageWindowsListTest {
         rule.onNodeWithText("Codex B").assertExists()
     }
 
+    /** The source line names the computers that read the account, not "this computer" (#1907); an older hub's `local` reads "Computer". */
+    @Config(sdk = [35])
+    @Test fun theComputersAreNamed() {
+        val now = Instant.ofEpochSecond(1_793_600_000L)
+        val accounts = listOf(
+            UsageAccount("a", "codex", "Codex A", sampledAt = now.minusSeconds(30).toString(), local = true, machines = listOf("MacBook", "Studio"),
+                sources = listOf("Relay"), windows = listOf(UsageWindow("7d", 10080, 20.0))),
+            UsageAccount("b", "codex", "Codex B", sampledAt = now.minusSeconds(30).toString(), local = true, windows = listOf(UsageWindow("7d", 10080, 10.0))),
+        )
+        rule.setContent { PersonaTheme(reduceMotion = true) { LazyColumn { usageWindows(accounts, now) } } }
+        rule.onNodeWithText("MacBook · Studio · Relay").assertExists()
+        rule.onNodeWithText(rule.activity.getString(R.string.machines_usage_source_local)).assertExists()
+    }
+
     /** A gateway that turned the key away says where to fix it, not that it can't be reached (#1902). */
     @Config(sdk = [35])
     @Test fun aRejectedKeyIsNotCalledUnreachable() {

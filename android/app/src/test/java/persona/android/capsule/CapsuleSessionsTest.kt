@@ -331,6 +331,23 @@ class CapsuleSessionsTest {
         assertTrue(fixture.source.content.value.messages.last().text.contains("等待网络"))
     }
 
+    /** A refused message says it was not sent and to open the chat, never the hub's code (#2821). */
+    @Test fun aRefusedMessageSaysNotSentWithoutTheHubsCode() = runTest {
+        val task = agent("home", "task", "unread")
+        val fixture = Fixture(backgroundScope, listOf(task))
+        runCurrent()
+        fixture.source.select(capsuleId(task.key))
+        fixture.source.shown(true)
+        fixture.outbox.value = listOf(
+            OutboxMessage("asleep", task.key, "Synthetic one", DeliveryState.Refused, error = "node_unreachable"),
+            OutboxMessage("stale", task.key, "Synthetic two", DeliveryState.Rejected, error = "stale_session"),
+        )
+        runCurrent()
+        val shown = fixture.source.content.value.messages.associate { it.id to it.text }
+        assertEquals("Synthetic one\n发送未成功，请打开会话", shown["asleep"])
+        assertEquals("Synthetic two\n发送未成功，请打开会话", shown["stale"])
+    }
+
     @Test fun completionUsesRawEdgesEvenWhenTheRepositoryStateNeverPublishesWorking() = runTest {
         val task = agent("home", "task", "unread").copy(rev = 1)
         val manual = agent("home", "manual", "idle")

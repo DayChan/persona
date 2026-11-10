@@ -106,6 +106,19 @@ nonisolated final class RecordingSegmentWriter: @unchecked Sendable {
         shared.withLock { $0.running = true }
     }
 
+    /// Closes the segment being written now, while paused (a phone call): an app killed before the recording resumes keeps
+    /// it, rather than losing up to a whole segment. The next buffer opens the next one. Nil if nothing was written since.
+    @discardableResult
+    func cut() -> Segment? {
+        queue.sync { closeFile() }
+    }
+
+    /// Whether a notification's object is this writer's engine: `.AVAudioEngineConfigurationChange` comes from every engine
+    /// in the process (dictation's, a voice call's), and only this one's changes concern the recording.
+    func owns(_ object: ObjectIdentifier?) -> Bool {
+        object == ObjectIdentifier(engine)
+    }
+
     /// Stops recording and finalizes the last segment; returns it (nil if nothing was written since the last one).
     @discardableResult
     func stop() -> Segment? {

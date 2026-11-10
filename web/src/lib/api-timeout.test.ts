@@ -70,6 +70,21 @@ describe("api's read timeout", () => {
     expect(await late).toBeInstanceOf(HubTimeoutError);
   });
 
+  it.each(["kb_disabled", "kb_unavailable", "kb_read_only", "assistant_offline", "internal"])(
+    "does not retry a knowledge refusal with production read retries enabled: %s", async (code) => {
+      vi.stubEnv("MODE", "production");
+      const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        code, error: "Request failed", detail: "the knowledge base is off",
+      }), { status: code === "kb_read_only" ? 403 : 503 }));
+      vi.stubGlobal("fetch", fetcher);
+      await expect(api("/kb/projects")).rejects.toMatchObject({
+        code: code === "internal" ? "kb_disabled" : code,
+      });
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("lets a write wait as long as it takes", async () => {
     vi.stubGlobal("fetch", vi.fn(hang));
     let settled = false;

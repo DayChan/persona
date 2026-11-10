@@ -874,9 +874,25 @@ interface InboxState {
   sending: string[];
   /** Status moves being written, by "<item>|<row>|<field>". */
   moving: string[];
+  /** Done items older than the list's few days, from the hub's history (GET /api/v1/inbox/done, #2200), newest first. */
+  history: InboxItem[];
+  /** The managers ("" for the only one) with more history to give, or not asked yet. */
+  historyMore: string[];
+  historyLoading: boolean;
+  /** Why a manager's last page didn't come, by manager ("" for the only one); an offline one has none (it is asked again later). */
+  historyError: Record<string, string>;
+  /** Each manager's done items per calendar day in this device's zone ("YYYY-MM-DD" → count; GET /api/v1/inbox/done/days,
+   *  #2967), by manager ("" for the only one). null: its hub has no day counts, and Done pages the history from the newest
+   *  as before; missing: not known yet (or the manager was offline). */
+  doneDays: Record<string, Record<string, number> | null>;
+  /** Done groups loading a page of their own (#2969), by "<manager>|<group key>". */
+  groupLoading: string[];
+  /** Done groups whose items have all come, by "<manager>|<group key>": a page of theirs reached the group's start. */
+  groupComplete: string[];
 }
 
-let state: InboxState = { items: [], triage: null, loaded: false, loading: false, error: "", sending: [], moving: [] };
+const EMPTY: InboxState = { items: [], triage: null, loaded: false, loading: false, error: "", sending: [], moving: [], history: [], historyMore: [""], historyLoading: false, historyError: {}, doneDays: {}, groupLoading: [], groupComplete: [] };
+let state: InboxState = EMPTY;
 const listeners = new Set<() => void>();
 /** A Map that tells its watchers when it changes. The unsent replies live outside InboxState: a keystroke in the draft
  *  dialog redraws only the card of that item (useUnsentReply), not every list and badge reading the inbox. */
@@ -1051,6 +1067,13 @@ let started = false;
 let inFlight: Promise<void> | null = null;
 let again = false;
 
+/** The last list the hub answered in full, as it came (before the marks were laid over it), and its validator: a
+ * reload sends it as If-None-Match, and a 304 says the hub's list is still this one (docs/protocol/protocol.md
+ * "Inbox validator"). */
+let lastList: { etag: string; items: InboxItem[]; triage: InboxTriage | null } | null = null;
+/** What a reload sends before it has a validator: a tag no list has, which asks the hub for its own. */
+const NO_LIST_TAG = 'W/"i1-"';
+
 function start() {
   if (started) return;
   started = true;
@@ -1086,8 +1109,19 @@ export function reloadInbox(): Promise<void> {
         again = false;
         const seq = beginList();
         try {
-          const r = await api<{ items?: InboxItem[]; triage?: InboxTriage }>("/inbox?sources=all");
-          set({ items: keepSameItems(state.items, withPending(r.items ?? [], seq)), triage: r.triage ?? null, loaded: true, error: "" });
+          let status = 0;
+          let etag = "";
+          const r = await api<{ items?: InboxItem[]; triage?: InboxTriage }>("/inbox?sources=all", {
+            headers: { "If-None-Match": lastList?.etag ?? NO_LIST_TAG },
+            onResponse: (headers, code) => {
+              status = code;
+              etag = headers?.get("ETag") ?? "";
+            },
+          });
+          // 304: the list is still the one kept, and the marks are laid over it again as over any list of this seq
+          const list = status === 304 ? lastList : { etag, items: r.items ?? [], triage: r.triage ?? null };
+          if (status !== 304) lastList = etag ? list : null;
+          if (list) set({ items: keepSameItems(state.items, withPending(list.items, seq)), triage: list.triage, loaded: true, error: "" });
         } finally {
           endList(seq);
         }
@@ -1121,7 +1155,7 @@ export async function refreshInbox(): Promise<void> {
 /** Marks an item done or open; resolves to whether the hub took it. */
 export async function setDone(item: InboxItem, done: boolean): Promise<boolean> {
   const before = listed(item);
-  if (!before) return false;
+  if (!before) return done ? false : reopenFromHistory(item);
   const key = itemKey(before);
   const mark: DoneMark = { done_at: done ? new Date().toISOString() : null, done_by: done ? "user" : null };
   putMark(key, mark);
@@ -1137,6 +1171,147 @@ export async function setDone(item: InboxItem, done: boolean): Promise<boolean> 
     settleMark(key, mark, false);
     undoMarks(new Map([[key, before]]));
     toast(t(done ? "lib-inbox.done_failed" : "lib-inbox.undone_failed", { error: errorText(e) }), "error");
+    return false;
+  }
+}
+
+// ── Done's history (#2200) ───
+
+/** Where a manager's next page of done history starts: (done_at, id) of the last item it gave. */
+type DoneCursor = { before: string; before_id: string };
+/** Each manager's next page ("" for the only one): undefined not asked yet, null at its end or on a hub without it. */
+const historyNext = new Map<string, DoneCursor | null>();
+
+/**
+ * One more page of done items from each manager that has more (the list holds only the last few days), appended to
+ * `history` newest first, each stamped with its manager. A hub without the history (404 / 405) has nothing more: Done
+ * then shows what the list holds. `managers`: the managers' ids, or [undefined] for one.
+ */
+export async function loadOlderDone(managers: (string | undefined)[]): Promise<void> {
+  const asks = managers.filter((m) => historyNext.get(m ?? "") !== null);
+  if (state.historyLoading || !asks.length) return;
+  set({ historyLoading: true });
+  const pages = await Promise.allSettled(asks.map(async (m) => {
+    const cur = historyNext.get(m ?? "");
+    const q = new URLSearchParams({ sources: "all", limit: "100" });
+    if (cur) {
+      q.set("before", cur.before);
+      q.set("before_id", cur.before_id);
+    }
+    try {
+      const r = await api<{ items?: InboxItem[]; next?: DoneCursor }>(`/inbox/done?${q}`, { headers: itemHeaders(m) });
+      historyNext.set(m ?? "", r.next ?? null);
+      return (r.items ?? []).map((it) => (m && !it.manager ? { ...it, manager: m } : it));
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
+        historyNext.set(m ?? "", null);
+        return [];
+      }
+      throw e;
+    }
+  }));
+  const got = pages.flatMap((p) => (p.status === "fulfilled" ? p.value : []));
+  const errors: Record<string, string> = { ...state.historyError };
+  pages.forEach((p, i) => {
+    const m = asks[i] ?? "";
+    // a manager offline (503) or gone (404) is asked again next time, without a word: its Done is what the list has
+    const quiet = p.status === "rejected" && p.reason instanceof ApiError && (p.reason.status === 503 || p.reason.status === 404);
+    if (p.status === "rejected" && !quiet) errors[m] = errorText(p.reason);
+    else delete errors[m];
+  });
+  const seen = new Set(state.history.map(itemKey));
+  set({
+    history: [...state.history, ...got.filter((it) => !seen.has(itemKey(it)))],
+    historyMore: managers.map((m) => m ?? "").filter((m) => historyNext.get(m) !== null),
+    historyLoading: false,
+    historyError: errors,
+  });
+}
+
+/** Where each Done group's next page starts, once one of its pages has come and the group isn't complete. */
+const groupNext = new Map<string, DoneCursor>();
+
+/**
+ * Each manager's done items per day (GET /api/v1/inbox/done/days, #2967) in this device's zone, so Done lists every
+ * day's group with its count before any of its items load. A hub without them (404 / 405, or 400 for a zone it doesn't
+ * know) gets null: Done pages its history from the newest, as before. An offline manager stays unknown and is asked
+ * again next time. Returns the managers that have no counts.
+ */
+export async function loadDoneDays(managers: (string | undefined)[]): Promise<(string | undefined)[]> {
+  const q = new URLSearchParams({ tz: Intl.DateTimeFormat().resolvedOptions().timeZone, sources: "all" });
+  const got = await Promise.allSettled(managers.map(async (m) => {
+    try {
+      const r = await api<{ days?: { day: string; count: number }[] }>(`/inbox/done/days?${q}`, { headers: itemHeaders(m) });
+      return Object.fromEntries((r.days ?? []).map((d) => [d.day, d.count]));
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 405 || e.status === 400)) return null;
+      throw e;
+    }
+  }));
+  const doneDays = { ...state.doneDays };
+  got.forEach((p, i) => {
+    if (p.status === "fulfilled") doneDays[managers[i] ?? ""] = p.value;
+  });
+  set({ doneDays });
+  return managers.filter((m) => doneDays[m ?? ""] === null);
+}
+
+/**
+ * One page of a Done group's own items (#2969): from the group's end (`before` alone is a moment: the items done before
+ * it), then from where its last page ended. The group is complete when a page reaches its start or the history ends.
+ * The items join `history`; those of older groups a page also brings stay there for theirs.
+ */
+export async function loadDoneGroup(manager: string | undefined, key: string, range: { start: number; end: number }): Promise<void> {
+  const id = `${manager ?? ""}|${key}`;
+  if (state.groupLoading.includes(id) || state.groupComplete.includes(id)) return;
+  set({ groupLoading: [...state.groupLoading, id] });
+  const q = new URLSearchParams({ sources: "all", limit: "100" });
+  const cur = groupNext.get(id);
+  if (cur) {
+    q.set("before", cur.before);
+    q.set("before_id", cur.before_id);
+  } else if (Number.isFinite(range.end)) q.set("before", new Date(range.end).toISOString());
+  const m = manager ?? "";
+  try {
+    const r = await api<{ items?: InboxItem[]; next?: DoneCursor }>(`/inbox/done?${q}`, { headers: itemHeaders(manager) });
+    const got = (r.items ?? []).map((it) => (manager && !it.manager ? { ...it, manager } : it));
+    const last = got.at(-1)?.done_at;
+    const complete = !r.next || !last || Date.parse(last) < range.start;
+    if (complete) groupNext.delete(id);
+    else groupNext.set(id, r.next!);
+    const seen = new Set(state.history.map(itemKey));
+    const { [m]: _, ...errors } = state.historyError;
+    set({
+      history: [...state.history, ...got.filter((it) => !seen.has(itemKey(it)))],
+      groupLoading: state.groupLoading.filter((x) => x !== id),
+      groupComplete: complete ? [...state.groupComplete, id] : state.groupComplete,
+      historyError: errors,
+    });
+  } catch (e) {
+    // a manager offline (503) or gone (404) is asked again when the group opens again, without a word
+    const quiet = e instanceof ApiError && (e.status === 503 || e.status === 404);
+    set({ groupLoading: state.groupLoading.filter((x) => x !== id), historyError: quiet ? state.historyError : { ...state.historyError, [m]: errorText(e) } });
+  }
+}
+
+/** Done as the list shows it: the list's done items, then the history's it doesn't have (the list's copy is newer). */
+export function doneWithHistory(done: InboxItem[], history: InboxItem[], f: InboxFilter): InboxItem[] {
+  const listedKeys = new Set(done.map(itemKey));
+  const older = history.filter((it) => isDone(it) && matches(it, f) && !listedKeys.has(itemKey(it)));
+  return older.length ? [...done, ...older].sort(byDoneAt) : done;
+}
+
+/** Move back on an item only the history has (done before the list's days): the hub takes it back into its list. */
+async function reopenFromHistory(item: InboxItem): Promise<boolean> {
+  const old = state.history.find((x) => sameItem(x, item));
+  if (!old) return false;
+  try {
+    await api<InboxItem>(`${itemPath(item.id)}/done`, { method: "POST", json: { done: false }, headers: itemHeaders(old.manager) });
+    set({ history: state.history.filter((x) => !sameItem(x, item)) });
+    void reloadInbox();
+    return true;
+  } catch (e) {
+    toast(t("lib-inbox.undone_failed", { error: errorText(e) }), "error");
     return false;
   }
 }
@@ -1557,10 +1732,13 @@ export function useInboxBadge(): number {
 
 /** Tests only: back to an empty, unstarted list. */
 export function resetInboxForTests() {
-  state = { items: [], triage: null, loaded: false, loading: false, error: "", sending: [], moving: [] };
+  state = EMPTY;
+  historyNext.clear();
+  groupNext.clear();
   started = false;
   inFlight = null;
   again = false;
+  lastList = null;
   pendingDone.clear();
   listsOut.clear();
   listSeq = 0;

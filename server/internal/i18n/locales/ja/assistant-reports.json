@@ -54,5 +54,11 @@
   "verdict_to_agent": "ユーザーがあなたの結論に返した意見（Lark から）：\n{feedback}\n\nこのとおり続けて、最後の返信で結論をもう一度書いてください：完了かできないか、根拠を一文、リンクを一つ。",
   "verdict_decided_to_agent": "ユーザーの決定（Lark から）：\n{decision}\n\nこのとおり進めてください。",
   "verdict_take_to_agent": "ユーザーはおすすめを選びました：\n{option}\n\nこのとおり進めてください。",
-  "verdict_over": "{rounds} 回差し戻してもまだ終わっていません。この先どうしますか？"
+  "verdict_over": "{rounds} 回差し戻してもまだ終わっていません。この先どうしますか？",
+  "deadline_default": "{when} までに返信がなければおすすめで進めます（取り消し可能）",
+  "deadline_irreversible": "期限 {when}。取り消せないため、期限が来ても自動では実行せず、もう一度お知らせします",
+  "deadline_overdue": "期限（{when}）を過ぎました。取り消せないため実行していません。判断をお待ちしています",
+  "deadline_taken_reason": "期限によりおすすめで実行：{when} までに返信なし",
+  "verdict_taken_default": "期限までに返信がなかったため、おすすめで進め、作業中の Agent に渡しました",
+  "verdict_default_to_agent": "期限までにユーザーから返信がなかったため、おすすめの方法で進めます（取り消し可能。あとで変更される場合があります）：\n{option}\n\nこれで進めてください。"
 }

@@ -11,5 +11,6 @@
   "too_deep": "dependencies too deep",
   "list_separator": ", ",
   "has_dependents": "These extensions use it: {names}. Turn them off too?",
-  "read_only": "Extension “{name}” is set in manager.json. Turn it off there first"
+  "read_only": "Extension “{name}” is set in manager.json. Turn it off there first",
+  "pack_member_not_on": "Couldn’t turn “{name}” back on: {error}"
 }

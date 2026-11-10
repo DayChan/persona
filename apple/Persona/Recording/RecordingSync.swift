@@ -9,6 +9,13 @@ import UIKit
 nonisolated struct RecordingUpload: Encodable, Sendable {
     struct Bookmark: Encodable, Sendable { var at: Double; var label = "" }
     struct Segment: Encodable, Sendable { var start: Double; var end: Double; var text: String }
+    /// The calendar event the device matched (docs/assistant/meeting-minutes.md「Field contract」): a hint for the hub, which
+    /// prefers its own `meetings` / `events`. No event id: the hub can't see this calendar.
+    struct CalendarHint: Encodable, Sendable {
+        var title: String?
+        var attendees: [String]?
+        var location: String?
+    }
     var revision: Int64
     var startedAt: Date
     var endedAt: Date?
@@ -19,9 +26,13 @@ nonisolated struct RecordingUpload: Encodable, Sendable {
     var bookmarks: [Bookmark]
     var segments: [Segment]
     var complete: Bool
+    /// "meeting" (the hub writes it minutes) or "note".
+    var kind: String
+    /// Only when the device matched a calendar event.
+    var calendar: CalendarHint?
 
     enum CodingKeys: String, CodingKey {
-        case revision, duration, language, device, title, bookmarks, segments, complete
+        case revision, duration, language, device, title, bookmarks, segments, complete, kind, calendar
         case startedAt = "started_at", endedAt = "ended_at"
     }
 
@@ -39,6 +50,11 @@ nonisolated struct RecordingUpload: Encodable, Sendable {
             return text.isEmpty ? nil : Segment(start: s.start, end: s.end, text: text)
         }
         complete = entry.transcribedAll
+        kind = entry.isMeeting ? "meeting" : "note"
+        if let meeting = entry.meeting, meeting.eventID != nil || meeting.title != nil {
+            calendar = CalendarHint(title: meeting.title, attendees: meeting.attendees.isEmpty ? nil : meeting.attendees,
+                                    location: meeting.location)
+        }
     }
 }
 
@@ -78,8 +94,14 @@ final class RecordingSync {
 
     private(set) var store: Store
     private(set) var uploading: UUID?
-    /// Why the last attempt did not go through (shown under the list); nil once one does.
-    private(set) var problem: String?
+    /// Configuration refusals need a foreground/manual retry, not a timer or another transcript save.
+    private(set) var automaticRetryPaused = false
+    private var lastProblem: String?
+    /// Pending deletes are durable and visible even after a relaunch; a local delete is not a remote acknowledgement.
+    var problem: String? {
+        guard !store.deletes.isEmpty else { return lastProblem }
+        return [lastProblem, String(localized: "Pending deletions have not been removed from Knowledge yet.")].compactMap { $0 }.joined(separator: " ")
+    }
 
     @ObservationIgnored private let library: RecordingLibrary
     @ObservationIgnored private let api: () -> APIClient?
@@ -143,17 +165,21 @@ final class RecordingSync {
     /// Runs a pass soon (several saves in a row become one upload). `reconcile`: also ask the hub what it has, at most
     /// every ten minutes.
     func kick(reconcile: Bool = false) {
+        if reconcile, automaticRetryPaused { automaticRetryPaused = false; lastReconcile = nil }
+        guard !automaticRetryPaused else { return }
         if reconcile, lastReconcile.map({ now().timeIntervalSince($0) > 600 }) ?? true { lastReconcile = nil }
         if backingOff { worker?.cancel(); worker = nil; backingOff = false }
         guard worker == nil else { again = true; return }
         worker = Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
             await self?.runPasses()
         }
     }
 
     /// One pass now, for tests (no debounce, no retry timer).
-    func syncNow() async {
+    func syncNow(retryPaused: Bool = false) async {
+        if retryPaused { automaticRetryPaused = false; lastReconcile = nil }
         await pass()
     }
 
@@ -161,9 +187,9 @@ final class RecordingSync {
         repeat {
             again = false
             await pass()
-        } while again && !Task.isCancelled
+        } while again && !automaticRetryPaused && !Task.isCancelled
         worker = nil
-        guard needsWork else { failures = 0; return }
+        guard needsWork, !automaticRetryPaused, api()?.config.isDemo == false else { failures = 0; return }
         // The hub was away or refused for now: try again later, longer each time (5 s … 10 min).
         failures += 1
         let delay = min(600, 5 * pow(2, Double(min(failures, 8) - 1)))
@@ -182,19 +208,23 @@ final class RecordingSync {
     }
 
     private func pass() async {
+        guard !automaticRetryPaused else { return }
         purgeExpired()
         guard let api = api(), !api.config.isDemo else {
-            problem = api == nil ? nil : String(localized: "Demo mode doesn't sync recordings")
+            lastProblem = api == nil ? nil : String(localized: "Demo mode doesn't sync recordings")
             return
         }
-        if lastReconcile == nil, await reconcile(api) { lastReconcile = now() }
+        if lastReconcile == nil {
+            guard await reconcile(api) else { return }
+            lastReconcile = now()
+        }
         for id in store.deletes.sorted(by: { $0.uuidString < $1.uuidString }) {
             guard await sendDelete(id, api) else { return }
         }
         for entry in library.entries where status(entry) == .pending {
             guard await upload(entry, api) else { return }
         }
-        problem = nil
+        lastProblem = nil
     }
 
     /// `GET /api/v1/recordings`: the hub's retention, what it already has, and what was deleted elsewhere.
@@ -247,7 +277,7 @@ final class RecordingSync {
         } catch let error as APIError where error.status == 400 || error.status == 413 {
             store.rejected[entry.id] = body.revision
             save()
-            problem = String(localized: "Knowledge didn't accept a recording: \(error.message)")
+            lastProblem = String(localized: "Knowledge didn't accept a recording: \(error.message)")
             return true
         } catch {
             note(error)
@@ -258,8 +288,8 @@ final class RecordingSync {
     private func sendDelete(_ id: UUID, _ api: APIClient) async -> Bool {
         do {
             _ = try await api.request("DELETE", "/api/v1/recordings/\(id.uuidString.lowercased())")
-        } catch let error as APIError where error.status == 404 || error.status == 410 {
-            // No such recording there (or a hub without recordings): nothing to remove.
+        } catch let error as APIError where error.status == 410 {
+            // The hub confirms it was already deleted. An unsupported 404 does not confirm a remote deletion.
         } catch {
             note(error)
             return false
@@ -296,16 +326,30 @@ final class RecordingSync {
     }
 
     private func note(_ error: Error) {
-        if let e = error as? APIError, e.status == 404 {
-            problem = String(localized: "The hub doesn't support recording sync yet. They'll upload automatically after it's upgraded.")
-        } else if let e = error as? APIError, e.status == 503 {
-            problem = String(localized: "Knowledge is unavailable right now. Retrying automatically later.")
+        if error.isCancellation { return }
+        if let e = error as? APIError {
+            automaticRetryPaused = e.code == "kb_disabled" || e.code == "kb_read_only"
+                || (400..<500).contains(e.status) && e.status != 408 && e.status != 429
+            if e.businessMessage != nil {
+                lastProblem = e.localizedDescription
+                // Use the shared classification, including a request id, without raw internal diagnostics.
+            } else if e.status == 404 {
+                lastProblem = String(localized: "Recording sync isn't supported by this hub. Update the hub, then reopen the app to retry.")
+            } else if e.status == 401 || e.status == 403 {
+                lastProblem = String(localized: "Recording sync needs access. Check this device's permissions and pairing, then reopen the app to retry.")
+            } else {
+                lastProblem = String(localized: "Recording sync couldn't finish. Try again after checking the hub's diagnostics.")
+            }
+        } else if error.isTimeout {
+            lastProblem = String(localized: "The request timed out. Try again later.")
+        } else if error.isOffline {
+            lastProblem = String(localized: "Can't reach the hub. Recording text will sync automatically later.")
         } else {
-            problem = String(localized: "Can't reach the hub. Recording text will sync automatically later.")
+            lastProblem = String(localized: "Recording sync couldn't finish. Try again after checking the hub's diagnostics.")
         }
     }
 
     private func save() {
-        do { try JSONEncoder().encode(store).write(to: file, options: .atomic) } catch { problem = String(localized: "Sync record wasn't saved") }
+        do { try JSONEncoder().encode(store).write(to: file, options: .atomic) } catch { lastProblem = String(localized: "Sync record wasn't saved") }
     }
 }

@@ -130,8 +130,11 @@ func TestProviderEnv(t *testing.T) {
 		{"compact from window", base, "small", "", false, want{"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "128000"}},
 		{"compact set", with(func(l *proto.ManagedLauncher) { l.CompactWindow = 150000 }), "", "", false,
 			want{"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "150000"}},
-		{"compact main fixed", with(func(l *proto.ManagedLauncher) { l.CompactWindow = 150000 }), "", "", true,
-			want{"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000"}},
+		{"compact main follows the launcher", with(func(l *proto.ManagedLauncher) { l.CompactWindow = 150000 }), "", "", true,
+			want{"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "150000"}},
+		{"compact main from window", base, "small", "", true, want{"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "128000"}},
+		{"compact main: unknown model, none", base, "other", "", true,
+			want{"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "-", "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "-"}},
 		{"effort of provider not in env", with(func(l *proto.ManagedLauncher) { l.Effort = "medium" }), "", "", false,
 			want{"CLAUDE_CODE_EFFORT_LEVEL": "-"}},
 		{"effort of model not in env", base, "small", "", false, want{"CLAUDE_CODE_EFFORT_LEVEL": "-"}},
@@ -224,11 +227,12 @@ func TestSetManagedKeepsMessagesProviders(t *testing.T) {
 	}
 }
 
+// An assistant conversation keeps its own thinking level; its compact window is the launcher's, as an agent's (#3066).
 func TestMainConversationKeepsItsOwnWindowAndLevel(t *testing.T) {
 	l := proto.ManagedLauncher{Name: "p", Kind: "api", BaseURL: "https://gw.example.com", APIKey: "sk-test-k", Effort: "high",
 		Models: []proto.ProviderModel{{ID: "big", ContextWindow: 1000000}}}
 	main := providerEnv(l, "big", "max", true)
-	if main["ANTHROPIC_MODEL"] != "big[1m]" || main["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] != "200000" {
+	if main["ANTHROPIC_MODEL"] != "big[1m]" || main["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] != "1000000" {
 		t.Fatalf("main: %v", main)
 	}
 	// it switches its level while it runs (apply_flag_settings): an environment variable would win over that

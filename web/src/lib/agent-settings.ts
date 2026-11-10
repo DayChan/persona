@@ -76,6 +76,11 @@ function codexOptions(prefix: string, options: string[]): Record<string, string>
 const OPTION_KEYS: Record<string, Record<string, string>> = {
   effortLevel: { low: "lib-session-actions.effort_low", medium: "lib-session-actions.effort_medium", high: "lib-session-actions.effort_high", xhigh: "lib-session-actions.effort_xhigh", max: "lib-session-actions.effort_max" },
   autoUpdatesChannel: { latest: "lib-agent-settings.channel_latest", stable: "lib-agent-settings.channel_stable" },
+  // Claude Code's default mode (#3026), named as the session menu names the modes.
+  "permissions.defaultMode": {
+    default: "lib-session-actions.mode_default", acceptEdits: "lib-session-actions.mode_accept_edits", plan: "lib-session-actions.mode_plan",
+    auto: "lib-session-actions.mode_auto", bypassPermissions: "lib-session-actions.mode_bypass_permissions",
+  },
   model_reasoning_effort: Object.fromEntries(
     ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"].map((o) => [o, `lib-session-actions.codex_effort_${o}`]),
   ),

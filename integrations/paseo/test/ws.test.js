@@ -1,11 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { WsConnection } from '../../runtime-sdk/lib/listen.js'
-import { dialWebSocket } from '../lib/ws.js'
+import { dialWebSocket, WsClient } from '../lib/ws.js'
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
@@ -85,4 +86,97 @@ test('a refused handshake and a closed port fail the dial', async (t) => {
   const port = free.address().port
   await new Promise((r) => free.close(r))
   await assert.rejects(dialWebSocket({ port, timeoutMs: 2000 }), /ECONNREFUSED|closed/)
+})
+
+// A server frame (unmasked), any length.
+function frame(op, payload, { fin = true } = {}) {
+  const n = payload.length
+  const b0 = (fin ? 0x80 : 0) | op
+  let head
+  if (n < 126) head = Buffer.from([b0, n])
+  else if (n < 65536) head = Buffer.from([b0, 126, n >> 8, n & 0xff])
+  else {
+    head = Buffer.from([b0, 127, 0, 0, 0, 0, 0, 0, 0, 0])
+    head.writeBigUInt64BE(BigInt(n), 2)
+  }
+  return Buffer.concat([head, payload])
+}
+
+// A socket stand-in for WsClient: the test emits the chunks and reads what the client writes back.
+function fakeSocket() {
+  const sock = new EventEmitter()
+  sock.written = []
+  sock.write = (b) => { sock.written.push(Buffer.from(b)); return true }
+  sock.end = () => {}
+  sock.destroy = () => { sock.destroyed = true }
+  sock.setNoDelay = () => {}
+  return sock
+}
+
+// The payload of a frame the client wrote (masked, as a client's are).
+function unmasked(b) {
+  const len = b[1] & 0x7f
+  const at = len === 126 ? 4 : len === 127 ? 10 : 2
+  const mask = b.subarray(at, at + 4)
+  return Buffer.from(b.subarray(at + 4).map((x, i) => x ^ mask[i & 3]))
+}
+
+test('a 32 MiB message in 64 KiB chunks is put together with one copy, not a copy of everything so far per chunk', (t) => {
+  const payload = Buffer.alloc(32 * 1024 * 1024, '{"text":"0123456789abcdef"}')
+  const wire = frame(0x1, payload)
+  const sock = fakeSocket()
+  const ws = new WsClient(sock)
+  const got = []
+  ws.on('message', (m) => got.push(m))
+  const concat = Buffer.concat
+  t.after(() => { Buffer.concat = concat })
+  let copied = 0
+  Buffer.concat = (list, n) => {
+    const b = concat(list, n)
+    copied += b.length
+    return b
+  }
+  for (let i = 0; i < wire.length; i += 64 * 1024) sock.emit('data', wire.subarray(i, i + 64 * 1024))
+  Buffer.concat = concat
+  assert.equal(got.length, 1)
+  assert.ok(got[0] === payload.toString('utf8'), 'the message arrives intact')
+  assert.ok(copied <= 3 * payload.length, `copied ${copied} bytes for a ${payload.length}-byte message`)
+})
+
+test('a frame split at any byte, or a ping between two fragments, still gives the same message and a pong', async () => {
+  // Multi-byte characters, and over 125 bytes so the length takes 16 bits; byte 50 is inside a two-byte character.
+  const text = Buffer.from(`{"text":"${'\u00e9\u{1F600}\u00fc'.repeat(30)}"}`)
+  const one = frame(0x1, text)
+  const fragmented = Buffer.concat([frame(0x1, text.subarray(0, 50), { fin: false }), frame(0x9, Buffer.from('hi')), frame(0x0, text.subarray(50))])
+  const big = Buffer.alloc(70_000, 'abc\u00e9')
+  const long = frame(0x1, big) // a 64-bit length
+  const before = [one, fragmented, long].map((b) => b.toString('hex'))
+  const run = async (wire, cuts, { rest = false } = {}) => {
+    const sock = fakeSocket()
+    const pieces = []
+    let at = 0
+    for (const cut of [...cuts, wire.length]) {
+      pieces.push(wire.subarray(at, cut))
+      at = cut
+    }
+    const ws = new WsClient(sock, rest ? pieces.shift() : undefined)
+    const got = []
+    ws.on('message', (m) => got.push(m))
+    if (rest) await new Promise((r) => setImmediate(r)) // what came with the handshake's answer is read first
+    for (const p of pieces) sock.emit('data', p)
+    return { got, sock }
+  }
+  const pong = (sock) => sock.written.some((b) => b[0] === 0x8a && b[1] === (0x80 | 2) && unmasked(b).toString() === 'hi')
+  for (const wire of [one, fragmented]) {
+    for (let cut = 1; cut < wire.length; cut++) {
+      const { got, sock } = await run(wire, [cut], { rest: cut % 2 === 0 })
+      assert.deepEqual(got, [text.toString('utf8')], `split at ${cut}`)
+      if (wire === fragmented) assert.ok(pong(sock), `a pong, split at ${cut}`)
+    }
+    const bytes = Array.from({ length: wire.length - 1 }, (_, i) => i + 1)
+    assert.deepEqual((await run(wire, bytes)).got, [text.toString('utf8')], 'a byte at a time')
+  }
+  const header = Array.from({ length: 16 }, (_, i) => i + 1) // the 10-byte header one byte at a time
+  assert.deepEqual((await run(long, header)).got, [big.toString('utf8')])
+  assert.deepEqual([one, fragmented, long].map((b) => b.toString('hex')), before, 'the chunks fed in are not changed')
 })

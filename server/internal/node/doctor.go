@@ -166,12 +166,14 @@ func hookSettings(bin, dir string, assistant bool) map[string]any {
 		return map[string]any{"matcher": matcher, "hooks": []any{map[string]any{"type": "command", "command": cmd, "timeout": 86400}}}
 	}
 	notify := map[string]any{"hooks": []any{map[string]any{"type": "command", "command": cmd, "timeout": 10}}}
+	postQuestion := map[string]any{"matcher": "AskUserQuestion", "hooks": notify["hooks"]}
 	pre := []any{blocking("AskUserQuestion")}
 	if assistant {
 		pre = append(pre, blocking("Bash"))
 	}
 	return map[string]any{"hooks": map[string]any{
 		"PreToolUse":        pre,
+		"PostToolUse":       []any{postQuestion},
 		"PermissionRequest": []any{blocking("*")},
 		"Elicitation":       []any{blocking("*")},
 		"Notification":      []any{notify},

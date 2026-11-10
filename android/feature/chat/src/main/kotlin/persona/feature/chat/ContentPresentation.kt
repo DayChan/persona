@@ -106,20 +106,73 @@ internal fun keepLineBreaks(text: String): String = softBreak.replace(text, "$1 
 private val softBreak = Regex("([^\n])\n(?=[^\n])")
 
 /** A reply's Markdown to parse ahead: the cache key and the text [MessageContent] draws under it. */
-internal data class MarkdownText(val key: String, val text: String)
+internal data class MarkdownText(val key: String, val text: String) {
+    private val asked by lazy { PathLinks.asked(text) }
+    @Volatile private var linked: Pair<Set<String>, String>? = null
+
+    /**
+     * What the row parses [text] as (ChatMarkdownBody): with the paths [paths] knows to be there as links, when the page
+     * opens paths (null: it does not, or has no files pane). The same source under the same key, so the row finds this
+     * parse instead of parsing again.
+     */
+    fun source(paths: PathPresence?): String {
+        if (paths == null) return text
+        val linkable = asked.filterTo(LinkedHashSet(), paths::linkable)
+        linked?.takeIf { it.first == linkable }?.let { return it.second }
+        return PathLinks.markdown(text, linkable).also { linked = linkable to it }
+    }
+}
 
 /**
  * The Markdown of a conversation's replies (at most [limit] of them), with the keys and the text the rows draw (a cut
  * text without the hub's mark): first the latest turn's, which an unread conversation opens on, then the earlier ones,
  * newest first.
  */
-internal fun markdownPrewarm(items: List<Item>, limit: Int = 80): Pair<List<MarkdownText>, List<MarkdownText>> {
-    val replies = items.filter { it.kind == "text" && it.role == "assistant" }.takeLast(limit)
-    val lastUser = items.lastOrNull { it.role == "user" && it.kind == "text" }
-    fun texts(item: Item) = messageParts(item.text.orEmpty().let { if (item.fullSize != null) cutText(it) else it }, item.from)
+internal fun markdownPrewarm(items: List<Item>, limit: Int = 80): Pair<List<MarkdownText>, List<MarkdownText>> =
+    MarkdownPrewarm(limit).split(items)
+
+/**
+ * [markdownPrewarm] from one call to the next. While a reply streams only the conversation's last item changes, and
+ * splitting every reply again on each delta costs more than the delta: with the items before the last as they were, and
+ * the last the same row (its text aside), only the last one's parts are split again.
+ */
+internal class MarkdownPrewarm(private val limit: Int = 80) {
+    private var items: List<Item> = emptyList()
+    private var latest: List<MarkdownText> = emptyList()
+    private var earlier: List<MarkdownText> = emptyList()
+    /** Where the last item's texts are: at the end of [latest] (1), at the start of [earlier] (2), nowhere (0); and how many. */
+    private var lastSide = 0
+    private var lastCount = 0
+
+    @Synchronized fun split(items: List<Item>): Pair<List<MarkdownText>, List<MarkdownText>> {
+        val before = this.items
+        this.items = items
+        val last = items.lastOrNull()
+        val was = before.lastOrNull()
+        val same = last != null && was != null && before.size == items.size && last.id == was.id && last.seq == was.seq &&
+            last.role == was.role && last.kind == was.kind && (0 until items.size - 1).all { before[it] == items[it] }
+        if (same && lastSide != 0) {
+            val texts = texts(last)
+            if (lastSide == 1) latest = latest.subList(0, latest.size - lastCount) + texts
+            else earlier = texts + earlier.subList(lastCount, earlier.size)
+            lastCount = texts.size
+        }
+        if (same) return latest to earlier
+        val replies = items.filter { it.kind == "text" && it.role == "assistant" }.takeLast(limit)
+        val lastUser = items.lastOrNull { it.role == "user" && it.kind == "text" }
+        fun newer(item: Item) = lastUser == null || chatItemOrder.compare(item, lastUser) > 0
+        val (newer, older) = replies.partition(::newer)
+        // The last item, when it is a reply, is the last of its side.
+        val lastTexts = replies.lastOrNull()?.takeIf { it === last }?.let(::texts)
+        lastSide = if (lastTexts == null) 0 else if (newer(last!!)) 1 else 2
+        lastCount = lastTexts?.size ?: 0
+        latest = if (lastSide == 1) newer.dropLast(1).flatMap(::texts) + lastTexts!! else newer.flatMap(::texts)
+        earlier = if (lastSide == 2) lastTexts!! + older.asReversed().drop(1).flatMap(::texts) else older.asReversed().flatMap(::texts)
+        return latest to earlier
+    }
+
+    private fun texts(item: Item) = messageParts(item.text.orEmpty().let { if (item.fullSize != null) cutText(it) else it }, item.from)
         .mapIndexedNotNull { index, part -> (part as? MessagePart.Text)?.let { MarkdownText("${item.id}/$index", it.text) } }
-    val (latest, earlier) = replies.partition { lastUser == null || chatItemOrder.compare(it, lastUser) > 0 }
-    return latest.flatMap(::texts) to earlier.asReversed().flatMap(::texts)
 }
 
 /**

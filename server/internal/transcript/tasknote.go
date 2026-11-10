@@ -88,6 +88,11 @@ func taskNote(xml string) (*proto.TaskNote, string) {
 	case n.Title != strings.TrimSpace(full):
 		n.Detail = clipTo(full, pageOutputLen) // a long or multi-line command: the title is its first line
 	}
+	// Each field is a piece of xml, which would be kept whole for as long as any of them is (Meta.taskCalls keeps the
+	// ids for the node's lifetime): copied, they keep only themselves.
+	for _, f := range []*string{&n.TaskID, &n.ToolUseID, &n.OutputFile, &n.Status, &n.Title, &n.Detail} {
+		*f = strings.Clone(*f)
+	}
 	return n, noteText(n)
 }
 

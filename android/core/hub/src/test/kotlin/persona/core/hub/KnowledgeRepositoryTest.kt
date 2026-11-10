@@ -6,12 +6,49 @@ import persona.core.contracts.api.KnowledgeUpdate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.mockwebserver.MockResponse
 import persona.core.hub.ProtocolCompatibilityMockServer as MockWebServer
 import org.junit.Assert.*
 import org.junit.Test
 
 class KnowledgeRepositoryTest {
+    @Test fun oldDisabledReplyIsScopedAndConfigurationRefusalsDoNotRetry() = runBlocking {
+        MockWebServer().use { server ->
+            val repository = HttpKnowledgeRepository(HubScope("demo", "generation"), server.url("/").toString(),
+                "fixture-token", OkHttpClient(), { true })
+            server.enqueue(MockResponse().setResponseCode(503).setHeader("X-Request-Id", "request-1")
+                .setBody("""{"code":"internal","detail":"the knowledge base is off","error":"Request failed"}"""))
+            val legacy = runCatching { repository.list(KnowledgeKind.Projects) }.exceptionOrNull() as HubFailure
+            assertEquals("kb_disabled", legacy.code)
+            assertFalse(legacy.retryable)
+            assertEquals("request-1", legacy.requestId)
+            assertTrue(legacy.body!!.contains("the knowledge base is off"))
+            server.enqueue(MockResponse().setResponseCode(403).setBody("""{"code":"kb_read_only","error":"Request failed","retryable":true}"""))
+            val readOnly = runCatching { repository.update(KnowledgeKind.Projects, "example", KnowledgeUpdate(tags = emptyList())) }
+                .exceptionOrNull() as HubFailure
+            assertEquals("kb_read_only", readOnly.code)
+            assertFalse(readOnly.retryable)
+            assertEquals(HubError.Server, readOnly.kind)
+            assertEquals(2, server.requestCount)
+        }
+    }
+
+    @Test fun ambiguousLegacyErrorsKeepTheirOriginalCode() {
+        for ((path, status, code, detail) in listOf(
+            listOf("/api/v1/models", "503", "internal", "the knowledge base is off"),
+            listOf("/api/v1/kb-other/projects", "503", "internal", "the knowledge base is off"),
+            listOf("/api/v1/kb/projects", "502", "internal", "the knowledge base is off"),
+            listOf("/api/v1/kb/projects", "503", "internal", "wrapped: the knowledge base is off"),
+            listOf("/api/v1/kb/projects", "503", "future_code", "the knowledge base is off"),
+        )) {
+            val response = okhttp3.Response.Builder().request(okhttp3.Request.Builder().url("https://hub.invalid$path").build())
+                .protocol(okhttp3.Protocol.HTTP_1_1).code(status.toInt()).message("Unavailable")
+                .body("""{"code":"$code","detail":"$detail","error":"Request failed"}""".toResponseBody()).build()
+            response.use { assertEquals(code, HubFailure.from(it).code) }
+        }
+    }
+
     @Test fun preservesAvailabilityCodesAndSuccessfulEmptyLists() = runBlocking {
         MockWebServer().use { server ->
             val repository = HttpKnowledgeRepository(HubScope("demo", "generation"), server.url("/").toString(),

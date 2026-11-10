@@ -1,5 +1,5 @@
 // The machine page header's engine pill (#2842) opens Engine below: EngineSection renders <section id="engine">.
-import { prefersReducedMotion } from "../../ui/stream/motion";
+import { scrollBehavior } from "../../ui/stream/motion";
 
 export const ENGINE_SECTION_ID = "engine";
 
@@ -8,7 +8,7 @@ export const ENGINE_SECTION_ID = "engine";
 export function openEngineSection() {
   const section = document.getElementById(ENGINE_SECTION_ID);
   if (!section) return;
-  section.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+  section.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
   const chosen = '[role="radio"][aria-checked="true"]:not(:disabled), [role="checkbox"][aria-checked="true"]:not(:disabled)';
   (section.querySelector<HTMLElement>(chosen) ?? section).focus({ preventScroll: true });
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MenuItem } from "../ui/menu-model";
-import { canChangeHost, machineNode, nodeActions, sessionNode, termPaneNode, termSpaceNode, termTabNode, type MenuNode, type NodeActionDeps } from "./node-actions";
+import { canChangeHost, gitOutcomeText, machineNode, nodeActions, sessionNode, termPaneNode, termSpaceNode, termTabNode, type MenuNode, type NodeActionDeps } from "./node-actions";
 import { buildTerminalTree, shellsOnly, type PanesResponse } from "./terminals";
 import type { Session } from "./types";
 
@@ -129,6 +129,15 @@ describe("git", () => {
     await ops[1].onSelect();
     expect(d.post).toHaveBeenCalledWith("m1", "panes/git", { op: "push", pane: "w1:p2" });
     expect(d.notify).toHaveBeenCalledWith("推送：已是最新", "ok");
+  });
+
+  it("says what came of it in the app's language, or an older node's own words (#1888)", async () => {
+    const d = deps({ post: vi.fn(async () => ({ outcome: "pushed", message: "Pushed" })) });
+    await (by(nodeActions(tab, d), "node-git").children as MenuItem[])[1].onSelect();
+    expect(d.notify).toHaveBeenCalledWith("推送：已推送", "ok");
+    expect(gitOutcomeText({ outcome: "nothing_to_push", message: "No commits to push" })).toBe("没有要推送的提交");
+    expect(gitOutcomeText({ outcome: "a_new_outcome", message: "node words" })).toBe("node words");
+    expect(gitOutcomeText(undefined)).toBe("完成");
   });
 
   it("push asks first and says where it goes and that it is never forced; pull and fetch run at once (#1883)", () => {

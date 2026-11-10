@@ -24,6 +24,5 @@ struct ChatLineTests {
         #expect(line.isInput)
         #expect(line.holds(user.id))
         #expect(!line.holds(nil))
-        #expect(ChatLine.wakes(Turn(id: "1"), live: false).id == "wk-1")
     }
 }

@@ -28,7 +28,7 @@ func TestExtensionIdentityStableCiphertextAndCAS(t *testing.T) {
 	cleanup()
 	t.Cleanup(cleanup)
 	at := time.Date(2026, 11, 4, 1, 2, 3, 0, time.UTC)
-	old := extension.Record{ID: slot, Source: extension.SourceInstalled, Origin: "market:example/identity-old", Version: "1.0.0", Manifest: json.RawMessage(`{"id":"identity-old"}`), Granted: extension.Permissions{Network: []string{"example.com"}}, GrantedDigest: "original-permission-digest", Config: json.RawMessage(`{"saved":"retained"}`), Enabled: false, DisabledContributions: []string{"ui/example"}, InstalledAt: at, UpdatedAt: at}
+	old := extension.Record{ID: slot, Source: extension.SourceInstalled, Origin: "market:example/identity-old", Version: "1.0.0", Manifest: json.RawMessage(`{"id":"identity-old"}`), Granted: extension.Permissions{Network: []string{"example.com"}}, GrantedDigest: "original-permission-digest", Config: json.RawMessage(`{"saved":"retained"}`), Enabled: false, DisabledContributions: []string{"ui/example"}, PackOff: []string{"member-a"}, InstalledAt: at, UpdatedAt: at}
 	if err := d.PutExtension(ctx, old); err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestExtensionIdentityStableCiphertextAndCAS(t *testing.T) {
 		t.Fatal("stable slot missing")
 	}
 	got := rows[i]
-	if got.ID != next.ID || got.PreviousID != slot || !reflect.DeepEqual(got.Aliases, []string{slot}) || got.Enabled != old.Enabled || got.GrantedDigest != old.GrantedDigest || !reflect.DeepEqual(got.Granted, old.Granted) || !reflect.DeepEqual(got.DisabledContributions, old.DisabledContributions) || !got.InstalledAt.Equal(at) {
+	if got.ID != next.ID || got.PreviousID != slot || !reflect.DeepEqual(got.Aliases, []string{slot}) || got.Enabled != old.Enabled || got.GrantedDigest != old.GrantedDigest || !reflect.DeepEqual(got.Granted, old.Granted) || !reflect.DeepEqual(got.DisabledContributions, old.DisabledContributions) || !reflect.DeepEqual(got.PackOff, old.PackOff) || !got.InstalledAt.Equal(at) {
 		t.Fatalf("identity transition lost state: %+v", got)
 	}
 	var cfg map[string]string

@@ -169,13 +169,21 @@
   },
   {
     "name": "ask_user",
-    "description": "Ask the user one or more multiple-choice questions on their iPhone (a card in this conversation plus a push notification) and wait for the answers. Use it to confirm anything risky (sending messages / email for them, deleting, changing live systems) or to let them pick between options. AskUserQuestion does not work here; use this instead. The user can also type a free-form answer. Waits up to 2 hours; if the user writes in this conversation instead of picking an option, the question is withdrawn and the tool returns at once, with their message following. If nobody answers in time, the question becomes a to-do that waits for the user's call (in their to-do list and the next briefing), and their answer comes to this conversation later as a new message.",
+    "description": "Ask the user one or more multiple-choice questions on their iPhone (a card in this conversation plus a push notification) and wait for the answers. Use it to confirm anything risky (sending messages / email for them, deleting, changing live systems) or to let them pick between options. AskUserQuestion does not work here; use this instead. The user can also type a free-form answer. Waits up to 2 hours; if the user writes in this conversation instead of picking an option, the question is withdrawn and the tool returns at once, with their message following. If nobody answers in time, the question becomes a to-do that waits for the user's call (in their to-do list and the next briefing), and their answer comes to this conversation later as a new message. With a deadline (each question then recommends one of its options): if nobody answers by it and you marked it reversible, the recommended options are taken by default and recorded on the question's to-do; one that cannot be undone is only reminded again and keeps waiting.",
     "input_schema": {
       "type": "object",
       "required": [
         "questions"
       ],
       "properties": {
+        "deadline": {
+          "type": "string",
+          "description": "optional: until when the questions wait, a duration (\"30m\", \"4h\") or an RFC 3339 time, 1 minute to 30 days ahead; needs reversible and a recommend on every question"
+        },
+        "reversible": {
+          "type": "boolean",
+          "description": "with deadline: whether going ahead with the recommended options can be undone later. false for deleting, sending anything to other people, spending money or changing production: those are never taken by default"
+        },
         "questions": {
           "type": "array",
           "minItems": 1,
@@ -196,6 +204,10 @@
               },
               "multiSelect": {
                 "type": "boolean"
+              },
+              "recommend": {
+                "type": "string",
+                "description": "the label of the option you recommend; required with deadline"
               },
               "options": {
                 "type": "array",
@@ -895,6 +907,47 @@
     }
   },
   {
+    "name": "inbox_folders",
+    "description": "List the folders the user's inbox items are filed under: each `/`-separated path (`work/alerts/engine`, every segment a level) with its item count and open count, and whether automatic filing by the triage model is on. Give `folder` to also list the items filed in that folder and below, or `unfiled: true` for the items in no folder; each line has the item's id (what inbox_move takes), source, title, sender and whether it is done. Call it before inbox_move, to reuse a folder in use rather than open a near-duplicate.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "folder": {
+          "type": "string",
+          "description": "a folder path: also list the items filed there and below"
+        },
+        "unfiled": {
+          "type": "boolean",
+          "description": "also list the items in no folder"
+        }
+      }
+    }
+  },
+  {
+    "name": "inbox_move",
+    "description": "Move inbox items into a folder, as the user would from the inbox: `items` are their ids (from inbox_folders, or the id of an item handed to this conversation), `folder` a `/`-separated path (`work/alerts/engine`; a new path makes the folder), or `\"\"` to take them out of every folder. Moved items stay where they are put: the triage model no longer files them. An unknown id or a path with no name in it moves nothing. Move only what the user asked for.",
+    "input_schema": {
+      "type": "object",
+      "required": [
+        "items",
+        "folder"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "inbox item ids"
+        },
+        "folder": {
+          "type": "string",
+          "description": "the folder path, or \"\" for no folder"
+        }
+      }
+    }
+  },
+  {
     "name": "kb_search",
     "description": "Search the knowledge base: summaries and metadata of chats, people, projects, docs, meetings, events, recordings (with their full transcripts), project timelines, the notes directories the user added (hits with an absolute path) and, with messages=true, the full message archive (newest days first). All words must match.",
     "input_schema": {
@@ -1545,9 +1598,10 @@
                   "default",
                   "acceptEdits",
                   "plan",
+                  "auto",
                   "bypassPermissions"
                 ],
-                "description": "permission mode; empty: the default for writable tasks. readonly=true always uses plan, overriding this field"
+                "description": "permission mode; empty: the default for writable tasks (the user's default permission mode, else Claude Code's default mode on that computer). readonly=true always uses plan, overriding this field"
               },
               "ultracode": {
                 "type": "boolean",
@@ -1610,7 +1664,7 @@
   },
   {
     "name": "task_review",
-    "description": "Review a task you handed out from this conversation (its todo id), after you checked its work yourself: each done_when criterion with its evidence (a PR link and that it merged, CI, a screenshot, what the live system answers) or what is missing. accepted closes the task (its agent is closed once it stays still); rework sends what is missing back to the same agent (resumed if it was closed) — at most 2 rounds, a third goes to the user instead; needs_user marks it waiting for the user's decision (its conclusion card asks them; without one, ask them yourself: ask_user, or notify_user if they are away, as the answer says); cancelled ends it (a duplicate, no longer wanted). From a conversation other than the main one, on a task it does not supervise, only accepted and cancelled apply: send what is missing to its agent with agent_send. Use it on every task a 督办 message says waits for review; don't accept on the agent's word alone. On a supervised task, accepted and needs_user send the user one conclusion card in Lark: the verdict (done, cannot be done, or needs your decision), reason (one sentence), link (one), and for needs_user your recommend, which the user takes by answering \"OK\"; so give outcome, reason and link with accepted, and reason and recommend with needs_user, and don't push the same result again.",
+    "description": "Review a task you handed out from this conversation (its todo id), after you checked its work yourself: each done_when criterion with its evidence (a PR link and that it merged, CI, a screenshot, what the live system answers) or what is missing. accepted closes the task (its agent is closed once it stays still); rework sends what is missing back to the same agent (resumed if it was closed) — at most 2 rounds, a third goes to the user instead; needs_user marks it waiting for the user's decision (its conclusion card asks them; without one, ask them yourself: ask_user, or notify_user if they are away, as the answer says); cancelled ends it (a duplicate, no longer wanted). From a conversation other than the main one, on a task it does not supervise, only accepted and cancelled apply: send what is missing to its agent with agent_send. Use it on every task a 督办 message says waits for review; don't accept on the agent's word alone. On a supervised task, accepted and needs_user send the user one conclusion card in Lark: the verdict (done, cannot be done, or needs your decision), reason (one sentence), link (one), and for needs_user your recommend, which the user takes by answering \"OK\"; so give outcome, reason and link with accepted, and reason and recommend with needs_user, and don't push the same result again. A needs_user decision may carry a deadline: when it passes unanswered, a reversible one takes your recommend by default (recorded on the to-do as taken at the deadline), and one that cannot be undone is only reminded again; without a deadline it waits as before.",
     "input_schema": {
       "type": "object",
       "required": [
@@ -1678,6 +1732,89 @@
         "recommend": {
           "type": "string",
           "description": "needs_user: the option you recommend, in a line; the user's \"OK\" takes it and it goes to the task's agent"
+        },
+        "deadline": {
+          "type": "string",
+          "description": "needs_user, optional: until when the decision waits, a duration (\"4h\", \"90m\") or an RFC 3339 time, 1 minute to 30 days ahead; needs recommend and reversible"
+        },
+        "reversible": {
+          "type": "boolean",
+          "description": "with deadline: whether taking recommend can be undone later. false for deleting, sending anything to other people, spending money or changing production: those are never taken by default"
+        }
+      }
+    }
+  },
+  {
+    "name": "task_start_screen",
+    "description": "Read the last 30 lines of the terminal tab a task's agent did not start in, while its computer keeps that tab (a 督办 message says until when): the question the tab's shell waits on, or where the agent's own screen stopped. Only for a task of this conversation whose start is being remedied; what it shows stays here, it is not kept with the task.",
+    "input_schema": {
+      "type": "object",
+      "required": [
+        "todo_id"
+      ],
+      "properties": {
+        "todo_id": {
+          "type": "string",
+          "description": "the task's id, as the 督办 message gives it"
+        },
+        "reason": {
+          "type": "string",
+          "description": "why you look, in the user's language (optional; kept with the task's history)"
+        }
+      }
+    }
+  },
+  {
+    "name": "task_start_keys",
+    "description": "Type into the terminal tab a task's agent did not start in, while its computer keeps that tab and no agent runs there: text as is (no enter, at most 32 characters), then keys by name (\"enter\", \"esc\", \"ctrl+c\", \"y\", \"n\", \"up\", \"down\"…, at most 8). Use it to answer the question the tab's shell waits on, or to get past where the agent's screen stopped; read the tab first with task_start_screen and again after. The keys, the text and your reason are kept with the task's history. It starts nothing: start the agent again with task_retry.",
+    "input_schema": {
+      "type": "object",
+      "required": [
+        "todo_id",
+        "reason"
+      ],
+      "properties": {
+        "todo_id": {
+          "type": "string",
+          "description": "the task's id, as the 督办 message gives it"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "text to type as is, before the keys"
+        },
+        "keys": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string"
+          },
+          "description": "keys to press after the text, by name"
+        },
+        "reason": {
+          "type": "string",
+          "description": "why these keys, in the user's language, one sentence"
+        }
+      }
+    }
+  },
+  {
+    "name": "task_retry",
+    "description": "Start a task's agent again after it did not start: in the same tab while its computer keeps it (after task_start_keys answered what stopped it), otherwise in a new tab (a start that failed for good is reopened). At most 3 times per task; the hub never retries by itself. It returns at once; whether the agent came up arrives as a 督办 message. Only for a task of this conversation; your reason is kept with the task's history.",
+    "input_schema": {
+      "type": "object",
+      "required": [
+        "todo_id",
+        "reason"
+      ],
+      "properties": {
+        "todo_id": {
+          "type": "string",
+          "description": "the task's id, as the 督办 message gives it"
+        },
+        "reason": {
+          "type": "string",
+          "description": "why it should start now, in the user's language, one sentence"
         }
       }
     }

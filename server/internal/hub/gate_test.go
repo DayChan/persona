@@ -7,7 +7,9 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -71,5 +73,48 @@ func TestPlaintextWarning(t *testing.T) {
 	_ = h.routes()
 	if !strings.Contains(logs.String(), "WARNING: security.allow_public_plaintext") {
 		t.Fatal(logs.String())
+	}
+}
+
+// Plaintext from the container's gateway (where docker-proxy hands over an SSH tunnel or a reverse proxy on the Docker
+// host) is refused like any public plaintext, and the log says once, naming the gateway, what lets it in; trusted, the
+// gateway is the LAN. Other public plaintext gets no such line.
+func TestGateGatewayPlaintextHint(t *testing.T) {
+	gateway := netip.AddrFrom4([4]byte{172, 17, 0, 1})
+	remote := netip.AddrPortFrom(gateway, 1).String()
+	hub := func(trusted ...string) (http.Handler, func() string) {
+		h := newTestHub(t)
+		h.cfg.Security = SecurityConfig{TrustedCIDRs: trusted}
+		h.devtok.onLink = func() []netip.Prefix { return nil }
+		h.admin.gateways = func() []netip.Addr { return []netip.Addr{gateway} }
+		var mu sync.Mutex
+		var logs strings.Builder
+		h.logger = log.New(lockedWriter{&mu, &logs}, "", 0)
+		return h.routes(), func() string {
+			mu.Lock()
+			defer mu.Unlock()
+			return logs.String()
+		}
+	}
+
+	routes, logs := hub()
+	for range 3 {
+		requireCode(t, securityRequest(routes, "GET", "/api/v1/machines", "invalid", "", remote, false), 403, "tls_required")
+	}
+	if got := logs(); strings.Count(got, "this container's gateway") != 1 || !strings.Contains(got, "api: plaintext from "+gateway.String()) ||
+		!strings.Contains(got, "security.trusted_cidrs") {
+		t.Fatalf("want one gateway line naming %s and security.trusted_cidrs, got:\n%s", gateway, got)
+	}
+
+	routes, logs = hub()
+	requireCode(t, securityRequest(routes, "GET", "/api/v1/machines", "invalid", "", "198.51.100.1:1", false), 403, "tls_required")
+	if got := logs(); strings.Contains(got, "gateway") {
+		t.Fatalf("a public address is not the gateway:\n%s", got)
+	}
+
+	routes, logs = hub(gateway.String() + "/32")
+	requireCode(t, securityRequest(routes, "GET", "/api/v1/machines", "invalid", "", remote, false), 401, "")
+	if got := logs(); strings.Contains(got, "this container's gateway") {
+		t.Fatalf("a trusted gateway is not refused:\n%s", got)
 	}
 }

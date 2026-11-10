@@ -59,7 +59,7 @@ func (n *Node) sendSessions(list []proto.Session) {
 	if s.last != nil && s.peer == peer && s.at == epoch && idle && bytes.Equal(s.last, b) {
 		return
 	}
-	if err := peer.Notify("sessions.changed", json.RawMessage(b)); err != nil {
+	if err := peer.Notify("sessions.changed", rpc.Marshaled(b)); err != nil { // json.Marshal's bytes (appendSessionsParams)
 		s.last = nil
 		return
 	}

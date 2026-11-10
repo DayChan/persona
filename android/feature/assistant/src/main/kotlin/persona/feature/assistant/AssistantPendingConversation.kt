@@ -15,6 +15,7 @@ import persona.core.contracts.api.OutboxMessage
 import persona.core.contracts.api.PendingMainConversation
 import persona.core.designsystem.*
 import persona.core.designsystem.icons.PhIcons
+import persona.core.domain.FailureReason
 import persona.core.domain.mapOperationFailure
 
 /** The durable outbox is the only source of pending bubbles, including after process recreation. */
@@ -42,20 +43,22 @@ internal fun AssistantPendingConversation(
                 verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 UserBubble(message.text)
                 message.state.pendingStatus()?.let { PendingBadge(it) }
-                // The hub refused to start the main conversation for a missing step: a card with the reason and its
-                // button, not a bubble waiting for ever (docs/assistant/onboarding.md 4.4).
-                message.setupRefusal()?.let { code -> SetupRefusalCard(code, onRefusal, onRetry?.let { retry -> { retry(message) } }) }
+                // A refused message says why and offers Retry, not a bubble waiting for ever: a start the hub refused
+                // for a missing step also gets that step's button (docs/assistant/onboarding.md 4.4).
+                if (message.state == DeliveryState.Refused) RefusalCard(message.error, onRefusal, onRetry?.let { retry -> { retry(message) } })
             }
         }
     }
 }
 
+/** Why the hub refused it, by its [code] (none for a code without words: the badge already says it was not sent). */
 @Composable
-private fun SetupRefusalCard(code: String, onAction: (ReadinessActionId) -> Unit, onRetry: (() -> Unit)?) {
-    val feedback = operationFeedback(mapOperationFailure(code, "none", false))
-    val action = feedback.action.readinessAction()
+private fun RefusalCard(code: String?, onAction: (ReadinessActionId) -> Unit, onRetry: (() -> Unit)?) {
+    val failure = mapOperationFailure(code, "none", false)
+    val feedback = operationFeedback(failure).takeIf { failure.reason != FailureReason.Failed }
+    val action = feedback?.action?.readinessAction()
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(Tokens.Space.s)) {
-        JNotice(feedback.localizedMessage, Modifier.fillMaxWidth(), status = Status.NeedsYou, icon = PhIcons.WarningCircle,
+        if (feedback != null) JNotice(feedback.localizedMessage, Modifier.fillMaxWidth(), status = Status.NeedsYou, icon = PhIcons.WarningCircle,
             actionLabel = action?.let { stringResource(it.label) }, onAction = action?.let { { onAction(it) } })
         onRetry?.let { JButton(stringResource(R.string.assistant_refused_retry), it, kind = JButtonKind.Secondary, size = JButtonSize.Small) }
     }

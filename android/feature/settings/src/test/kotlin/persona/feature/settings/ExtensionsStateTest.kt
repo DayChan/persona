@@ -124,6 +124,15 @@ class ExtensionsStateTest {
         assertEquals("未设置", ExtensionText.secretState(res, ExtensionSecret("x", "X")))
     }
 
+    /** x-confirm asks only before a switch is turned on, and only when the field has a sentence. */
+    @Test fun aSwitchAsksItsConfirmOnlyWhenTurnedOn() {
+        val asking = ExtensionField("agent", "boolean", confirm = "Replies go out as you.")
+        assertTrue(asking.asksFirst(true))
+        assertFalse(asking.asksFirst(false))
+        assertFalse(ExtensionField("agent", "boolean").asksFirst(true))
+        assertFalse(asking.copy(confirm = " ").asksFirst(true))
+    }
+
     @Test fun theDraftSetsByPathAndDropsEmptyGroups() {
         var draft = JsonObject(emptyMap())
         draft = ExtensionDraft.set(draft, listOf("proxy", "host"), JsonPrimitive("h"))

@@ -85,7 +85,9 @@ func (n *Node) startOtherAgent(ctx context.Context, launch host.Launcher, cwd, l
 		existing[id] = true
 	}
 	n.mu.Unlock()
-	time.Sleep(300 * time.Millisecond) // the fresh shell loads ~/.zshrc; typed input is buffered either way
+	if err := n.settleShell(ctx, pane); err != nil { // the fresh shell at rest first (shellsettle.go, #2570)
+		return nil, n.startTabFailed(ctx, launch, created, ws, resume, err)
+	}
 	// A Codex wrapper is told to herdr as Codex (hostherdr.go); a compatible CLI is herdr's to detect. The node's
 	// directory in front, the assistant's environment left out (agentenv.go).
 	shells := paneShells(ctx, created)

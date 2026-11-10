@@ -120,9 +120,9 @@ nonisolated struct Turn: Identifiable, Hashable, Sendable {
     var trailing: [ChatRow] = [] // notices that belong to the turn (e.g. "interrupted")
     /// Background tasks that woke the agent during this exchange (their notices).
     var wakes: [Item] = []
-    /// Everything from the first wake on, for the "Background Task Done" drawer.
-    var afterWake: [ChatRow] = []
-    /// What came after the answer (a follow-up once a background task reported back): only in the drawer.
+    /// The latest wake has not produced an answer yet: its continuation is live, even after its rows move into `ordered`.
+    var hasPendingWake = false
+    /// What came after the answer (a follow-up once a background task reported back).
     var tail: [ChatRow] = []
     /// Everything the agent did in arrival order, answer included.
     var steps: [ChatRow] = []
@@ -150,30 +150,16 @@ nonisolated struct Turn: Identifiable, Hashable, Sendable {
     }
     var interimCount: Int { process.filter { if case .assistant = $0 { true } else { false } }.count }
 
-    /// Background tasks split an exchange into runs (before the first wake, after each one), each ending in the
-    /// agent's words. The answer is the latest of those, so the chat always ends on the newest words (#3783: the
-    /// longest used to be, and a short reply after a wake showed while it streamed, then went into the drawer once its
-    /// line came). What comes before it folds into one work line (wakes and earlier words included); the drawer lists
-    /// every run from the first wake on (`afterWake`). Work after the latest words, while no new ones came yet, shows
-    /// only in the drawer (`tail`).
+    /// A wake continues the same exchange; its tools and narration join the ordinary execution summary. Until new
+    /// words arrive, `hasPendingWake` keeps them in the summary rather than promoting the earlier narration to a
+    /// separate answer (#2796).
     mutating func pickAnswerAcrossWakes() {
         let all = ordered
-        var candidates: [Int] = []
-        var last: Int?
-        for (i, r) in all.enumerated() {
-            switch r {
-            case .notice(let n) where n.wake == true:
-                if let l = last { candidates.append(l) }
-                last = nil
-            case .assistant: last = i
-            default: break
-            }
-        }
-        if let l = last { candidates.append(l) }
-        let pick = candidates.last
-        // What the user sent stays with the exchange (their pictures too: they sit above the message they came with).
-        if let first = all.firstIndex(where: { if case .notice(let n) = $0 { n.wake == true } else { false } }) {
-            afterWake = Array(all[first...]).filter { !$0.isUserInput }
+        var pick: Int?
+        hasPendingWake = false
+        for (i, row) in all.enumerated() {
+            if case .notice(let n) = row, n.wake == true { pick = nil; hasPendingWake = true }
+            if case .assistant = row { pick = i; hasPendingWake = false }
         }
         guard let pick else { return }
         tail = all[(pick + 1)...].filter { !$0.isUserInput }
@@ -386,6 +372,7 @@ nonisolated extension Item {
 @Observable
 final class ChatStore {
     let key: SessionKey
+    @ObservationIgnored private let cacheFolder: URL?
     private(set) var items: [Item] = []
     private(set) var rows: [ChatRow] = []
     private(set) var blocks: [ChatBlock] = []
@@ -472,10 +459,11 @@ final class ChatStore {
     /// "Loading N steps…" (#6038). Starting over forgets them. By the fold's id, the fold as the page brought it.
     @ObservationIgnored private var opened: [String: Item] = [:]
 
-    init(key: SessionKey) {
+    init(key: SessionKey, cacheFolder: URL? = nil) {
         self.key = key
+        self.cacheFolder = cacheFolder
         // Paint the last exchanges from the disk cache right away; the server's backlog merges in after.
-        if let cached = ChatCache.load(key), !cached.items.isEmpty {
+        if let cached = ChatCache.load(key, in: cacheFolder), !cached.items.isEmpty {
             // Refs again: a cache written before they named a chat's group of hubs (#1555) sent its pictures to the
             // current group's hub.
             items = Self.withImageRefs(cached.items, key)
@@ -937,14 +925,14 @@ final class ChatStore {
     /// Writes the last two exchanges to the disk cache, a moment after the latest change.
     private func scheduleSave() {
         saveTask?.cancel()
-        let key = key
+        let key = key, cacheFolder = cacheFolder
         saveTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled, let self else { return }
             let tail = ChatCache.tail(self.items, turns: 2)
             let more = self.hasMore || tail.count < self.items.count
             let history = self.history, covered = self.covered
-            Task.detached(priority: .utility) { ChatCache.save(key, items: tail, hasMore: more, history: history, covered: covered) }
+            Task.detached(priority: .utility) { ChatCache.save(key, items: tail, hasMore: more, history: history, covered: covered, in: cacheFolder) }
         }
     }
 
@@ -1414,15 +1402,16 @@ nonisolated enum ChatCache {
 
     /// The default group's copies where they always were; another group's in a folder of its own (docs/protocol/multi-hub.md:
     /// the same machine and session ids can be in two groups).
-    private static func url(_ key: SessionKey) -> URL? {
-        guard let dir = directory(key.group) else { return nil }
+    private static func url(_ key: SessionKey, in root: URL?) -> URL? {
+        guard let dir = directory(key.group, in: root) else { return nil }
         let safe = "\(key.machineID)_\(key.sessionID)".map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "_" }
         return dir.appending(path: String(safe) + ".json")
     }
 
-    private static func directory(_ group: String) -> URL? {
-        _ = dropOlder
-        guard let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
+    private static func directory(_ group: String, in root: URL?) -> URL? {
+        // An isolated model owns its cache too; late saves must never target another model's disk.
+        if root == nil { _ = dropOlder }
+        guard let base = root ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
         let dir = base.appending(path: folder)
         guard !group.isEmpty else { return dir }
         let safe = group.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "_" }
@@ -1430,15 +1419,15 @@ nonisolated enum ChatCache {
     }
 
     /// A group that is gone: its copies go too (the default group's: the files at the top, not the other groups' folders).
-    static func removeGroup(_ group: String) {
-        guard let dir = directory(group) else { return }
+    static func removeGroup(_ group: String, in root: URL? = nil) {
+        guard let dir = directory(group, in: root) else { return }
         guard group.isEmpty else { try? FileManager.default.removeItem(at: dir); return }
         let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
         for f in files where f.pathExtension == "json" { try? FileManager.default.removeItem(at: f) }
     }
 
-    static func load(_ key: SessionKey) -> (items: [Item], hasMore: Bool, history: String?, covered: Int?)? {
-        guard let url = url(key), let data = try? Data(contentsOf: url),
+    static func load(_ key: SessionKey, in root: URL? = nil) -> (items: [Item], hasMore: Bool, history: String?, covered: Int?)? {
+        guard let url = url(key, in: root), let data = try? Data(contentsOf: url),
               let e = try? JSON.decoder.decode(Entry.self, from: data) else { return nil }
         return (e.items, e.hasMore, e.history, e.covered)
     }
@@ -1449,13 +1438,13 @@ nonisolated enum ChatCache {
         try? FileManager.default.removeItem(at: base.appending(path: folder))
     }
 
-    static func remove(_ key: SessionKey) {
-        guard let url = url(key) else { return }
+    static func remove(_ key: SessionKey, in root: URL? = nil) {
+        guard let url = url(key, in: root) else { return }
         try? FileManager.default.removeItem(at: url)
     }
 
-    static func save(_ key: SessionKey, items: [Item], hasMore: Bool, history: String? = nil, covered: Int? = nil) {
-        guard let url = url(key), !items.isEmpty else { return }
+    static func save(_ key: SessionKey, items: [Item], hasMore: Bool, history: String? = nil, covered: Int? = nil, in root: URL? = nil) {
+        guard let url = url(key, in: root), !items.isEmpty else { return }
         var entry = Entry(items: items, hasMore: hasMore, history: history, covered: covered)
         guard var data = try? JSON.encoder.encode(entry) else { return }
         if data.count > maxBytes { // screenshots make turns huge: keep the words, drop the pictures

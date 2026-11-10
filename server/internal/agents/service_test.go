@@ -224,7 +224,7 @@ func TestPollBaselinesASourceAddedLater(t *testing.T) {
 	s.PollOnce(ctx)
 	down.fail = nil
 	s.PollOnce(ctx)
-	if got := changes(); len(got) != 1 {
+	if got := changes(); len(got) != 3 || len(got[1]) != 0 || len(got[2]) != 0 { // failing, then answering: "the list changed", none of its sessions
 		t.Fatalf("a source's first answer after a failed list reported %v", got[1:])
 	}
 }

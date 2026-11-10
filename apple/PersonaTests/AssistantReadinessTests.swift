@@ -91,11 +91,100 @@ struct AssistantReadinessTests {
         #expect(body["dismissed"] == .bool(true) && m.current?.dismissed == true)
     }
 
+    @Test func probeUsesTheHubsWholeCheckBudget() async throws {
+        let hub = FakeHub()
+        hub.on("GET", "/api/v1/assistant/readiness", json: Self.notLoggedIn)
+        _ = try await hub.client.assistantReadiness(probe: true)
+        #expect(hub.sent("GET", "/api/v1/assistant/readiness").last?.timeout == 130)
+        _ = try await hub.client.assistantReadiness()
+        #expect(hub.sent("GET", "/api/v1/assistant/readiness").last?.timeout == 30)
+    }
+
+    @Test func aFailedProbeSaysSoAndNeverReusesTheLastResult() async {
+        let hub = FakeHub()
+        hub.on("GET", "/api/v1/assistant/readiness", json: Self.notLoggedIn)
+        let m = AssistantReadinessModel()
+        await m.refresh(api: hub.client, probe: true)
+        #expect(m.probe?.error == "Not logged in" && m.probeError == nil)
+
+        hub.on("GET", "/api/v1/assistant/readiness") { _ in throw URLError(.timedOut) }
+        await m.refresh(api: hub.client, probe: true)
+        #expect(m.probe == nil, "the previous try's answer cannot stand in for this one")
+        #expect(m.probeError?.isEmpty == false && !m.probing, "a timeout still says so")
+
+        hub.on("GET", "/api/v1/assistant/readiness") { _ in throw APIError(status: 502, message: "mock probe failed") }
+        await m.refresh(api: hub.client, probe: true)
+        #expect(m.probe == nil && m.probeError == "mock probe failed" && !m.probing)
+
+        hub.on("GET", "/api/v1/assistant/readiness", json: Self.notLoggedIn)
+        await m.refresh(api: hub.client, probe: true)
+        #expect(m.probeError == nil && m.probe?.error == "Not logged in" && !m.probing)
+    }
+
+    @Test func onlyTheLatestProbeCanLandOrStopTheSpinner() async {
+        let answers = ["old A", "new B", "old C", "new D"].map {
+            Data(Self.notLoggedIn.replacingOccurrences(of: "Not logged in", with: $0).utf8)
+        }
+        let gate = HeldProbes(answers: answers)
+        let client = APIClient(config: ServerConfig(url: URL(string: "https://fake.invalid")!, token: "t"),
+                               transport: { _ in await gate.answer() })
+        let m = AssistantReadinessModel()
+
+        let a = Task { await m.refresh(api: client, probe: true) }
+        await gate.waitForArrival(0)
+        let b = Task { await m.refresh(api: client, probe: true) }
+        await gate.waitForArrival(1)
+        await gate.release(0)
+        await a.value
+        #expect(m.probing, "an older try cannot stop the newer try's spinner")
+        #expect(m.probe == nil, "an older try cannot land while the newer one is still running")
+        await gate.release(1)
+        await b.value
+        #expect(!m.probing && m.probe?.error == "new B")
+
+        let c = Task { await m.refresh(api: client, probe: true) }
+        await gate.waitForArrival(2)
+        let d = Task { await m.refresh(api: client, probe: true) }
+        await gate.waitForArrival(3)
+        await gate.release(3)
+        await d.value
+        #expect(m.probe?.error == "new D")
+        await gate.release(2)
+        await c.value
+        #expect(m.probe?.error == "new D", "a late answer from an older try cannot replace the newer result")
+        #expect(!m.probing)
+    }
+
     @Test func anOlderHubAnswering404ShowsNothing() async {
         let hub = FakeHub() // no route: 404
         let m = AssistantReadinessModel()
         await m.refresh(api: hub.client, force: true)
         #expect(m.unsupported && m.current == nil && m.blocking == nil)
+    }
+
+    @Test func a404RetiresEveryProbeDisplay() async {
+        let hub = FakeHub()
+        hub.on("GET", "/api/v1/assistant/readiness") { _ in throw APIError(status: 502, message: "mock probe failed") }
+        let m = AssistantReadinessModel()
+        await m.refresh(api: hub.client, probe: true)
+        #expect(m.probeError == "mock probe failed")
+
+        hub.on("GET", "/api/v1/assistant/readiness") { _ in throw APIError(status: 404, message: "old hub") }
+        await m.refresh(api: hub.client, force: true)
+        #expect(m.unsupported && m.current == nil)
+        #expect(m.probe == nil && m.probeError == nil && !m.probing, "an old hub shows no probe result or error")
+    }
+
+    @Test func aCancelledProbeIsNotAVisibleFailure() async {
+        let hub = FakeHub()
+        let m = AssistantReadinessModel()
+        hub.on("GET", "/api/v1/assistant/readiness") { _ in throw URLError(.cancelled) }
+        await m.refresh(api: hub.client, probe: true)
+        #expect(m.probe == nil && m.probeError == nil && !m.probing)
+
+        hub.on("GET", "/api/v1/assistant/readiness") { _ in throw CancellationError() }
+        await m.refresh(api: hub.client, probe: true)
+        #expect(m.probe == nil && m.probeError == nil && !m.probing)
     }
 
     @Test func warmCarriesTheReadiness() async throws {
@@ -144,5 +233,33 @@ struct AssistantReadinessTests {
          "turn_error":"Not logged in · Please run /login","turn_error_kind":"model","turn_error_code":"not_logged_in"}
         """#.utf8))
         #expect(s.turnErrorCode == "not_logged_in" && s.turnErrorKind == "model" && s.turnError?.hasPrefix("Not logged in") == true)
+    }
+}
+
+/// Probe answers released individually, so a test controls which overlapping try finishes first.
+private actor HeldProbes {
+    private let answers: [Data]
+    private var arrivals = 0
+    private var held: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var waiting: [Int: [CheckedContinuation<Void, Never>]] = [:]
+
+    init(answers: [Data]) { self.answers = answers }
+
+    func answer() async -> Data {
+        let mine = arrivals
+        arrivals += 1
+        for waiter in waiting.removeValue(forKey: mine) ?? [] { waiter.resume() }
+        await withCheckedContinuation { held[mine] = $0 }
+        return answers[mine]
+    }
+
+    func waitForArrival(_ index: Int) async {
+        if arrivals > index { return }
+        await withCheckedContinuation { waiting[index, default: []].append($0) }
+    }
+
+    func release(_ index: Int) {
+        held[index]?.resume()
+        held[index] = nil
     }
 }

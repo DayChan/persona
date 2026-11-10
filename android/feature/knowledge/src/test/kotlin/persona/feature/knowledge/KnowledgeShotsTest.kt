@@ -90,6 +90,8 @@ class KnowledgeShotsTest {
             }
         }
         for ((state, expected) in listOf("kb_disabled" to "知识库已关闭", "kb_unavailable" to "知识库正在启动，请稍后重试。",
+            "kb_read_only" to "知识库为只读。请先修改管理者配置，再编辑或同步录音。",
+            "assistant_offline" to "管理者不在线或正在重启，请稍后重试。",
             "network" to "暂时连不上知识库，请稍后重试", "empty" to "还没有项目", "ready" to "Weather App")) {
             failure = state
             model.refresh()

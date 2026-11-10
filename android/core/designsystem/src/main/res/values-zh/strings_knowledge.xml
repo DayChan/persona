@@ -1,0 +1,5 @@
+<resources>
+    <string name="designsystem_knowledge_disabled">此管理者已关闭知识库。请在管理者配置中启用后使用。</string>
+    <string name="designsystem_knowledge_unavailable">知识库尚未就绪，请稍后重试。</string>
+    <string name="designsystem_knowledge_read_only">知识库为只读。请先修改管理者配置，再编辑或同步录音。</string>
+</resources>

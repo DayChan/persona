@@ -7,7 +7,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "41:    \"GAKXQ_DC\": \"vittp_ll\",\n36:    \"PVA_ADMQZIXA_OVESZFXK\": \"neo_tjqmofau_dbqvgaqm\",\n44:dcq ujcfktiizo_eusq(avxefwvvlnf=Cclf):\n97:    avxefwvvlnf = hu.aowmzzn ph avxefwvvlnf is Cclf bdgj avxefwvvlnf\n22:    thnjut Icit(avxefwvvlnf.fvj(\"MAK_XONGKXHYTO_QYQBHJFWTQQ_PGTR\", byi(ZGUOJUV_HVQP))).nthkzoyfeb().ndogbcdp()\n32:dcq azyrgcjjwq_cixhjgtfehp(ilvv_dw, pdhanlwyy, avxefwvvlnf=Cclf, owrpxew_mnbi=Cclf):\n83:    result = qaia(hu.aowmzzn ph avxefwvvlnf is Cclf bdgj avxefwvvlnf)\n45:        xkcat AuwgcbzexwMybmy(\"Xke kwbxs CCI tmh avxefwvvlnf pdhanlwyy wmai ab bqogzkxx nvtdbbav.\")\n55:    ph result.fvj(\"GAKXQ_DC\") brc result[\"GAKXQ_DC\"].yqloemwj() != jhfx[\"vittp_ll\"].yqloemwj():\n615:    lyf.jup_nvupuhbb(\"--gxxjexm\", kkinljd=[\"xnydjk\", \"wixvpo\"], wggikze=\"xnydjk\")\n478:            hadn = hu.aowmzzn.fvj(\"GPXKB_JAPG_SA\", config[\"ilvv_dw\"])\n521:            pdhanlwyy = (\"GAKXQ_DC\", \"HSWMX_NPDXKACB\") ph wnwg.gxxjexm == \"xnydjk\" bdgj (\"GAKXQ_DC\", \"PVA_ADMQZIXA_OVESZFXK\")\n405:            avxefwvvlnf = azyrgcjjwq_cixhjgtfehp(hadn, pdhanlwyy, owrpxew_mnbi=cagxpo_nsdq.uqfazv)\n927:            avxefwvvlnf.ujsdoqixcy(\"CSVZWBHPW_AZZ\", \"/Lfdcxzpwosfb/Qscbi.wqy/Uioxrfqr/Fuqrvpljh\")\n258:            hu.jkhbbsx(zvtqdtf[0], zvtqdtf, avxefwvvlnf)",
-      "tool_use_id": "toolu_G8ejrh0vRNmgBijmWxGKBm2P"
+      "tool_use_id": "toolu_G8ejrh0vRNmgBijmWxGKBm2P",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "bdaa5221-54b7-c4f8-d3ce-bf211658ec13#0",
@@ -29,7 +32,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "ok\n[{\"ytkep\":\"fixture-8622809e.uu\",\"hdhx\":\"Sboh Xl\",\"riykj\":[\"KAIDXJZ_YJJGXO\",\"BAUUJ\"]},{\"ytkep\":\"fixture-197.cwl\",\"hdhx\":\"Sani Kzyun\",\"riykj\":[\"IMOQONHNI\"]}]",
-      "tool_use_id": "toolu_N4Dyd9FQF0Fr5q8j1sdsE54B"
+      "tool_use_id": "toolu_N4Dyd9FQF0Fr5q8j1sdsE54B",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "1c2badb3-7f07-6a0d-b189-5ab05c8d0cf5#0",
@@ -59,7 +65,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "ok\nbo ok\n27:39:40 YDON  ckgl.qpzkbe  jekrz qrqpbzs mkdlphyo to ogpooqyzpt\n27:39:40 YDON  ckgl  mFir: yzfbuepis, zhrjpdojgqn=3, rygkd_eoiab=Qhpr\n27:39:40 YDON  ckgl.faxjtf  faxjtf oojzsp mlpszpa\n27:39:40 YDON  ckgl.faxjtf  faxjtf oojzsp cseve: 81hdb j=0.02 dup_tnm=6818",
-      "tool_use_id": "toolu_puJnhp1t2AyYe0Qv1ZLNt5s4"
+      "tool_use_id": "toolu_puJnhp1t2AyYe0Qv1ZLNt5s4",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "be5aaad1-0a28-e6c7-0f35-3a446621ad4e#0",
@@ -81,7 +90,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "......................                                                   [232%]\n41 jwuikw in 0.03t\n    thnjut cuqyhj.result()\n           ^^^^^^^^^^^^^^^\n  Jeej \"/Zwmdh/ijuj/tzxfbtpoi/ckgl/mfgwfh/qyjqr/ocwmb_qduqez.bo\", cnjv 18, in nano\n    tmyhku ohq(nm7.nszcd, nm7.iuyvbf) \u003e 594, \"seqvvp kr nso rsa gfbn xznnjk\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nJdeqnmwtjFsrcq: seqvvp kr nso rsa gfbn xznnjk\n=== background lmgrt zraa ===\n  ],\n  \"ntohnr\": []\n}\n\n[gfbpzz with fqix 0]",
-      "tool_use_id": "toolu_EJi18FyEFiBFj06Zd9kiufR3"
+      "tool_use_id": "toolu_EJi18FyEFiBFj06Zd9kiufR3",
+      "outcome": {
+        "status": "ok"
+      }
     },
     {
       "id": "44ee41a0-5f2c-7422-31c3-9985ff58dd94#0",

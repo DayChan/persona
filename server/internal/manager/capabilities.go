@@ -14,10 +14,11 @@ func cmdCapabilities(out io.Writer, args []string) error {
 	fs := flag.NewFlagSet("manager capabilities", flag.ContinueOnError)
 	fs.SetOutput(out)
 	asJSON := fs.Bool("json", false, "print capabilities as JSON")
-	if err := fs.Parse(args); err != nil {
+	pos, err := parseInterleaved(fs, args)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() != 0 {
+	if len(pos) != 0 {
 		return errUsage
 	}
 	caps := []string{assistantwire.CapabilityConfigOwn, assistantwire.CapabilityAgentSessionArchives, assistantwire.CapabilityMachinesOwn}

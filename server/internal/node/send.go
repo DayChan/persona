@@ -32,6 +32,10 @@ func (n *Node) paneFor(ctx context.Context, id string) (string, error) {
 			return a.PaneID, nil
 		}
 	}
+	// A claude the user started in tmux has no host agent: its own record names the pane (#2562).
+	if pane := n.outsidePaneOf(id); pane != "" {
+		return pane, nil
+	}
 	return "", fmt.Errorf("session %s is not running", id)
 }
 

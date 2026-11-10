@@ -196,7 +196,7 @@ fi
 [ -n "$pw" ] || pw=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
 if ! docker inspect "$N-pg" >/dev/null 2>&1; then
 	POSTGRES_PASSWORD=$pw docker run -d --name "$N-pg" --network "$N" --restart unless-stopped \
-		-v "$N-data:/var/lib/postgresql" -e POSTGRES_USER=` + pgdocker.User + ` -e POSTGRES_DB=` + pgdocker.Database + ` -e POSTGRES_PASSWORD ` + pgdocker.Image + ` >/dev/null
+		-v "$N-data:/var/lib/postgresql" -e POSTGRES_USER=` + pgdocker.User + ` -e POSTGRES_DB=` + pgdocker.Database + ` -e POSTGRES_PASSWORD ` + pgdocker.Image + ` ` + strings.Join(pgdocker.ServerArgs, " ") + ` >/dev/null
 fi
 docker start "$N-pg" >/dev/null
 if docker inspect "$N" >/dev/null 2>&1; then

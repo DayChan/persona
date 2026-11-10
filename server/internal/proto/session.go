@@ -11,6 +11,11 @@ var (
 // ModeBypass skips every permission prompt; a headless claude only takes it at start (--permission-mode).
 const ModeBypass = "bypassPermissions"
 
+// ClaudeDefaultModeSetting is Claude Code's permissions.defaultMode, a key of Settings › Claude Code (node
+// claudeconfig.go): the mode a session started without --permission-mode runs in. The hub reads it for a planned
+// task with no mode of its own (assistant/tasks_permission.go).
+const ClaudeDefaultModeSetting = "permissions.defaultMode"
+
 // Session statuses mirror herdr agent states, plus offline for transcripts with no live agent.
 const (
 	StatusIdle    = "idle"
@@ -108,6 +113,11 @@ type Session struct {
 	// drives through its app-server has an Effort too (Codex's levels, see Efforts) but never a PermissionMode.
 	PermissionMode string `json:"permission_mode,omitempty"`
 	Effort         string `json:"effort,omitempty"`
+	// BypassAvailable: this Claude Code can be switched to bypassPermissions (Allow All) while it runs, since it was
+	// started with --dangerously-skip-permissions, --allow-dangerously-skip-permissions or --permission-mode
+	// bypassPermissions, which put that mode in its shift+tab cycle (#1379). The node reads it off the claude process its
+	// hooks run under; false while unknown (no hook yet, a node too old to say).
+	BypassAvailable bool `json:"bypass_available,omitempty"`
 	// Ultracode is Claude Code's independent session-only workflow switch: nil means unknown.
 	// Pending means a requested change waits for an idle input box; LostAt asks the client to offer reopening
 	// after a resumed process reset an enabled switch. Reopening or dismissing the notice clears LostAt.
@@ -340,10 +350,25 @@ const (
 	// CodeAgentStartStalled: the agent opened but its session never became identifiable. This says nothing about
 	// launcher health and must not trigger an automatic retry or a health detour.
 	CodeAgentStartStalled = "agent_start_stalled"
+	// CodeShellWaiting: the new tab's shell stopped on a question of its startup files (an update prompt, [Y/n]) before
+	// the start command was typed (#2570). Nothing ran; the tab is kept a while for someone to answer (node/shellsettle.go).
+	CodeShellWaiting = "shell_waiting"
+	// CodeStartLineRejected: the new tab's shell did not take the typed start line, twice (a startup prompt ate its first
+	// characters, #2570). Nothing ran; the tab is closed.
+	CodeStartLineRejected = "start_line_rejected"
 	// CodeDirectoryUntypable: the start's directory has a control character in its name, which a shell's line editor
 	// would act on when an engine types the directory (Orca's `cd`, node/hostorca_launch.go). Nothing ran; a refusal of
 	// the request, not the launcher's fault.
 	CodeDirectoryUntypable = "directory_untypable"
+)
+
+// Codes session.modes refuses with (node/modes.go), the text in the request's language (apierr.Call). 409.
+const (
+	// CodeModesOnComputer: a Claude outside Persona's terminals (Claude's desktop app, another terminal); its mode and
+	// effort change only there. Its row's capabilities say modes: false.
+	CodeModesOnComputer = "modes_on_computer"
+	// CodeModesNotRunning: no process or pane runs the session; a message resumes it.
+	CodeModesNotRunning = "modes_not_running"
 )
 
 // TodoRef is a session's link to an active todo (docs/assistant/todos.md).

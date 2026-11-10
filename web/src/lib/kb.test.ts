@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { describe, expect, it } from "vitest";
 import {
   agentPreset,
@@ -19,6 +20,9 @@ import {
   markParts,
   parseLogLine,
   recordingView,
+  recordingClock,
+  transcriptLineId,
+  transcriptTarget,
   durationLabel,
   parseMessageLine,
   parseRecent,
@@ -326,6 +330,34 @@ describe("开 Agent", () => {
   });
 });
 
+describe("recording minutes helpers", () => {
+  it("labels minutes search hits", () => {
+    expect(hitView({ path: "recordings/example/minutes.md", line: "- Design review" })).toEqual({ source: t("lib-kb.hit_minutes"), text: "Design review", day: null });
+  });
+  it("uses local clock math across midnight and keeps fractional offsets", () => {
+    const start = new Date(2026, 10, 9, 23, 59, 50).toISOString();
+    expect(recordingClock(start, 15.5)).toBe("00:00:05");
+    expect(recordingClock(start, 3615)).toBe("01:00:05");
+    expect(recordingClock("invalid", 65.9)).toBe("1:05");
+    expect(recordingClock(undefined, 3723)).toBe("1:02:03");
+    expect(transcriptLineId(15.5)).toBe("recording-line-15.5");
+    expect(transcriptLineId(15.5, true)).toBe("recording-bookmark-15.5");
+  });
+  it("targets ordered spoken lines, including gaps, not intervening bookmarks", () => {
+    const rec = recordingView("recordings", { bookmarks: [{ at: 12, label: "Review" }, { at: 20.5 }] }, [
+      { start: 20.5, end: 25, text: "Second" }, { start: 5, end: 10, text: "First" },
+    ])!;
+    expect(rec.lines.map((line) => line.seconds)).toEqual([5, 12, 20.5, 20.5]);
+    expect(transcriptTarget(rec.lines, 0)).toBe(transcriptLineId(5));
+    expect(transcriptTarget(rec.lines, 5)).toBe(transcriptLineId(5));
+    expect(transcriptTarget(rec.lines, 18)).toBe(transcriptLineId(5));
+    expect(transcriptTarget(rec.lines, 20.5)).toBe(transcriptLineId(20.5));
+    expect(transcriptTarget(rec.lines, 100)).toBe(transcriptLineId(20.5));
+    expect(transcriptTarget(rec.lines.filter((line) => line.bookmark), 12)).toBeUndefined();
+    expect(transcriptTarget([], 0)).toBeUndefined();
+  });
+});
+
 describe("recordingView", () => {
   it("is only for recordings", () => {
     expect(recordingView("meetings", {}, [])).toBeNull();
@@ -342,9 +374,9 @@ describe("recordingView", () => {
       ],
     )!;
     expect(v.lines).toEqual([
-      { clock: "09:00:00", text: "第一段" },
-      { clock: "09:00:12", text: "灰度", bookmark: true },
-      { clock: "09:00:20", text: "后一段" },
+      { seconds: 0, clock: "09:00:00", text: "第一段" },
+      { seconds: 12, clock: "09:00:12", text: "灰度", bookmark: true },
+      { seconds: 20, clock: "09:00:20", text: "后一段" },
     ]);
     expect(v.partial).toBe(true);
     expect(v.duration).toBe(durationLabel(3733));

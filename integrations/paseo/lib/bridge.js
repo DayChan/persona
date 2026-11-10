@@ -10,9 +10,9 @@ import { realpathSync, statSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { createRuntime, light, page, RpcError, snippet } from '../../runtime-sdk/index.js'
 import {
-  EFFORTS, MODES, RUNTIME, SESSION_LABEL, agentRoot, agentRow, appAgent, claudeId, defaultProvider, interactionOf,
-  launchersOf, linkedWorktree, projectSpaces, providerRoots, responseOf, sessionIdOf, slotNameOf, spaceIdOf, strayRecord,
-  timelineItems, transcriptOf,
+  EFFORTS, RUNTIME, SESSION_LABEL, agentRoot, agentRow, appAgent, claudeId, defaultProvider, interactionOf,
+  launchersOf, linkedWorktree, paseoMode, projectSpaces, providerRoots, responseOf, sessionIdOf, slotNameOf, spaceIdOf,
+  strayRecord, timelineItems, transcriptOf,
 } from './map.js'
 import { PaseoClient } from './paseo.js'
 
@@ -23,6 +23,9 @@ const LIST_MAX = 300 // sessions listed at most (those running or waiting always
 const REFRESH_DELAY = 120 // ms: a watched agent's timeline is read again this long after it moved
 const LAST_TEXT_DELAY = 3000 // ms: an agent's last words are read again this long after it changed
 const PAGES_MAX = 10 // directory pages read at connect (200 agents each)
+// Whole timelines kept at most (the most recently read; a watched agent's stays whatever the count): each is an
+// agent's whole conversation, and the directory holds up to PAGES_MAX x 200 agents.
+export const TIMELINES_MAX = 16
 const EVENTS = ['agent_permission_request', 'agent_permission_resolved', 'providers_snapshot_update', 'status.daemon_config_changed']
 const TIMEOUT = Symbol('timeout')
 
@@ -51,7 +54,7 @@ export function createPaseoBridge(deps = {}, options = {}) {
   const echoes = new Map() // Paseo message id → the client_msg_id the phone sent it with
   const lastTexts = new Map() // agent id → its last words (agents whose content is not a transcript)
   const lastTextTimers = new Map()
-  const timelines = new Map() // agent id → { key, at, tl, history } (the last whole read)
+  const timelines = new Map() // agent id → { key, at, tl, history } (the last whole read), the least recently read first
   const canonical = new Map() // path → the path with symbolic links resolved (canon)
   let runtimeOn = false
   let awayTimer
@@ -304,7 +307,8 @@ export function createPaseoBridge(deps = {}, options = {}) {
       if (asks.get(request.id) !== entry) return
       asks.delete(request.id)
       const agent = agents.get(agentId)?.agent
-      const out = responseOf(request, res, agentRoot(agent, roots))
+      const root = agentRoot(agent, roots)
+      const out = responseOf(request, res, root)
       if (!out) {
         // Handed back (or no hub to ask: asked again when it is back): Paseo's app answers it meanwhile.
         if (rt.hubConnected) handedBack.add(request.id)
@@ -313,9 +317,10 @@ export function createPaseoBridge(deps = {}, options = {}) {
       try {
         await paseo.request('agent_permission_response', { agentId, response: out.response },
           { requestId: request.id, expect: 'agent_permission_resolved', timeoutMs: 30_000 })
-        if (out.setMode) {
-          const r = await paseo.request('set_agent_mode_request', { agentId, modeId: out.setMode })
-          if (r?.accepted === false) log(`paseo: mode ${out.setMode} for ${agentId}: ${r.error ?? 'refused'}`)
+        const modeId = paseoMode(root, out.setMode)
+        if (modeId) {
+          const r = await paseo.request('set_agent_mode_request', { agentId, modeId })
+          if (r?.accepted === false) log(`paseo: mode ${modeId} for ${agentId}: ${r.error ?? 'refused'}`)
         }
       } catch (err) {
         log(`paseo: answer ${request.id} of ${agentId}: ${err.message}`)
@@ -387,13 +392,31 @@ export function createPaseoBridge(deps = {}, options = {}) {
   async function timeline(agent) {
     const key = `${agent.updatedAt}|${agent.status}`
     const c = timelines.get(agent.id)
-    if (c && c.key === key && (agent.status !== 'running' || Date.now() - c.at < 500)) return c
+    if (c && c.key === key && (agent.status !== 'running' || Date.now() - c.at < 500)) {
+      keepTimeline(agent.id, c)
+      return c
+    }
     const res = await fetchTimeline(agent.id)
     const tl = timelineItems(res.entries, { maxSeq: res.window?.maxSeq, running: isRunning(res.agent ?? agent), echoes })
     const out = { key, at: Date.now(), tl, history: history(agent.id, res.epoch), epoch: res.epoch }
-    timelines.set(agent.id, out)
+    keepTimeline(agent.id, out)
     if (tl.lastText) lastTexts.set(agent.id, tl.lastText)
     return out
+  }
+
+  /**
+   * An agent's timeline as the most recently read; beyond TIMELINES_MAX, the least recently read go, except those of
+   * the agents the phone watches (read again and again while it does).
+   */
+  function keepTimeline(agentId, t) {
+    timelines.delete(agentId)
+    timelines.set(agentId, t)
+    if (timelines.size <= TIMELINES_MAX) return
+    const watched = new Set([...watches.values()].map((w) => w.agentId))
+    for (const id of timelines.keys()) {
+      if (timelines.size <= TIMELINES_MAX) break
+      if (!watched.has(id)) timelines.delete(id)
+    }
   }
 
   const isRunning = (a) => a?.status === 'running' || a?.status === 'initializing' || Boolean(a?.activeTurn)
@@ -498,13 +521,12 @@ export function createPaseoBridge(deps = {}, options = {}) {
     const agent = agentFor(params.session_id)
     const mode = params.permission_mode
     if (mode) {
-      if (agentRoot(agent, roots) !== 'claude' || !MODES.includes(mode)) {
-        throw new RpcError('这个 Agent 没有 Claude Code 的权限模式', 'unsupported')
-      }
-      if ((agent.availableModes ?? []).length && !agent.availableModes.some((m) => m?.id === mode)) {
+      const modeId = paseoMode(agentRoot(agent, roots), mode)
+      if (!modeId) throw new RpcError('这个 Agent 没有这个权限模式', 'unsupported')
+      if ((agent.availableModes ?? []).length && !agent.availableModes.some((m) => m?.id === modeId)) {
         throw new RpcError(`Paseo 里这个 Agent 没有「${mode}」模式`, 'bad_request')
       }
-      const res = await paseo.request('set_agent_mode_request', { agentId: agent.id, modeId: mode })
+      const res = await paseo.request('set_agent_mode_request', { agentId: agent.id, modeId })
       if (res?.accepted === false) throw new RpcError(`Paseo 没有换模式：${res.error ?? '原因不明'}`, 'rejected')
     }
     const effort = params.effort
@@ -611,7 +633,8 @@ export function createPaseoBridge(deps = {}, options = {}) {
     const root = roots[provider] ?? provider
     const config = { provider, cwd }
     if (typeof params.model === 'string' && params.model) config.model = params.model
-    if (root === 'claude' && MODES.includes(params.permission_mode)) config.modeId = params.permission_mode
+    const modeId = paseoMode(root, params.permission_mode)
+    if (modeId) config.modeId = modeId
     if (EFFORTS.includes(params.effort)) {
       const opts = thinkingOptions({ provider, model: config.model })
       if (!opts.length || opts.includes(params.effort)) config.thinkingOptionId = params.effort
@@ -874,7 +897,7 @@ export function createPaseoBridge(deps = {}, options = {}) {
     runtime: rt,
     paseo,
     /** Tests: the bridge's view. */
-    state: { agents, bySession, watches, asks, handedBack, echoes, get launchers() { return launchers } },
+    state: { agents, bySession, watches, asks, handedBack, echoes, timelines, get launchers() { return launchers } },
   }
 }
 

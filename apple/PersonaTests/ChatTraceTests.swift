@@ -11,7 +11,7 @@ struct ChatTraceTests {
 
     private let secret = "不该出现在诊断里的话"
 
-    @Test func theEndOfTheChatTellsAnAnswerFromTheDrawer() {
+    @Test func theEndOfTheChatTellsTheAnswerFromItsExecutionSummary() {
         var wake = item(4, .notice, role: "system", text: "后台任务完成")
         wake.wake = true
         let long = String(repeating: secret, count: 20)
@@ -21,7 +21,7 @@ struct ChatTraceTests {
         let lines = ChatLines(openWork: []).build(ChatBlock.build(ChatStore.buildRows(items)), live: nil)
         let screen = ChatTrace.screen(lines, live: 0, streaming: false, running: false, frozen: false, withheld: 0)
         #expect(screen.contains("a6"))
-        #expect(screen.contains("wakes(tail=0,answer=6)"))
+        #expect(screen.contains("work(4)"))
         #expect(!screen.contains("a3"))
         #expect(!screen.contains(secret) && !screen.contains("好了"))
 

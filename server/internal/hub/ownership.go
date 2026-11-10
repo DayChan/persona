@@ -13,6 +13,7 @@ import (
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/bus"
+	"github.com/nwverse/persona/server/internal/db"
 	"github.com/nwverse/persona/server/internal/devicewire"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
@@ -118,46 +119,98 @@ func (h *Hub) rosterHas(ctx context.Context, id string) (has, sure bool) {
 	return b != nil && b.Role == bus.RoleManager, true
 }
 
-// ownerCache keeps the default manager for a moment: it is asked on every forwarded request.
+// ownerCache keeps the default manager and the roster's identities for a moment: the default is asked on every
+// forwarded request, and both on every GET of a list the apps keep (/api/v1/extensions and the others of
+// extwire.KeptRoutes, retainedListManagers) and of GET /api/v1/managers.
 type ownerCache struct {
 	mu    sync.Mutex
 	def   string
 	until time.Time
 	gen   uint64 // bumped by ownersChanged: a read that began before it does not keep what it read
+
+	idents      []db.BusIdentity // nil: none kept
+	identsFrom  busStore         // the store they were read from
+	identsUntil time.Time
 }
 
 const defaultOwnerTTL = 2 * time.Second
 
 // defaultOwner is defaultManager, kept for a couple of seconds (managersChanged drops it).
 func (h *Hub) defaultOwner(ctx context.Context) string {
+	def, _ := h.defaultOwnerOrErr(ctx)
+	return def
+}
+
+// defaultOwnerOrErr is defaultManagerOrErr, kept as defaultOwner keeps it. A read that fails is not kept.
+func (h *Hub) defaultOwnerOrErr(ctx context.Context) (string, error) {
 	c := &h.owners
 	c.mu.Lock()
 	if c.def != "" && time.Now().Before(c.until) {
 		def := c.def
 		c.mu.Unlock()
-		return def
+		return def, nil
 	}
 	gen := c.gen
 	c.mu.Unlock()
 	def, err := h.defaultManagerOrErr(ctx)
 	if err != nil {
-		return def // the assistant, because the store did not answer: not kept
+		return def, err // the assistant, because the store did not answer: not kept
 	}
 	c.mu.Lock()
 	if c.gen == gen { // the roster did not change while it was read
 		c.def, c.until = def, time.Now().Add(defaultOwnerTTL)
 	}
 	c.mu.Unlock()
-	return def
+	return def, nil
 }
 
-// ownersChanged forgets the kept default (the roster or the default changed).
+// busIdentities is s's BusIdentities, kept as long as the default (ownersChanged drops them: the roster changed, a
+// connection came or went, or the hub made or revoked a token). A read that fails is not kept. The list is shared:
+// callers do not change it. A connection's token is not looked up here but afresh every time (busIdentity).
+func (h *Hub) busIdentities(ctx context.Context, s busStore) ([]db.BusIdentity, error) {
+	c := &h.owners
+	c.mu.Lock()
+	if c.idents != nil && c.identsFrom == s && time.Now().Before(c.identsUntil) {
+		list := c.idents
+		c.mu.Unlock()
+		return list, nil
+	}
+	gen := c.gen
+	c.mu.Unlock()
+	list, err := s.BusIdentities(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if list == nil {
+		list = []db.BusIdentity{}
+	}
+	c.mu.Lock()
+	if c.gen == gen {
+		c.idents, c.identsFrom, c.identsUntil = list, s, time.Now().Add(defaultOwnerTTL)
+	}
+	c.mu.Unlock()
+	return list, nil
+}
+
+// forgetIdentities drops the identities kept: the next read asks the store.
+func (h *Hub) forgetIdentities() {
+	c := &h.owners
+	c.mu.Lock()
+	c.idents, c.identsFrom = nil, nil
+	c.gen++
+	c.mu.Unlock()
+}
+
+// ownersChanged forgets the kept default and identities (the roster or the default changed), and the merged inbox
+// answers kept (inbox_answers.go).
 func (h *Hub) ownersChanged() {
 	c := &h.owners
 	c.mu.Lock()
 	c.def = ""
+	c.idents, c.identsFrom = nil, nil
 	c.gen++
 	c.mu.Unlock()
+	h.inboxAnswers.changedAll()
 }
 
 // machineOwner is the manager machine mid belongs to, the only one that may act on it or its sessions.

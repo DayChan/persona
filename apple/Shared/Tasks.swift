@@ -318,6 +318,8 @@ nonisolated struct TodoItem: Codable, Hashable, Identifiable, Sendable {
     /// The main conversation supervises it (#3124, `Supervision.swift`): what done means, its reviews, its agent's
     /// latest report. Nil for a todo that is not supervised, from an older hub, or when it does not decode.
     var supervision: TaskSupervision?
+    /// The current owner decision or verification round; malformed asks never hide the task.
+    var ask: TodoAsk?
     /// When it is due (#1683, docs/assistant/todos.md "Due date, reminder, priority"): a moment, or a day ("yyyy-MM-dd",
     /// due by its end in the user's time zone); at most one. Nil from a hub without them.
     var dueAt: Date?
@@ -329,7 +331,7 @@ nonisolated struct TodoItem: Codable, Hashable, Identifiable, Sendable {
     var priority: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, notes, origin, agents, spaces, quiet, stage, supervision, priority
+        case id, title, notes, origin, agents, spaces, quiet, stage, supervision, priority, ask
         case doneAt = "done_at", createdAt = "created_at", updatedAt = "updated_at", planID = "plan_id", startError = "start_error",
              doneBy = "done_by", doneReason = "done_reason", prURL = "pr_url", dueAt = "due_at", dueDate = "due_date",
              remindAt = "remind_at", remindedAt = "reminded_at"
@@ -339,7 +341,7 @@ nonisolated struct TodoItem: Codable, Hashable, Identifiable, Sendable {
          origin: String? = nil, planID: String? = nil, startError: String? = nil, doneBy: String? = nil, doneReason: String? = nil,
          agents: [Agent] = [], spaces: [Space]? = nil, quiet: Bool = false, stage: String? = nil, prURL: String? = nil,
          supervision: TaskSupervision? = nil, dueAt: Date? = nil, dueDate: String? = nil, remindAt: Date? = nil,
-         remindedAt: Date? = nil, priority: String? = nil) {
+         remindedAt: Date? = nil, priority: String? = nil, ask: TodoAsk? = nil) {
         self.id = id
         self.title = title
         self.notes = notes
@@ -362,6 +364,7 @@ nonisolated struct TodoItem: Codable, Hashable, Identifiable, Sendable {
         self.remindAt = remindAt
         self.remindedAt = remindedAt
         self.priority = priority
+        self.ask = ask
     }
 
     init(from decoder: Decoder) throws {
@@ -391,8 +394,11 @@ nonisolated struct TodoItem: Codable, Hashable, Identifiable, Sendable {
         remindAt = (try? c.decodeIfPresent(Date.self, forKey: .remindAt)) ?? nil
         remindedAt = (try? c.decodeIfPresent(Date.self, forKey: .remindedAt)) ?? nil
         priority = (try? c.decodeIfPresent(String.self, forKey: .priority)) ?? nil
+        ask = (try? c.decodeIfPresent(TodoAsk.self, forKey: .ask)) ?? nil
     }
 
+    /// An ended task cannot keep an old decision card alive.
+    var openAsk: TodoAsk? { doneAt == nil && ask?.askedAt.isEmpty == false ? ask : nil }
     var activeAgents: [Agent] { agents.filter(\.isActive) }
     /// The hub ended it because its agent did not start.
     var failedToStart: Bool { !(startError ?? "").isEmpty }
@@ -519,6 +525,7 @@ nonisolated enum TaskState: String, Sendable, CaseIterable {
     init(todo: TodoItem, agents: [AgentState]) {
         if todo.failedToStart { self = .failed; return }
         if todo.doneAt != nil { self = .done; return }
+        if todo.openAsk != nil { self = .needsYou; return }
         let has = Set(agents)
         if has.contains(.needsYou) { self = .needsYou }
         else if has.contains(.unread) { self = .unread }

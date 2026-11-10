@@ -60,7 +60,8 @@ class AnswerReceiptTest {
 
     @Config(qualifiers = "zh")
     @Test fun nothingOfItsOwnKeepsTheOldNotice() {
-        assertEquals("已回传你的选择", sent(bash, Resolution(dismiss = true)))
+        // Leave to computer says so, not that a choice was made (#2821).
+        assertEquals("交回电脑处理", sent(bash, Resolution(dismiss = true)))
         assertEquals("已回传你的选择", sent(dialog, Resolution(keys = listOf("escape"))))
         assertEquals("已回传你的选择", sent(question, Resolution(answers = emptyMap())))
         assertEquals("已回传你的选择", sent(Interaction("e", kind = "elicitation"), Resolution(action = "accept")))
@@ -74,7 +75,7 @@ class AnswerReceiptTest {
         assertEquals("Plan approved: Use Kotlin", sent(plan, Resolution(approve = true)))
         assertEquals("Plan approved, auto-accept edits: Use Kotlin", sent(plan, Resolution(approve = true, mode = "acceptEdits")))
         assertEquals("Answered “Do you want to make this edit to Main.kt?”: No", sent(asked, Resolution(option = "2")))
-        assertEquals("Your choice was sent back", sent(bash, Resolution(dismiss = true)))
+        assertEquals("Handed back to the computer", sent(bash, Resolution(dismiss = true)))
     }
 
     @Config(qualifiers = "ja")

@@ -29,7 +29,7 @@ log('started Antigravity (agy) runtime for Persona')
 for (const sig of ['SIGTERM', 'SIGINT']) {
   process.on(sig, () => {
     clearInterval(alive)
-    runtime.stop()
-    process.exit(0)
+    // Exit once agy is gone (killed after a short grace when it ignores SIGTERM), so it does not outlive the companion.
+    runtime.stop().finally(() => process.exit(0))
   })
 }

@@ -11,5 +11,6 @@
   "too_deep": "依存関係が深すぎます",
   "list_separator": "、",
   "has_dependents": "次の拡張機能がこれを使っています：{names}。まとめてオフにしますか？",
-  "read_only": "拡張機能「{name}」は manager.json に書かれています。先にそこでオフにしてください"
+  "read_only": "拡張機能「{name}」は manager.json に書かれています。先にそこでオフにしてください",
+  "pack_member_not_on": "「{name}」をオンに戻せませんでした：{error}"
 }

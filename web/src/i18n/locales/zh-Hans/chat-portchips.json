@@ -1,0 +1,5 @@
+{
+  "stopped": "已停止",
+  "open_hint": "在预览里打开 {machine} 上的这个页面",
+  "gone_hint": "这个端口已经没有在监听"
+}

@@ -196,7 +196,7 @@
     <string name="machines_usage_days_hours">%1$dd %2$dh</string>
     <string name="machines_usage_reset_in">Resets in %1$s</string>
     <string name="machines_usage_reset_at">Resets at %1$s</string>
-    <string name="machines_usage_source_local">This computer</string>
+    <string name="machines_usage_source_local">Computer</string>
     <string name="machines_usage_problem_unreachable">The gateway can\'t be reached; these are its last numbers</string>
     <string name="machines_usage_problem_rejected">The gateway turned the key away; update it in Admin → Usage sources. These are its last numbers</string>
     <string name="machines_usage_problem_failed">Couldn\'t read the gateway; these are its last numbers</string>

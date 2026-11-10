@@ -134,12 +134,18 @@ final class SyncHub {
         return Array(lines[starts[starts.count - turns]...])
     }
 
-    /// The backlog a subscribe without `since_seq` gets.
-    var backlogFrame: JSONValue {
-        let page = latestPage
+    /// Every subscription gets a backlog: the latest page, or everything after its cached cursor, even if empty.
+    func backlogFrame(since: Int?) -> JSONValue {
+        let after = since.flatMap { $0 > 0 ? $0 : nil }
+        let page = after.map { cursor in lines.filter { ($0["seq"]?.int ?? 0) > cursor } } ?? latestPage
         var f: [String: JSONValue] = ["type": .string("items"), "machine_id": .string(machine), "session_id": .string(sessionID),
-                                      "items": .array(page), "to_seq": .number(Double(toSeq)), "backlog": .bool(true),
-                                      "has_more": .bool(page.count < lines.count)]
+                                      "items": .array(page), "to_seq": .number(Double(toSeq)), "backlog": .bool(true)]
+        if let after {
+            f["from_seq"] = .number(Double(after))
+            f["more_after"] = .bool(false)
+        } else {
+            f["has_more"] = .bool(page.count < lines.count)
+        }
         if let history { f["history"] = .string(history) }
         return .object(f)
     }

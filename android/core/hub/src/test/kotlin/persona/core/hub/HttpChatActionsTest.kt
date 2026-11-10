@@ -61,6 +61,26 @@ class HttpChatActionsTest {
         }
     }
 
+    @Test fun ultracodeGoesAloneAndAQueuedSwitchVerifies() = runBlocking {
+        MockWebServer().use { server ->
+            val actions = actions(server)
+            server.enqueue(MockResponse().setBody("{}"))
+            assertEquals(ChatActionResult.Done, actions.execute(Session("m", "s1"), ChatAction.Modes(ultracode = true)))
+            val request = server.takeRequest()
+            assertEquals("/api/v1/sessions/m/s1/modes", request.path)
+            assertEquals(buildJsonObject { put("ultracode", true) }, JsonCodec.parseToJsonElement(request.body.readUtf8()))
+            // The hub's row: queued, the node still saw it off; an older hub's row has none of the fields (unknown, not off).
+            server.enqueue(MockResponse().setBody("""{"sessions":[{"machine_id":"m","session_id":"s1","ultracode":false,"ultracode_pending":true,"ultracode_note":"等这一轮结束"}]}"""))
+            assertEquals(ChatActionResult.Done, actions.verify(Session("m", "s1"), ChatAction.Modes(ultracode = true)))
+            server.enqueue(MockResponse().setBody("""{"sessions":[{"machine_id":"m","session_id":"s1"}]}"""))
+            assertEquals(ChatActionResult.Unknown, actions.verify(Session("m", "s1"), ChatAction.Modes(ultracode = true)))
+            val old = JsonCodec.decodeFromString<Session>("""{"machine_id":"m","session_id":"s1"}""")
+            assertEquals(Triple<Boolean?, String?, Boolean>(null, null, false), Triple(old.ultracode, old.ultracodeNote, old.ultracodePending))
+            val seen = JsonCodec.decodeFromString<Session>("""{"session_id":"s1","ultracode":false,"ultracode_note":"x","ultracode_pending":true}""")
+            assertEquals(Triple<Boolean?, String?, Boolean>(false, "x", true), Triple(seen.ultracode, seen.ultracodeNote, seen.ultracodePending))
+        }
+    }
+
     @Test fun forkPostsTheReplyAndReturnsTheNewSession() = runBlocking {
         MockWebServer().use { server ->
             val actions = actions(server)

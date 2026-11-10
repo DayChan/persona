@@ -43,6 +43,10 @@ func TestPersonaManagerCommandLine(t *testing.T) {
 		{[]string{"manager", "bogus"}, 2, "persona-manager manager join"}, // personad's form
 		{[]string{"manager"}, 2, "persona-manager manager join"},          // as personad manager: the usage, exit 2
 		{[]string{"node", "bogus"}, 2, "persona-manager node -h"},         // the node's commands (the local node it starts)
+
+		// A flag mistake: the flag's message and the usage, exit 2 (capabilities' was 1, with a log timestamp).
+		{[]string{"capabilities", "--bogus"}, 2, "flag provided but not defined: -bogus"},
+		{[]string{"status", "--json"}, 2, "flag provided but not defined: -json"},
 	} {
 		out, code := run(c.args...)
 		if code != c.code || !strings.Contains(out, c.want) {

@@ -6,6 +6,7 @@ import persona.core.contracts.pushManager
 import persona.core.contracts.api.AssistantManagerChoice
 import persona.core.contracts.api.ManagerRoster
 import persona.core.contracts.api.HubExtension
+import persona.core.contracts.api.HubLauncher
 import persona.core.contracts.api.ExtensionConfigRejected
 import persona.core.contracts.api.ExtensionAuth
 import persona.core.contracts.api.ExtensionDetail
@@ -266,6 +267,49 @@ internal object ExtensionMachines {
     /** The list after turning one machine on or off; empty is "not set". */
     fun toggled(selected: List<String>, id: String, on: Boolean): JsonArray? =
         (selected.filter { it != id } + listOfNotNull(id.takeIf { on })).takeIf { it.isNotEmpty() }?.let { JsonArray(it.map(::JsonPrimitive)) }
+}
+
+/** One choice of a field picking one machine or launcher (#2448): the value saved, its label, and whether the hub has it. */
+internal data class PickerChoice(val value: String, val label: String, val missing: Boolean = false)
+
+/**
+ * A string field of format machine or launcher as a choice of the hub's (docs/extensions/extensions.md "Configuration: the
+ * form subset"), as iOS and the web draw it: machines of the field's systems by name, launchers not hidden by their name
+ * (a display name before it), and a value naming none of them first, marked, to be changed. Null: not such a field, or
+ * the launchers are not in (it is typed instead).
+ */
+internal object ExtensionPickers {
+    fun choices(res: Resources, field: ExtensionField, current: String?, machines: List<ExtensionMachine>, launchers: List<HubLauncher>?): List<PickerChoice>? {
+        val out = when {
+            field.picksMachine -> {
+                val os = field.os.orEmpty()
+                machines.filter { os.isEmpty() || it.os in os }.map { PickerChoice(it.id, it.name.ifBlank { it.id }) }
+            }
+            field.picksLauncher -> launchers?.filter { !it.hidden }?.map { l ->
+                val shown = l.displayName?.trim().orEmpty()
+                PickerChoice(l.name, if (shown.isNotEmpty() && shown != l.name) "$shown (${l.name})" else l.name)
+            } ?: return null
+            else -> return null
+        }
+        if (current.isNullOrEmpty() || out.any { it.value == current }) return out
+        val missing = res.getString(if (field.picksMachine) R.string.settings_ext_machine_missing else R.string.settings_ext_launcher_missing, current)
+        return listOf(PickerChoice(current, missing, missing = true)) + out
+    }
+
+    /** A whole number one step down or up from [current] (else the default, else the minimum, else 0), within the field's bounds. */
+    fun stepped(field: ExtensionField, current: Long?, up: Boolean): Long {
+        val from = current ?: (field.fallback as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()?.toLong() ?: field.minimum?.let { kotlin.math.ceil(it).toLong() } ?: 0L
+        var next = if (up) from + 1 else from - 1
+        field.minimum?.let { next = maxOf(next, kotlin.math.ceil(it).toLong()) }
+        field.maximum?.let { next = minOf(next, kotlin.math.floor(it).toLong()) }
+        return next
+    }
+
+    /** Whether a step that way is left within the field's bounds. */
+    fun canStep(field: ExtensionField, current: Long?, up: Boolean): Boolean {
+        val c = current ?: return true
+        return if (up) field.maximum?.let { c < it } ?: true else field.minimum?.let { c > it } ?: true
+    }
 }
 
 /** The configuration being edited, by dotted path ("proxy.host"); an empty group goes with its last value. */

@@ -7,7 +7,7 @@
     <string name="designsystem_feedback_launcher_missing">在那台电脑上找不到这个模型，可能被删了。</string>
     <string name="designsystem_feedback_not_logged_in">那台电脑上的 Claude Code 还没登录。</string>
     <string name="designsystem_feedback_auth_failed">模型的 Key 不对或过期了。</string>
-    <string name="designsystem_feedback_assistant_restarting">助手正在重启，几秒后会自己好。</string>
+    <string name="designsystem_feedback_assistant_restarting">管理者不在线或正在重启，请稍后重试。</string>
     <string name="designsystem_readiness_one_more_step">还差一步</string>
     <string name="designsystem_readiness_action_add_computer">添加电脑</string>
     <string name="designsystem_readiness_action_confirm_computer">确认是我的电脑</string>

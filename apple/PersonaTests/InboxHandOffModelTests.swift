@@ -129,6 +129,9 @@ struct InboxHandOffModelTests {
         let assistant = try session("assistant", assistant: true)
         let got = InboxHandOffModel.agents([good, viewOnly, offline, offlineMachine, assistant], limit: 8) { $0.id == "m" }
         #expect(Set(got.map(\.sessionID)) == ["good"])
+        // A source's remembered Agent (#2121) passes the same test, so one that can't take it now counts as gone.
+        let takes = [good, viewOnly, offline, offlineMachine, assistant].map { s in InboxHandOffModel.takes(s) { $0.id == "m" } }
+        #expect(takes == [true, false, false, false, false])
     }
 
     @Test func aRefusedAgentSendKeepsTheItemAndSheet() async {
@@ -236,7 +239,7 @@ struct InboxHandOffModelTests {
         let calls = Calls(), m = model(calls)
         calls.failures = [APIError(status: 503, message: "node offline", fields: ["code": "node_unreachable", "delivered": "none"])]
         _ = await m.send(ask: "a")
-        #expect(m.error == "node offline")
+        #expect(m.error == String(localized: "This computer is offline: Persona Link isn't running, or the computer is asleep."))
         _ = await m.send(ask: "a")
         let ids = calls.handOffs.map(\.clientID)
         #expect(ids.count == 2 && ids[0] != ids[1])
@@ -268,7 +271,7 @@ struct InboxHandOffModelTests {
         let c = Calls(), fresh = model(c)
         c.failures = [APIError(status: 502, message: "context canceled", fields: ["code": "internal"])]
         _ = await fresh.send(ask: "a")
-        #expect(fresh.error == "context canceled")
+        #expect(fresh.error?.contains("HTTP 502") == true && fresh.error?.contains("context canceled") == false)
         _ = await fresh.send(ask: "a")
         #expect(c.handOffs.count == 2 && c.handOffs[0].clientID != c.handOffs[1].clientID)
     }
@@ -307,7 +310,8 @@ struct InboxHandOffModelTests {
         }
         let went = await m.send(ask: "a")
         #expect(went && errors == [String(localized: "It may have reached the computer already. Check the chat before sending it again."),
-                                   String(localized: "Can't reach the hub"), nil, "offline", Self.lookAgain])
+                                   String(localized: "Can't reach the hub"), nil,
+                                   String(localized: "The manager is offline or restarting. Try again shortly."), Self.lookAgain])
         #expect(calls.handOffs.count == 6 && Set(calls.handOffs.map(\.clientID)).count == 1 && calls.opened.count == 1)
     }
 
@@ -393,18 +397,21 @@ struct InboxHandOffModelTests {
         #expect(calls.handOffs.count == 6 && Set(calls.handOffs.map(\.clientID)).count == 1)
     }
 
-    /// Loading the item sent nothing: a timeout or a proxy's 5xx says the hub is out of reach, not to look in the chat.
-    @Test func aFailedLoadSaysTheHubIsOutOfReach() async {
+    /// Loading sent nothing. A gateway response is not evidence of a network outage or an uncertain send.
+    @Test func aFailedLoadPreservesTheFailureKind() async {
         let calls = Calls(), m = model(calls)
-        let hub = String(localized: "Can't reach the hub")
         calls.loadFailures = [URLError(.timedOut), APIError(status: 502, message: "Bad Gateway"),
-                              APIError(status: 404, message: "no such item", fields: ["code": "not_found"])]
+                              APIError(status: 404, message: "no such item", fields: ["code": "not_found"]),
+                              APIError(status: 503, message: "Request failed", fields: ["code": "assistant_offline"]),
+                              URLError(.notConnectedToInternet)]
         var errors: [String?] = []
-        for _ in 0..<3 {
+        for _ in 0..<5 {
             _ = await m.send(ask: "a")
             errors.append(m.error)
         }
-        #expect(errors == [hub, hub, "no such item"] && calls.handOffs.isEmpty)
+        #expect(errors == [String(localized: "The request timed out. Try again later."), "Bad Gateway", "no such item",
+                           String(localized: "The manager is offline or restarting. Try again shortly."),
+                           String(localized: "Can't reach the hub")] && calls.handOffs.isEmpty)
         let went = await m.send(ask: "a")
         #expect(went && calls.handOffs.count == 1)
     }
@@ -421,7 +428,7 @@ struct InboxHandOffModelTests {
         c.failures = [APIError(status: 405, message: "Method Not Allowed")]
         c.askFailures = [APIError(status: 503, message: "Persona is offline", fields: ["code": "assistant_offline"])]
         let wentAnyway = await checked.send(ask: "a")
-        #expect(!wentAnyway && c.done == 0 && checked.error == "Persona is offline")
+        #expect(!wentAnyway && c.done == 0 && checked.error == String(localized: "The manager is offline or restarting. Try again shortly."))
         c.failures = [APIError(status: 405, message: "Method Not Allowed")]
         _ = await checked.send(ask: "a")
         #expect(c.done == 1 && c.asked.count == 2 && c.handOffs[0].clientID != c.handOffs[1].clientID)

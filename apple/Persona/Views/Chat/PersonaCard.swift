@@ -55,11 +55,18 @@ nonisolated extension ExtensionPersonaCard {
     /// The card as the apps draw it, nil when they cannot (it stays a code block): `sdk/go/wire/personacard.go`'s rules,
     /// held to `schema/extension/examples/persona-card/` by the tests.
     func view() -> ExtensionView? {
-        let parts = (segments ?? []) + (rest.map { [$0] } ?? [])
-        let sum = parts.reduce(0) { $0 + $1.value }
+        var parts = (segments ?? []) + (rest.map { [$0] } ?? [])
+        var sum = parts.reduce(0) { $0 + $1.value }
         switch type {
         case ExtensionPersonaCardKind.stat: guard value != nil else { return nil }
         case ExtensionPersonaCardKind.stackedBar: guard !parts.isEmpty, sum > 0, parts.allSatisfy({ $0.value >= 0 }) else { return nil }
+        case ExtensionPersonaCardKind.ring:
+            // What the total leaves over the parts is a part of its own, last.
+            if let t = total?.value, t > sum {
+                parts.append(ExtensionCardPart(label: String(localized: "Remaining", comment: "Chart card: what the total leaves over the parts"), value: t - sum))
+                sum = t
+            }
+            guard parts.count >= 2, sum > 0, parts.allSatisfy({ $0.value >= 0 }) else { return nil }
         case ExtensionPersonaCardKind.line: guard (points ?? []).count >= 2 else { return nil }
         case ExtensionPersonaCardKind.bar: guard !(points ?? []).isEmpty else { return nil }
         default: return nil
@@ -87,6 +94,21 @@ nonisolated extension ExtensionPersonaCard {
                                                    points: [ExtensionChartPoint(label: label, value: other, display: Self.amount(other, u))]))
             }
             s.items.append(.chart(ExtensionChartComponent(kind: ExtensionChartKind.bar, series: series, unit: Self.nonEmpty(u), stacked: true)))
+            for p in parts {
+                s.items.append(.row(ExtensionRowComponent(title: p.label, subtitle: Self.nonEmpty(p.note), value: Self.amount(p.value, u))))
+            }
+        case ExtensionPersonaCardKind.ring:
+            var u = unit, whole = sum
+            if let t = self.total { u = Self.nonEmpty(t.unit) ?? unit; whole = t.value }
+            var shown = parts
+            if parts.count > 8 {
+                shown = Array(parts.prefix(7)) + [ExtensionCardPart(label: String(localized: "Other", comment: "Chart series: the remaining items"),
+                                                                    value: parts.dropFirst(7).reduce(0) { $0 + $1.value })]
+            }
+            let center = Self.amount(whole, u)
+            s.items.append(.chart(ExtensionChartComponent(kind: ExtensionChartKind.donut,
+                                                          series: [ExtensionChartSeries(points: shown.map { ExtensionChartPoint(label: $0.label, value: $0.value, display: Self.amount($0.value, u)) })],
+                                                          unit: Self.nonEmpty(u), detail: Self.nonEmpty(note), center: center.count <= 20 ? center : nil)))
             for p in parts {
                 s.items.append(.row(ExtensionRowComponent(title: p.label, subtitle: Self.nonEmpty(p.note), value: Self.amount(p.value, u))))
             }

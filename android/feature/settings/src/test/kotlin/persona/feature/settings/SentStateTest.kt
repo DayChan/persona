@@ -350,6 +350,10 @@ class SentStateTest {
         private val reached = mutableMapOf<Int, CompletableDeferred<Unit>>()
         private val opened = mutableMapOf<Int, CompletableDeferred<Unit>>()
 
+        /** Rows taken back, and what a recall answers instead (a failure, thrown). */
+        val recalled = mutableSetOf<Long>()
+        var recallFail: Exception? = null
+
         fun set(vararg ids: Long, connector: String = "mail") { rows = ids.map { it to connector } }
         fun hold(vararg n: Int) { holds += n.toSet() }
         suspend fun waitReached(n: Int) = reached.getOrPut(n) { CompletableDeferred() }.await()
@@ -359,8 +363,17 @@ class SentStateTest {
             fail?.invoke(before, connector)?.let { throw it }
             val hit = rows.filter { (before == null || it.first < before) && (connector.isNullOrEmpty() || it.second == connector) }
             val got = hit.take(PageSize)
-            val items = got.map { SentItem(it.first, at = "2026-11-05T12:00:00Z", connector = it.second, action = "a", text = "row ${it.first}") }
+            val items = got.map { row(it.first, it.second) }
             return SentPage(items, next = if (hit.size > PageSize) got.last().first else null)
+        }
+
+        private fun row(id: Long, connector: String) = SentItem(id, at = "2026-11-05T12:00:00Z", connector = connector, action = "a", text = "row $id",
+            recalledAt = if (id in recalled) "2026-11-05T12:05:00Z" else "", canRecall = id !in recalled)
+
+        override suspend fun recall(id: Long): SentItem? {
+            recallFail?.let { throw it }
+            recalled += id
+            return row(id, rows.first { it.first == id }.second)
         }
 
         override suspend fun page(before: Long?, limit: Int?, connector: String?): SentPage {
@@ -401,6 +414,7 @@ class SentStateTest {
             override suspend fun page(before: Long?, limit: Int?, connector: String?) =
                 if (second) SentPage(listOf(SentItem(4, text = "again"), SentItem(3)), null)
                 else SentPage(listOf(SentItem(6), SentItem(5), SentItem(4, text = "first")), 4)
+            override suspend fun recall(id: Long): SentItem? = null
         }
         val page = SentModel(api)
         page.load()
@@ -409,6 +423,43 @@ class SentStateTest {
         assertEquals(listOf(6L, 5L, 4L, 3L), ids(page.state.value.items))
         // the newer copy of the row that came twice is the one shown
         assertEquals("again", page.state.value.items?.first { it.id == 4L }?.text)
+    }
+
+    @Test fun aRecallShowsTheRowTheHubAnswersAndReadsTheListAgain() = runBlocking {
+        val hub = Hub().apply { set(3, 2, 1) }
+        val page = SentModel(hub)
+        page.load()
+        assertTrue(page.state.value.items.orEmpty().all { it.canRecall })
+        page.recall(2)
+        val row = page.state.value.items?.first { it.id == 2L }
+        assertTrue(row != null && !row.canRecall && row.recalledAt.isNotEmpty())
+        assertTrue(page.state.value.recalling == null && page.state.value.recallError == null)
+        assertEquals(2, hub.asked.size) // the first page again
+    }
+
+    @Test fun aRefusedRecallSaysWhyForThatRowAndReadsTheListAgain() = runBlocking {
+        val hub = Hub().apply { set(3, 2, 1); recallFail = refused(409, "too_old", "too old") }
+        val page = SentModel(hub)
+        page.load()
+        page.recall(2)
+        assertEquals(2L, page.state.value.recallError?.id)
+        assertEquals("这条消息发出太久，已不能撤回。", page.state.value.recallError?.text?.resolve(res))
+        assertTrue(page.state.value.recalling == null && hub.recalled.isEmpty())
+        assertEquals(2, hub.asked.size)
+        // a new attempt clears the old reason
+        hub.recallFail = null
+        page.recall(2)
+        assertNull(page.state.value.recallError)
+    }
+
+    @Test fun aRecallRefusalIsInPlainWordsAndOtherwiseWhatTheHubSaid() {
+        fun said(error: Exception) = SentText.recallProblem(error).resolve(res)
+        assertEquals("这条消息已经撤回过了。", said(refused(409, "already_recalled")))
+        assertEquals("不确定消息是否已被删除。可以再试一次确认。", said(refused(504, "recall_unknown")))
+        assertEquals("只有你自己的、拥有完整权限的设备才能撤回消息。", said(refused(403, "own_device_only")))
+        assertEquals("这个 Hub 的版本还不能撤回消息。请更新 Hub 后再试。", said(refused(404)))
+        assertEquals("消息没有撤回：GitHub said no", said(refused(502, "recall_refused", "GitHub said no")))
+        assertEquals("消息没有撤回：a new reason", said(refused(409, "something_new", "a new reason")))
     }
 
     @Test fun theChipsAreWhatTheLoadedRowsShowedAndChoosingOneReadsItsRowsOnly() = runBlocking {

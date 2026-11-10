@@ -51,6 +51,9 @@ internal data class SentProblem(val kind: Kind, val text: ResText) {
     enum class Kind { NoDatabase, Forbidden, Unsupported, Error }
 }
 
+/** Why a recall of row [id] did not happen, in plain words. */
+internal data class SentRecallError(val id: Long, val text: ResText)
+
 /** What reading the first page again leaves ([SentText.refreshed]). */
 internal data class SentRefresh(val items: List<SentItem>, val next: Cursor, val loadedOlder: Boolean) {
     sealed interface Cursor {
@@ -79,6 +82,29 @@ internal object SentText {
             coded?.status == 404 && coded.code == null -> SentProblem(SentProblem.Kind.Unsupported, ResText.of(R.string.settings_sent_unsupported))
             else -> SentProblem(SentProblem.Kind.Error, ResText.of(R.string.settings_src_read_failed, failureReasonText(error)))
         }
+    }
+
+    /**
+     * Why a recall did not happen, in plain words (docs/extensions/connectors.md "Sent as the user", Failures); a code this page
+     * does not know, and `recall_refused`, say what the hub said.
+     */
+    fun recallProblem(error: Throwable): ResText {
+        val coded = hubCodedFailure(error)
+        val known = when {
+            coded?.status == 403 -> R.string.settings_sent_recall_forbidden
+            (coded?.status == 404 && coded.code == null) || coded?.status == 405 -> R.string.settings_sent_recall_unsupported
+            else -> when (coded?.code) {
+                "not_found" -> R.string.settings_sent_recall_not_found
+                "not_recallable" -> R.string.settings_sent_recall_not_recallable
+                "too_old" -> R.string.settings_sent_recall_too_old
+                "already_recalled" -> R.string.settings_sent_recall_already
+                "connector_unavailable" -> R.string.settings_sent_recall_unavailable
+                "no_database" -> R.string.settings_sent_recall_no_database
+                "recall_unknown" -> R.string.settings_sent_recall_unknown
+                else -> null
+            }
+        }
+        return known?.let { ResText.of(it) } ?: ResText.of(R.string.settings_sent_recall_refused, failureReasonText(error))
     }
 
     // ------------------------------------------------------------------ the list
@@ -300,6 +326,10 @@ internal data class SentState(
     val moreError: ResText? = null,
     /** The connectors the loaded rows have shown, in the order they first showed (the chips). */
     val seen: List<String> = emptyList(),
+    /** The row a recall is on its way for. */
+    val recalling: Long? = null,
+    /** Why the last recall failed. */
+    val recallError: SentRecallError? = null,
 ) {
     val choices: List<String> get() = SentText.connectorChoices(seen, filter)
 
@@ -381,6 +411,29 @@ internal class SentModel(private val api: HubSent) {
         hasFirst = false
         mutable.update { it.copy(filter = chosen, items = null, next = null, problem = null, moreError = null, loadingMore = false) }
         load()
+    }
+
+    /**
+     * Recall: takes back row [id]'s message once the user confirmed it. Reads of the first page already on their way are dropped
+     * (they would bring back the row as it was), the row the hub answers with replaces the old one, and the first page is read
+     * again whether it worked or not (a row now `too_old` or `already_recalled` changes too).
+     */
+    suspend fun recall(id: Long) {
+        if (state.value.recalling != null) return
+        val gen = generation
+        applied = reads
+        mutable.update { it.copy(recalling = id, recallError = null) }
+        try {
+            val row = api.recall(id)
+            if (gen == generation && row != null) mutable.update { s -> s.copy(items = s.items?.map { if (it.id == row.id) row else it }) }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            currentCoroutineContext().ensureActive()
+            if (gen == generation) mutable.update { it.copy(recallError = SentRecallError(id, SentText.recallProblem(error))) }
+        } finally {
+            mutable.update { it.copy(recalling = null) }
+        }
+        if (gen == generation) load()
     }
 
     /** Load earlier: the page after the list, added by id. */

@@ -47,6 +47,8 @@ type adminState struct {
 	ifCache       []ifacePrefix
 	ifCached      time.Time
 	gatewayLogged time.Time
+	// apiGatewayLogged: when plaintext API traffic from the container's gateway was last said to be refused (gate.go).
+	apiGatewayLogged time.Time
 
 	// Seams for tests.
 	prefixes  func() []ifacePrefix

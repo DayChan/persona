@@ -18,7 +18,7 @@ import { Button, cx, Dialog, EASE, IconButton, Loading, Spinner, toast, useNow }
 import { Icon } from "../../ui/icons";
 import { dependentError, dependencyText, previewBlocked, type Dependent, type PackMember } from "../../lib/extension-model";
 import { Group, Pill, Row, settingsInputClass as inputClass, Switch } from "./SettingsParts";
-import { agreeTo, cancelOperation, forget, getOperation, isActive, operationsOn, retryOperation, startFromMarket, wantsSignIn } from "../../lib/extension-operations";
+import { agreeTo, cancelOperation, forget, getOperation, isActive, opGone, operationsOn, retryOperation, startFromMarket, wantsSignIn } from "../../lib/extension-operations";
 import { askSignIn } from "../../lib/extension-auth";
 import { useStore } from "../../lib/store";
 import { OperationSteps, useOperation } from "./ExtensionOperation";
@@ -289,7 +289,7 @@ export function MarketItem({ market, id, manager, onBack, onInstalled }: { marke
             setPreviewOf(op.id);
           }
         })
-        .catch((e) => toast(t("settings-extensionmarket.preview_failed", { error: errorText(e) }), "error"));
+        .catch((e) => (opGone(e) ? toast(t("settings-extensionmarket.op_gone"), "info") : toast(t("settings-extensionmarket.preview_failed", { error: errorText(e) }), "error")));
     }
     if (op.state === "succeeded" && was.startsWith(`${op.id}:`) && was !== key) {
       if (op.kind === "uninstall") load();
@@ -316,6 +316,8 @@ export function MarketItem({ market, id, manager, onBack, onInstalled }: { marke
       setPreviewing(false);
     }
   };
+  // What a request about the operation got back: one the manager no longer has is let go (lib), and the page says so.
+  const opFailed = (e: unknown) => (opGone(e) ? toast(t("settings-extensionmarket.op_gone"), "info") : toast(errorText(e), "error"));
   const st = it ? itemState(it) : null;
   const contributes = Object.entries(it?.contributes ?? {});
   let home = "";
@@ -377,10 +379,11 @@ export function MarketItem({ market, id, manager, onBack, onInstalled }: { marke
               try {
                 await retryOperation(op.id, manager);
               } catch (e) {
-                toast(errorText(e), "error");
+                opFailed(e);
               }
             }}
-            onCancel={op.state === "running" && op.steps.some((s) => s.id === "consent" && s.state === "pending") ? () => cancelOperation(op.id, manager).then(() => undefined, (e) => toast(errorText(e), "error")) : undefined}
+            // a manager that no longer has it (it restarted): it is over, which is what Cancel asked for
+            onCancel={op.state === "running" && op.steps.some((s) => s.id === "consent" && s.state === "pending") ? () => cancelOperation(op.id, manager).then(() => undefined, (e) => void (opGone(e) || toast(errorText(e), "error"))) : undefined}
             onReview={() => {
               seen.current = "";
               setPreviewOf("");
@@ -389,7 +392,7 @@ export function MarketItem({ market, id, manager, onBack, onInstalled }: { marke
                   setPreview(full.preview);
                   setPreviewOf(op.id);
                 }
-              }, (e) => toast(errorText(e), "error"));
+              }, opFailed);
             }}
             onDismiss={() => forget(op)}
           />

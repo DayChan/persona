@@ -9,6 +9,9 @@
 #
 # Options (or env): --profile P (SIM_PROFILE), --device-type T (SIM_DEVICE_TYPE, default iPhone 17 Pro; a name or
 # an identifier), --runtime R (SIM_RUNTIME, default the newest runtime that has the device type), --reslim.
+# --create-only requires stock and a new name: create a shut-down device for a caller that verifies readiness itself.
+# --start-only requires stock and an existing UDID: initiate boot if shut down; the caller must bound the command
+# and verify readiness. Its subprocesses stay in the caller's process group so that shared deadline can stop them.
 # Profiles (apple/simslim/<P>.json, or a path to a simslim profile JSON):
 #   default        UI tests, screenshots, everyday runs (widgets / Live Activities, photos, push, App Intents kept)
 #   watch          a paired iPhone + Apple Watch: also Watch connectivity, messaging, HealthKit
@@ -19,7 +22,8 @@
 # profile is used as it is, with a warning; --reslim reboots it slim (only for your own simulator).
 # stdout is only the udid (last line); everything else goes to stderr. The line before it on stderr is the verdict:
 #   sim-boot: slim|stock|stock-no-simslim|in-use-not-slim|failed→stock <profile> <udid>
-# Exit 0 with a booted simulator; 2 on usage errors (nothing touched); 1 when it could not boot one.
+# Exit 0 after boot readiness (creation only with --create-only; boot initiation only with --start-only).
+# Exit 2 on usage errors (nothing touched); nonzero when a requested operation fails.
 set -uo pipefail
 CALLER=$PWD
 cd "$(dirname "$0")/../.." || exit 2
@@ -29,6 +33,8 @@ PROFILE="${SIM_PROFILE:-default}"
 DEVICE_TYPE="${SIM_DEVICE_TYPE:-iPhone 17 Pro}"
 RUNTIME="${SIM_RUNTIME:-}"
 RESLIM=0
+CREATE_ONLY=0
+START_ONLY=0
 TARGET=""
 usage() { sed -n '5,8p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 while [ $# -gt 0 ]; do
@@ -37,6 +43,8 @@ while [ $# -gt 0 ]; do
     --device-type) DEVICE_TYPE="${2:-}"; shift 2 || usage ;;
     --runtime) RUNTIME="${2:-}"; shift 2 || usage ;;
     --reslim) RESLIM=1; shift ;;
+    --create-only) CREATE_ONLY=1; shift ;;
+    --start-only) START_ONLY=1; shift ;;
     -h|--help) usage ;;
     -*) echo "sim-boot: unknown option $1" >&2; usage ;;
     *) [ -z "$TARGET" ] || usage; TARGET="$1"; shift ;;
@@ -55,6 +63,15 @@ case "$PROFILE" in
   */*|*.json) PROFILE_FILE="$PROFILE"; [ "${PROFILE_FILE#/}" != "$PROFILE_FILE" ] || PROFILE_FILE="$CALLER/$PROFILE_FILE" ;;
   *) log "unknown profile $PROFILE (default, watch, live-activity, stock, or a JSON path)"; exit 2 ;;
 esac
+if [ "$CREATE_ONLY" = 1 ] && { [ "$PROFILE" != stock ] || [ "$RESLIM" = 1 ]; }; then
+  log "--create-only requires --profile stock and cannot reslim a device"; exit 2
+fi
+if [ "$START_ONLY" = 1 ]; then
+  if [ "$PROFILE" != stock ] || [ "$RESLIM" = 1 ] || [ "$CREATE_ONLY" = 1 ] ||
+     ! [[ "$TARGET" =~ ^[0-9A-Fa-f]{8}-([0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}$ ]]; then
+    log "--start-only requires --profile stock and an existing UDID, without reslim or create-only"; exit 2
+  fi
+fi
 if [ -n "$PROFILE_FILE" ] && ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$PROFILE_FILE" 2>/dev/null; then
   log "profile $PROFILE_FILE is missing or not JSON; nothing changed"; exit 2
 fi
@@ -75,7 +92,9 @@ timed() {
 
 # "<udid> <state> <platform>" for a udid or an exact name; several with the name is an error (give the udid)
 lookup() {
-  timed 120 xcrun simctl list devices -j | python3 -c '
+  local -a runner=(timed 120 xcrun)
+  [ "$START_ONLY" = 0 ] || runner=(xcrun)
+  "${runner[@]}" simctl list devices -j | python3 -c '
 import json, re, sys
 want = sys.argv[1]
 hits = []
@@ -83,11 +102,13 @@ for runtime, devices in json.load(sys.stdin)["devices"].items():
     for d in devices:
         if d["udid"] == want or d["name"] == want:
             hits.append((d["udid"], d["state"].replace(" ", "_"), runtime.rsplit(".", 1)[-1].split("-")[0], d.get("isAvailable", True)))
+if sys.argv[2] == "1" and (len(hits) != 1 or not hits[0][3] or hits[0][0] != want):
+    sys.exit("sim-boot: --start-only requires one available simulator with UDID " + want)
 hits = [h for h in hits if h[3]] or hits
 if len(hits) > 1:
     sys.exit("sim-boot: %d simulators are called %r; pass the udid: %s" % (len(hits), want, " ".join(h[0] for h in hits)))
 for h in hits: print(*h[:3])
-' "$1"
+' "$1" "$START_ONLY"
 }
 
 create() {
@@ -112,6 +133,9 @@ print(t, max(rts, key=key)["identifier"])
 }
 
 INFO=$(lookup "$TARGET") || exit 2
+if [ "$CREATE_ONLY" = 1 ] && [ -n "$INFO" ]; then
+  log "--create-only requires a new name; refusing existing simulator $TARGET"; exit 2
+fi
 if [ -z "$INFO" ]; then
   if [[ "$TARGET" =~ ^[0-9A-Fa-f]{8}-([0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}$ ]]; then log "no simulator $TARGET"; exit 2; fi
   create
@@ -121,9 +145,22 @@ fi
 read -r UDID STATE PLATFORM <<<"$INFO"
 
 finish() { log "$1 $PROFILE $UDID"; echo "$UDID"; exit "${2:-0}"; }
+[ "$CREATE_ONLY" = 0 ] || finish created
+if [ "$START_ONLY" = 1 ]; then
+  case "$STATE" in
+    Booted) finish already-started ;;
+    Shutdown)
+      # No bootstatus wait: the caller owns its readiness check and overall deadline.
+      xcrun simctl boot "$UDID" >&2
+      code=$?
+      [ "$code" = 0 ] || { log "$UDID could not start (boot exit $code)"; exit "$code"; }
+      finish started ;;
+    *) log "$UDID is $STATE; refusing to start it"; exit 1 ;;
+  esac
+fi
 # Keep boot progress and errors visible without mixing them with the UDID on stdout.
 wait_booted() {
-  timed "${SIM_BOOT_TIMEOUT:-900}" xcrun simctl bootstatus "$UDID" -b >&2
+  python3 "$ROOT/scripts/app/sim_boot_wait.py" --timeout "${SIM_BOOT_TIMEOUT:-900}" --udid "$UDID" >&2
   local code=$?
   if [ "$code" != 0 ]; then log "$UDID did not finish booting (bootstatus exit $code)"; fi
   return "$code"

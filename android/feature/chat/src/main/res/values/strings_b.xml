@@ -302,6 +302,9 @@
     <string name="chat_modes_section_effort">Thinking effort</string>
     <string name="chat_modes_section_model">Model</string>
     <string name="chat_modes_model_note">After /model goes out, Claude on the computer switches. If the chat has a cache it may ask first, and that shows here for you to confirm.</string>
+    <string name="chat_ultracode_subtitle">Runs every task as a multi-agent workflow · uses a lot of quota · this session only</string>
+    <string name="chat_ultracode_pending">Applies next turn</string>
+    <string name="chat_ultracode_pending_other">A change is queued for the next turn</string>
     <string name="chat_port_desc">Port %1$d</string>
     <string name="chat_port_desc_titled">Port %1$d, %2$s</string>
     <string name="chat_port_desc_gone">Port %1$d, no longer listening</string>

@@ -102,6 +102,17 @@ export function parse(path: string, search = ""): Route {
   return { name: "home" };
 }
 
+/** The route a link's address opens in this app (`a.href`: absolute, under the sub-path); null for another origin. */
+export function routeAt(url: string): Route | null {
+  let u: URL;
+  try {
+    u = new URL(url, location.href);
+  } catch {
+    return null;
+  }
+  return u.origin === location.origin ? parse(stripBase(u.pathname), u.search) : null;
+}
+
 /** The address of a route as this page reaches it: under the sub-path the hub is served at (lib/base.ts), if any. */
 export function href(r: Route, base = BASE): string {
   return base + routePath(r);

@@ -106,7 +106,8 @@ type errBody struct{ error }
 func (b errBody) Read([]byte) (int, error) { return 0, b.error }
 func (b errBody) Close() error             { return nil }
 
-// A failing connection and a body read that fails both use all three attempts and return the last error.
+// A failing connection and a body read that fails both use all three attempts and return the last error, for a JSON
+// call and for a download alike.
 func TestCallTransportFailuresBounded(t *testing.T) {
 	fails := map[string]func() (*http.Response, error){
 		"do error": func() (*http.Response, error) { return nil, errors.New("connection reset by peer") },
@@ -114,22 +115,28 @@ func TestCallTransportFailuresBounded(t *testing.T) {
 			return &http.Response{StatusCode: http.StatusOK, Body: errBody{errors.New("unexpected EOF")}}, nil
 		},
 	}
+	calls := map[string]func(*Client) error{
+		"call":     callOnce,
+		"download": func(c *Client) error { _, _, err := downloadOnce(context.Background(), c); return err },
+	}
 	for name, fail := range fails {
-		t.Run(name, func(t *testing.T) {
-			c, srv, hits, _ := retryAPIClient(t, func(http.ResponseWriter, *http.Request, *atomic.Int32) {})
-			c.http = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-				if req.URL.Path == "/open-apis/auth/v3/tenant_access_token/internal" {
-					return srv.Client().Transport.RoundTrip(req)
+		for op, do := range calls {
+			t.Run(name+"/"+op, func(t *testing.T) {
+				c, srv, hits, _ := retryAPIClient(t, func(http.ResponseWriter, *http.Request, *atomic.Int32) {})
+				c.http = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					if req.URL.Path == "/open-apis/auth/v3/tenant_access_token/internal" {
+						return srv.Client().Transport.RoundTrip(req)
+					}
+					hits.Add(1)
+					return fail()
+				})}
+				err := do(c)
+				if err == nil || hits.Load() != callMaxAttempts ||
+					!strings.Contains(err.Error(), "reset") && !strings.Contains(err.Error(), "EOF") {
+					t.Fatalf("err=%v hits=%d", err, hits.Load())
 				}
-				hits.Add(1)
-				return fail()
-			})}
-			err := callOnce(c)
-			if err == nil || hits.Load() != callMaxAttempts ||
-				!strings.Contains(err.Error(), "reset") && !strings.Contains(err.Error(), "EOF") {
-				t.Fatalf("err=%v hits=%d", err, hits.Load())
-			}
-		})
+			})
+		}
 	}
 }
 
@@ -306,6 +313,251 @@ func TestSendUUIDRetryPolicy(t *testing.T) {
 			}
 			if err != nil || id != "m1" || hits.Load() != 2 {
 				t.Fatalf("id=%q err=%v hits=%d", id, err, hits.Load())
+			}
+		})
+	}
+}
+
+// throttled writes the open platform's throttle answer as its frequency-control guide shows it: HTTP 429 (400 on some
+// older APIs), code 99991400, and x-ogw-ratelimit-reset, the seconds until the window resets.
+// https://open.feishu.cn/document/server-docs/api-call-guide/frequency-control
+func throttled(w http.ResponseWriter, status int, reset string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("x-ogw-ratelimit-limit", "100")
+	w.Header().Set("x-ogw-ratelimit-reset", reset)
+	w.WriteHeader(status)
+	_, _ = io.WriteString(w, `{"code":99991400,"msg":"request trigger frequency limit"}`)
+}
+
+// recordSleeps makes callSleep note each wait and return at once (after retryAPIClient, whose cleanup restores it).
+func recordSleeps() *[]time.Duration {
+	var slept []time.Duration
+	callSleep = func(_ context.Context, d time.Duration) error { slept = append(slept, d); return nil }
+	return &slept
+}
+
+func downloadOnce(ctx context.Context, c *Client) ([]byte, string, error) {
+	return c.Resource(ctx, "om_example", "img_example", "image", 1024)
+}
+
+// A throttled call waits the seconds x-ogw-ratelimit-reset names (or a longer Retry-After), on the 429 and on the older
+// APIs' 400 alike. The header counts only on a throttled answer, and a reset past the cap ends the retries at once.
+func TestCallWaitsOutTheThrottleReset(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		answer func(w http.ResponseWriter)
+		wait   time.Duration // the wait before the retry; 0: the jittered backoff
+		hits   int32
+	}{
+		{"429 with the reset header", func(w http.ResponseWriter) { throttled(w, http.StatusTooManyRequests, "2") }, 2 * time.Second, 2},
+		{"an older API's 400", func(w http.ResponseWriter) { throttled(w, http.StatusBadRequest, "3") }, 3 * time.Second, 2},
+		{"a longer Retry-After wins", func(w http.ResponseWriter) {
+			w.Header().Set("Retry-After", "5")
+			throttled(w, http.StatusTooManyRequests, "2")
+		}, 5 * time.Second, 2},
+		{"a server failure is no throttle", func(w http.ResponseWriter) {
+			w.Header().Set("x-ogw-ratelimit-reset", "40")
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}, 0, 2},
+		{"a reset past the cap gives up", func(w http.ResponseWriter) {
+			throttled(w, http.StatusTooManyRequests, strconv.Itoa(int(callMaxRetryWait/time.Second)+1))
+		}, 0, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _, hits, _ := retryAPIClient(t, func(w http.ResponseWriter, _ *http.Request, n *atomic.Int32) {
+				if n.Load() == 1 {
+					tc.answer(w)
+					return
+				}
+				botInfoOK(w)
+			})
+			slept := recordSleeps()
+			err := callOnce(c)
+			if hits.Load() != tc.hits {
+				t.Fatalf("hits=%d err=%v sleeps=%v", hits.Load(), err, *slept)
+			}
+			if tc.hits == 1 {
+				if !RateLimited(err) || len(*slept) != 0 {
+					t.Fatalf("err=%v sleeps=%v", err, *slept)
+				}
+				return
+			}
+			if err != nil || len(*slept) != 1 || tc.wait > 0 && (*slept)[0] != tc.wait || tc.wait == 0 && (*slept)[0] > callBackoff[0]*5/4 {
+				t.Fatalf("err=%v sleeps=%v, want one of %v", err, *slept, tc.wait)
+			}
+		})
+	}
+}
+
+// The per-chat send limit (230020: 5 messages a second into one chat or to one user) is waited out, a second at least,
+// on a keyed send or reply, whose uuid lands the message once. An unkeyed send is never repeated, and a card update
+// that meets the limit is left to its caller, which backs off and sends a newer card.
+// https://open.feishu.cn/document/server-docs/im-v1/message/create
+func TestPerChatLimitRetriedOnKeyedSends(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		do   func(c *Client) error
+		hits int32
+	}{
+		{"keyed send", func(c *Client) error {
+			_, err := c.Send(ctx, "chat_id", "oc_example", TypeText, TextContent("hi"), "send:oc_example:answer")
+			return err
+		}, 2},
+		{"keyed reply", func(c *Client) error {
+			_, err := c.Reply(ctx, "om_example", TypeText, TextContent("hi"), "reply:om_example:answer", false)
+			return err
+		}, 2},
+		{"unkeyed send", func(c *Client) error {
+			_, err := c.Send(ctx, "chat_id", "oc_example", TypeText, TextContent("hi"), "")
+			return err
+		}, 1},
+		{"card update", func(c *Client) error { return c.UpdateCard(ctx, "om_example", `{"elements":[]}`) }, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _, hits, _ := retryAPIClient(t, func(w http.ResponseWriter, _ *http.Request, n *atomic.Int32) {
+				if n.Load() == 1 {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = io.WriteString(w, `{"code":230020,"msg":"This operation triggers the frequency limit."}`)
+					return
+				}
+				okJSON(w, map[string]any{"code": 0, "data": map[string]any{"message_id": "om_example_sent"}})
+			})
+			slept := recordSleeps()
+			err := tc.do(c)
+			if hits.Load() != tc.hits {
+				t.Fatalf("hits=%d err=%v sleeps=%v", hits.Load(), err, *slept)
+			}
+			if tc.hits == 1 {
+				if errorCode(err) != 230020 || !RateLimited(err) || len(*slept) != 0 {
+					t.Fatalf("err=%v sleeps=%v", err, *slept)
+				}
+				return
+			}
+			if err != nil || len(*slept) != 1 || (*slept)[0] < time.Second {
+				t.Fatalf("err=%v sleeps=%v, want one of at least 1s", err, *slept)
+			}
+		})
+	}
+}
+
+// A card update or an agent message's append that is throttled is tried again on the short backoff only, never after
+// the reset the server names: the progress tick makes these calls under the run's progress lock, and a wait there would
+// hold back the run's answer. Throttled on every try, the call ends in the rate-limit error its caller backs off on.
+func TestMessageUpdatesDoNotWaitOutTheReset(t *testing.T) {
+	ctx := context.Background()
+	for op, do := range map[string]func(*Client) error{
+		"card update": func(c *Client) error { return c.UpdateCard(ctx, "om_example", `{"elements":[]}`) },
+		"cot append": func(c *Client) error {
+			return c.CotAppend(ctx, "cot_example", "om_example", CotParagraph("p1", "working"))
+		},
+	} {
+		for _, tc := range []struct {
+			name      string
+			throttles int32 // answers throttled before an OK
+		}{
+			{"once", 1},
+			{"every try", callMaxAttempts},
+		} {
+			t.Run(op+"/"+tc.name, func(t *testing.T) {
+				c, _, hits, _ := retryAPIClient(t, func(w http.ResponseWriter, _ *http.Request, n *atomic.Int32) {
+					if n.Load() <= tc.throttles {
+						w.Header().Set("Retry-After", "3")
+						throttled(w, http.StatusTooManyRequests, "2")
+						return
+					}
+					okJSON(w, map[string]any{"code": 0, "data": map[string]any{}})
+				})
+				slept := recordSleeps()
+				err := do(c)
+				for _, d := range *slept {
+					if d > callBackoff[len(callBackoff)-1]*5/4 {
+						t.Fatalf("slept %v, want the short backoff only; sleeps=%v", d, *slept)
+					}
+				}
+				if tc.throttles < callMaxAttempts {
+					if err != nil || hits.Load() != tc.throttles+1 || len(*slept) != int(tc.throttles) {
+						t.Fatalf("err=%v hits=%d sleeps=%v", err, hits.Load(), *slept)
+					}
+					return
+				}
+				if !RateLimited(err) || hits.Load() != callMaxAttempts || len(*slept) != callMaxAttempts-1 {
+					t.Fatalf("err=%v rateLimited=%v hits=%d sleeps=%v", err, RateLimited(err), hits.Load(), *slept)
+				}
+			})
+		}
+	}
+}
+
+// A wait the server asks for that would outlast the caller's deadline is not slept: the call returns the rate-limit
+// error at once, so a caller that backs off on RateLimited still can, rather than a bare deadline error later.
+func TestWaitPastTheDeadlineReturnsTheRateLimit(t *testing.T) {
+	for op, do := range map[string]func(*Client, context.Context) error{
+		"call":     func(c *Client, ctx context.Context) error { _, err := c.BotInfo(ctx); return err },
+		"download": func(c *Client, ctx context.Context) error { _, _, err := downloadOnce(ctx, c); return err },
+	} {
+		t.Run(op, func(t *testing.T) {
+			c, _, hits, _ := retryAPIClient(t, func(w http.ResponseWriter, _ *http.Request, _ *atomic.Int32) {
+				throttled(w, http.StatusTooManyRequests, "30")
+			})
+			slept := recordSleeps()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			err := do(c, ctx)
+			if !RateLimited(err) || errors.Is(err, context.DeadlineExceeded) || hits.Load() != 1 || len(*slept) != 0 {
+				t.Fatalf("err=%v rateLimited=%v hits=%d sleeps=%v", err, RateLimited(err), hits.Load(), *slept)
+			}
+		})
+	}
+}
+
+// A throttled or failed download is tried again like any GET: a 429 waits out its reset, a 503 the backoff, and the
+// file comes on the third attempt with the one token.
+// https://open.feishu.cn/document/server-docs/im-v1/message/get-2
+func TestResourceRetriesThrottledDownloads(t *testing.T) {
+	c, _, hits, tokens := retryAPIClient(t, func(w http.ResponseWriter, _ *http.Request, n *atomic.Int32) {
+		switch n.Load() {
+		case 1:
+			throttled(w, http.StatusTooManyRequests, "2")
+		case 2:
+			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		default:
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = io.WriteString(w, "png bytes")
+		}
+	})
+	slept := recordSleeps()
+	b, ct, err := downloadOnce(context.Background(), c)
+	if err != nil || string(b) != "png bytes" || ct != "image/png" || hits.Load() != 3 || tokens.Load() != 1 ||
+		len(*slept) != 2 || (*slept)[0] != 2*time.Second || (*slept)[1] > callBackoff[1]*5/4 {
+		t.Fatalf("b=%q ct=%q err=%v hits=%d tokens=%d sleeps=%v", b, ct, err, hits.Load(), tokens.Load(), *slept)
+	}
+}
+
+// A download that keeps failing ends after callMaxAttempts with the last answer's error; Feishu's word on the file (not
+// in that message) is not asked again.
+func TestResourceGivesUp(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		answer func(w http.ResponseWriter)
+		hits   int32
+		code   int
+	}{
+		{"keeps throttling", func(w http.ResponseWriter) { throttled(w, http.StatusTooManyRequests, "1") }, callMaxAttempts, codeRateLimited},
+		{"keeps failing", func(w http.ResponseWriter) { w.WriteHeader(http.StatusBadGateway) }, callMaxAttempts, http.StatusBadGateway},
+		{"file not in the message", func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"code":234003,"msg":"File not in message."}`)
+		}, 1, 234003},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _, hits, _ := retryAPIClient(t, func(w http.ResponseWriter, _ *http.Request, _ *atomic.Int32) { tc.answer(w) })
+			slept := recordSleeps()
+			b, _, err := downloadOnce(context.Background(), c)
+			if b != nil || errorCode(err) != tc.code || hits.Load() != tc.hits || len(*slept) != int(tc.hits)-1 {
+				t.Fatalf("b=%q err=%v hits=%d sleeps=%v", b, err, hits.Load(), *slept)
 			}
 		})
 	}

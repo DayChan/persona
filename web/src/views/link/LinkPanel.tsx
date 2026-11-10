@@ -15,6 +15,7 @@ import { useDocCommentsOn, useLarkOn } from "../../lib/store";
 import { Button, copyText, cx, Dialog, EASE, IconButton, Menu, useMenu } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
 import { PanelHeader } from "../../ui/PanelHeader";
+import { scrollBehavior } from "../../ui/stream/motion";
 import { DocCommentsView, useDocComments } from "./DocComments";
 import { DocMarkdown, DocTree } from "./DocContent";
 import { docOutline, hubReader, loadDoc, mediaURL, prepareMarkdown, readInfo, readSummary, type DocContent, type DocInfo, type OutlineItem } from "./feishu-doc";
@@ -188,7 +189,7 @@ function DocPanel({ url, title, onClose }: { url: string; title?: string; onClos
   const jump = useCallback((item: OutlineItem) => {
     setShowOutline(false);
     const el = bodyRef.current && headingsIn(bodyRef.current)[item.index];
-    el?.scrollIntoView({ block: "start", behavior: "smooth" });
+    el?.scrollIntoView({ block: "start", behavior: scrollBehavior() });
   }, []);
   const hasComments = comments.threads !== null || writes;
 

@@ -1,28 +1,16 @@
 // A ```mermaid block drawn as its diagram (lib/mermaid.ts), with the source a click away. While a reply is still
 // streaming the code changes: it is drawn once it has been still for a moment, keeping the last drawing until then.
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cachedMermaid, mermaidProblem, renderMermaid } from "../lib/mermaid";
 import { useCloseOnBack } from "../lib/back-close";
 import { isNoHover, NARROW, useMedia } from "./media-query";
 import { copyText, cx } from "./atoms";
 import { t } from "../i18n";
 import { Icon } from "./icons";
+import { useDark } from "./use-dark";
 import { useEscapeClose, useModalFocus } from "./overlay";
 
 const SETTLE_MS = 350;
-
-/** Whether the page is in dark mode now (the class views/theme.ts puts on <html>). */
-function useDark(): boolean {
-  return useSyncExternalStore(
-    (on) => {
-      const mo = new MutationObserver(on);
-      mo.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-      return () => mo.disconnect();
-    },
-    () => document.documentElement.classList.contains("dark"),
-    () => false,
-  );
-}
 
 export function MermaidBlock({ code }: { code: string }) {
   const dark = useDark();

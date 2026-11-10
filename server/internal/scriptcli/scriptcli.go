@@ -36,7 +36,7 @@ const (
 	ExitUsage       = 2
 	ExitTimeout     = 3
 	ExitUnreachable = 4   // no node, no hub, or the hub did not take the question
-	ExitInterrupted = 130 // Ctrl-C / SIGTERM: the card is withdrawn from the phone, nothing is asked in the terminal
+	ExitInterrupted = 130 // Ctrl-C / SIGTERM: the phone's card is withdrawn (no terminal fallback), or the terminal's question ends
 )
 
 const askUsage = `usage: personad ask "question" [--options a,b,c] [--timeout 10m] [--require-remote]
@@ -195,11 +195,12 @@ func (r Runner) Ask(ctx context.Context, args []string, stdin io.Reader, stdout,
 		}
 		fmt.Fprintf(stderr, "personad ask: 联系不上手机（%s），在终端里问\n", rep.Error)
 	}
-	return askTerminal(req, stdin, stderr, stdout)
+	return askTerminal(parent, req, stdin, stderr, stdout) // parent: the phone's deadline does not limit the person typing
 }
 
-// askTerminal asks the question where the person is: a numbered list of the options, or y/N. EOF is a no.
-func askTerminal(req nodeclient.AskRequest, stdin io.Reader, prompt, stdout io.Writer) int {
+// askTerminal asks the question where the person is: a numbered list of the options, or y/N. EOF is a no; ctx ending
+// (Ctrl-C / SIGTERM) is ExitInterrupted.
+func askTerminal(ctx context.Context, req nodeclient.AskRequest, stdin io.Reader, prompt, stdout io.Writer) int {
 	in := bufio.NewReader(stdin)
 	fmt.Fprintln(prompt, req.Question)
 	for i, o := range req.Options {
@@ -211,7 +212,11 @@ func askTerminal(req nodeclient.AskRequest, stdin io.Reader, prompt, stdout io.W
 		} else {
 			fmt.Fprint(prompt, "> ")
 		}
-		line, err := in.ReadString('\n')
+		line, err := readLine(ctx, in)
+		if ctx.Err() != nil { // interrupted, even when a line came in at the same moment
+			fmt.Fprintln(prompt) // the shell's prompt starts on a line of its own
+			return ExitInterrupted
+		}
 		line = strings.TrimSpace(line)
 		if len(req.Options) == 0 {
 			if strings.EqualFold(line, "y") || strings.EqualFold(line, "yes") {
@@ -232,6 +237,27 @@ func askTerminal(req nodeclient.AskRequest, stdin io.Reader, prompt, stdout io.W
 		if err != nil {
 			return ExitDenied
 		}
+	}
+}
+
+// readLine reads one line from in, or gives up when ctx ends: signal.NotifyContext keeps Ctrl-C from killing the
+// process, so a read nobody answers would wait forever. The abandoned read stays blocked on stdin; the command exits
+// right after, as with the hub's readPeerCode.
+func readLine(ctx context.Context, in *bufio.Reader) (string, error) {
+	type read struct {
+		line string
+		err  error
+	}
+	got := make(chan read, 1)
+	go func() {
+		line, err := in.ReadString('\n')
+		got <- read{line, err}
+	}()
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case r := <-got:
+		return r.line, r.err
 	}
 }
 

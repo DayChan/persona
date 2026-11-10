@@ -103,5 +103,13 @@
   "policy_saved": "Rule saved for “{name}”.",
   "policy_removed": "Rule removed for “{name}”.",
   "policy_failed": "Couldn't save the rule: {error}",
+  "group_just": "Just now",
+  "group_today": "Today",
+  "group_yesterday": "Yesterday",
+  "group_week": "7+ days ago",
+  "group_month": "1+ month ago",
+  "group_lark": "Lark",
+  "group_mail": "Mail · {account}",
+  "group_agents": "Agents waiting on you",
   "folder_failed": "Couldn't move it: {error}"
 }

@@ -6,5 +6,7 @@
   "compose_no_account": "メールを作成（先に設定 › コネクタでメールアカウントを追加してください）",
   "refresh": "更新（Lark とメールを今すぐ取得）",
   "list": "受信トレイの一覧",
-  "detail": "詳細"
+  "detail": "詳細",
+  "select": "選択",
+  "select_done": "完了"
 }

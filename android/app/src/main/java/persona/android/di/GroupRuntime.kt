@@ -12,6 +12,8 @@ import persona.core.data.HubCredentials
 import persona.core.data.ScopedHubData
 import persona.core.data.StoredGroup
 import persona.core.hub.*
+import persona.core.hub.tunnel.HubTunnel
+import persona.core.hub.tunnel.HubWays
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.JsonElement
@@ -38,6 +40,7 @@ class GroupRuntime internal constructor(
     private val app: PersonaApp,
     private val settings: GroupConnectionSettings,
     private val listener: Listener,
+    private val ways: HubWays? = null,
 ) {
     interface Listener {
         /** Every event of the group, with the group's plain ids. */
@@ -73,13 +76,17 @@ class GroupRuntime internal constructor(
     private val mutableHello = MutableStateFlow<Hello?>(null)
     /** The last hello: which hub the connection runs through, its name and its mesh. */
     val hello = mutableHello.asStateFlow()
+    private val mutableTunnel = MutableStateFlow<HubTunnel?>(null)
+    /** The tunnel the connection goes through now (Settings › Hubs). */
+    val tunnel = mutableTunnel.asStateFlow()
 
     val connection: OkHttpHubConnection get() = live ?: throw CancellationException("Group closed")
     val connectionOrNull: OkHttpHubConnection? get() = live
     val active: Boolean get() = job.isActive && data?.coroutineScope?.coroutineContext?.get(Job)?.isActive == true
 
     /** Called by HubDataStore.openGroup (its transport factory): builds the group's one connection. */
-    fun createTransport(storage: HubScope, credentials: HubCredentials, members: List<HubMember>): MessageTransport {
+    fun createTransport(storage: HubScope, credentials: HubCredentials, members: List<HubMember>,
+        tunnels: List<HubTunnel> = emptyList()): MessageTransport {
         lateinit var transport: HttpMessageTransport
         val isCenter = credentials.hubId.takeUnless { it.startsWith("legacy-") }?.let { id ->
             id == group.centerHubId
@@ -88,7 +95,8 @@ class GroupRuntime internal constructor(
             HubConnectionConfig(credentials.hubId.takeUnless { it.startsWith("legacy-") }, credentials.fp,
                 credentials.deviceToken, pairingEndpoints(credentials), settings.version, deviceId = credentials.deviceId,
                 clientFeatures = setOf("lock_test", "extension_operations", "extension_auth", "managers"), build = settings.build, os = settings.os,
-                heartbeatPolicy = settings.heartbeatPolicy, members = members, center = isCenter, centerHubId = group.centerHubId),
+                heartbeatPolicy = settings.heartbeatPolicy, members = members, center = isCenter, centerHubId = group.centerHubId,
+                tunnels = tunnels),
             HubNetwork("initial", available = false),
             onReady = { readyConnection ->
                 reconciliationJob?.cancelAndJoin()
@@ -114,6 +122,7 @@ class GroupRuntime internal constructor(
             },
             clockMillis = SystemClock::elapsedRealtime,
             onMemberRevoked = { hubId, ownToken -> listener.onMemberRevoked(this, hubId, ownToken) },
+            ways = ways,
         )
         live = connection
         connection.setForeground(foreground)
@@ -164,17 +173,24 @@ class GroupRuntime internal constructor(
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             connection.diagnostics.collect { if (live === connection) mutableDiagnostics.value = it }
         }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            connection.tunnel.collect { if (live === connection) mutableTunnel.value = it }
+        }
         // Before the network is known, so the first route selection already honours the stored route choices.
         mutableEndpointSettings.value = HubEndpointSettings(connection, data.endpoints.value, data.endpoints::update,
             scope, SystemClock::elapsedRealtime, System::currentTimeMillis)
     }
 
     /** A new registry entry for the same group: names, mesh hubs and the other paired hubs. */
-    fun update(group: StoredGroup, namespace: String?, members: List<HubMember>) {
+    fun update(group: StoredGroup, namespace: String?, members: List<HubMember>, tunnels: List<HubTunnel>) {
         this.group = group
         this.namespace = namespace
         live?.updateMembers(members, group.centerHubId)
+        live?.updateTunnels(tunnels)
     }
+
+    /** The group's hubs' tunnels changed (Settings › Hubs). */
+    fun updateTunnels(tunnels: List<HubTunnel>) { live?.updateTunnels(tunnels) }
 
     fun setForeground(value: Boolean) {
         foreground = value
@@ -201,6 +217,7 @@ class GroupRuntime internal constructor(
         live?.close()
         live = null
         job.cancel()
+        mutableTunnel.value = null
         mutableDiagnostics.value = ConnectionDiagnostics()
         mutableState.value = ConnectionState.WaitingForNetwork
     }

@@ -25,6 +25,10 @@ func (h *Hub) inboxRoutesRelayed(api *http.ServeMux) {
 	for _, pattern := range assistantwire.InboxRoutes {
 		// The lists are localized item by item as they are merged (forwardInboxList).
 		if key, ok := mergedLists[pattern]; ok { // the list: every manager's items
+			if pattern == "GET /api/v1/inbox" { // fetched again by every app at each push: reused (inbox_answers.go)
+				api.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) { h.mergedInbox(w, r, key, h.forwardInboxList) })
+				continue
+			}
 			api.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) { h.mergeList(w, r, key, h.forwardInboxList) })
 			continue
 		}

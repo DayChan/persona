@@ -101,7 +101,8 @@ object AppLanguages {
             val locales = context.getSystemService(LocaleManager::class.java)?.applicationLocales
             if (locales != null) return if (locales.isEmpty) AppLanguage.System else AppLanguage.of(locales[0]) ?: AppLanguage.System
         }
-        return AppLanguage.fromTag(context.applicationContext
+        // Below Android 13 this runs from the application's attachBaseContext, where applicationContext is still null.
+        return AppLanguage.fromTag((context.applicationContext ?: context)
             .getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(KEY, null))
     }
 

@@ -804,6 +804,7 @@
         "jarvis-",
         "jarvis-agent-sdk-runtime",
         "jarvis-blob",
+        "jarvis-check-",
         "jarvis-circuit",
         "jarvis-context",
         "jarvis-dsh-runtime",

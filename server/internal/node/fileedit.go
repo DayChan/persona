@@ -299,12 +299,49 @@ func (n *Node) trashFiles(paths []string, cwd string) (map[string]any, error) {
 	for _, e := range entries {
 		id, err := n.toTrash(e.real, e.shown)
 		if err != nil {
-			return nil, explainRename(e.shown, err)
+			if errors.Is(err, syscall.ENAMETOOLONG) {
+				err = fmt.Errorf("%s has a name too long for the trash", e.shown)
+			}
+			return nil, n.undoTrash(trashed, explainRename(e.shown, err))
 		}
 		trashed = append(trashed, map[string]string{"path": e.shown, "trash_id": id})
 	}
 	n.logger.Printf("moved to the trash from the phone: %d", len(trashed))
 	return map[string]any{"trashed": trashed}, nil
+}
+
+// undoTrash puts back what a batch already moved when a later one could not go (#3123), so a failed trash changes
+// nothing. What can't go back is named, and its trash ids are the error's data, as file.trash gives them, for Undo.
+func (n *Node) undoTrash(trashed []map[string]string, cause error) error {
+	if len(trashed) == 0 {
+		return cause
+	}
+	files, info, err := n.trashDirs()
+	if err != nil {
+		return cause // can't happen: the same call just gave toTrash these
+	}
+	var left []map[string]string
+	var names []string
+	for _, x := range trashed {
+		t, err := decodeTrashID(x["trash_id"])
+		if err == nil {
+			err = n.restoreOne(files, info, t)
+		}
+		if err != nil {
+			left = append(left, x)
+			names = append(names, x["path"])
+		}
+	}
+	n.logger.Printf("put back from the trash after a failed trash: %d of %d", len(trashed)-len(left), len(trashed))
+	if len(left) == 0 {
+		return cause
+	}
+	are := "is"
+	if len(names) > 1 {
+		are = "are"
+	}
+	data, _ := json.Marshal(map[string]any{"trashed": left})
+	return &rpc.Error{Message: fmt.Sprintf("%v; %s %s still in the trash", cause, strings.Join(names, ", "), are), Data: data}
 }
 
 // toTrash moves real into the trash under its own name, or "name 2.ext"… when the trash has one; on Linux the
@@ -382,29 +419,37 @@ func (n *Node) restoreFiles(ids []string) (map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		from := filepath.Join(files, t.Name)
-		if _, err := os.Lstat(from); err != nil {
-			return nil, errNotFound(t.Shown)
-		}
-		if _, _, err := n.writableDir(filepath.Dir(t.Real), ""); err != nil {
+		if err := n.restoreOne(files, info, t); err != nil {
 			return nil, err
-		}
-		if err := n.writable(t.Real); err != nil {
-			return nil, err
-		}
-		if err := renameExcl(from, t.Real); err != nil {
-			if errors.Is(err, os.ErrExist) {
-				return nil, errExists(filepath.Base(t.Real))
-			}
-			return nil, explainRename(t.Shown, err)
-		}
-		if info != "" {
-			_ = os.Remove(filepath.Join(info, t.Name+".trashinfo"))
 		}
 		restored = append(restored, map[string]string{"path": t.Shown})
 	}
 	n.logger.Printf("put back from the trash from the phone: %d", len(restored))
 	return map[string]any{"restored": restored}, nil
+}
+
+// restoreOne puts t back from the trash folder files (and drops its .trashinfo from info), checking the place again.
+func (n *Node) restoreOne(files, info string, t trashID) error {
+	from := filepath.Join(files, t.Name)
+	if _, err := os.Lstat(from); err != nil {
+		return errNotFound(t.Shown)
+	}
+	if _, _, err := n.writableDir(filepath.Dir(t.Real), ""); err != nil {
+		return err
+	}
+	if err := n.writable(t.Real); err != nil {
+		return err
+	}
+	if err := renameExcl(from, t.Real); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return errExists(filepath.Base(t.Real))
+		}
+		return explainRename(t.Shown, err)
+	}
+	if info != "" {
+		_ = os.Remove(filepath.Join(info, t.Name+".trashinfo"))
+	}
+	return nil
 }
 
 func (n *Node) fileEditCall(method string, params json.RawMessage) (any, error) {

@@ -1,0 +1,5 @@
+<resources>
+    <string name="designsystem_knowledge_disabled">このマネージャーのナレッジは無効です。利用するにはマネージャーの設定で有効にしてください。</string>
+    <string name="designsystem_knowledge_unavailable">ナレッジはまだ準備ができていません。しばらくしてから再試行してください。</string>
+    <string name="designsystem_knowledge_read_only">ナレッジは読み取り専用です。編集や録音の同期を行うには、マネージャーの設定を変更してください。</string>
+</resources>

@@ -37,7 +37,10 @@
       "role": "user",
       "kind": "tool_result",
       "text": "Command running in background with ID: b0000001x. Output is being written to: /tmp/example/tasks/b0000001x.output",
-      "tool_use_id": "toolu_000000000000000000000003"
+      "tool_use_id": "toolu_000000000000000000000003",
+      "outcome": {
+        "status": "background"
+      }
     },
     {
       "id": "00000000-0000-4000-8000-000000000005#0",
@@ -176,7 +179,15 @@
       "role": "user",
       "kind": "tool_result",
       "text": "1\tok",
-      "tool_use_id": "toolu_000000000000000000000019"
+      "tool_use_id": "toolu_000000000000000000000019",
+      "outcome": {
+        "status": "ok",
+        "read": {
+          "start": 1,
+          "lines": 1,
+          "total": 1
+        }
+      }
     },
     {
       "id": "00000000-0000-4000-8000-000000000021#0",

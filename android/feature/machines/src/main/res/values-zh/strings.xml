@@ -185,7 +185,7 @@
     <string name="machines_usage_days_hours">%1$dd %2$dh</string>
     <string name="machines_usage_reset_in">%1$s 后重置</string>
     <string name="machines_usage_reset_at">%1$s 重置</string>
-    <string name="machines_usage_source_local">本机</string>
+    <string name="machines_usage_source_local">电脑</string>
     <string name="machines_usage_problem_unreachable">网关暂时读不到，显示的是上次的数字</string>
     <string name="machines_usage_problem_rejected">网关不认这把 Key，请到管理界面 → 用量来源更新。显示的是上次的数字</string>
     <string name="machines_usage_problem_failed">读网关出错，显示的是上次的数字</string>

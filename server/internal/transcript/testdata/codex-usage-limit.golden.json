@@ -35,7 +35,11 @@
       "role": "user",
       "kind": "tool_result",
       "text": "ok\n",
-      "tool_use_id": "call_00000000000000000000d3"
+      "tool_use_id": "call_00000000000000000000d3",
+      "outcome": {
+        "status": "ok",
+        "exit_code": 0
+      }
     },
     {
       "id": "line8#0",
