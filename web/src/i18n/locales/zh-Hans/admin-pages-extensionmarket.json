@@ -1,7 +1,7 @@
 {
   "reread": "已重新读取「{name}」",
   "reread_failed": "读不到「{name}」：{error}",
-  "removed": "已删除「{name}」，从它装的扩展留着",
+  "removed": "已删除「{name}」，从它装的扩展留着，但不再升级，直到用同样的地址把它加回来",
   "markets": "扩展市场",
   "add_market": "添加市场",
   "markets_footer": "市场是网站或 git / GitHub 仓库发布的扩展索引（persona-extensions.json）。GitHub 市场可以填一个只读 token：私有仓库要它才读得到，公开仓库填了额度更高、不容易被限流。token 加密存在 hub 上，只发给这个市场自己，填了以后不再显示；git: 的市场用 hub 机器自己的 SSH 凭据。删除市场不影响从它装的扩展。",

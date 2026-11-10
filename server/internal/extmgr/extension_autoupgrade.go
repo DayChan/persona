@@ -648,7 +648,7 @@ func (u *extensionUpgrades) decorate(ctx context.Context, v *ExtensionView, p *e
 	}
 	u.load(ctx)
 	_, own := u.auto(p.Record.ID)
-	v.AutoUpgrade = &own
+	v.AutoUpgrade, v.Market = &own, upgradesFrom(p)
 	if !p.Record.Enabled {
 		v.AutoUpgradePaused = autoUpgradePausedDisabled
 	}

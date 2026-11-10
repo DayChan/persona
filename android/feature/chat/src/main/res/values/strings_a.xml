@@ -261,6 +261,12 @@
     <string name="chat_tasks_since_hours_minutes">%1$d h %2$d min</string>
     <string name="chat_tasks_default_title">Task</string>
     <string name="chat_tasks_routed_to">To “%1$s”</string>
+    <string name="chat_tasks_sent_to">Sent to “%1$s”</string>
+    <string name="chat_tasks_sent_interrupting">Stopped “%1$s” and sent</string>
+    <plurals name="chat_tasks_sent_count">
+        <item quantity="one">%1$d instruction sent</item>
+        <item quantity="other">%1$d instructions sent</item>
+    </plurals>
     <string name="chat_tasks_collapse">Collapse</string>
     <string name="chat_tasks_expand">Expand</string>
     <string name="chat_tasks_expanded">Expanded</string>

@@ -85,7 +85,8 @@ private final class WatchPetFrames: Sendable {
     }
 }
 
-/// Plays one clip. While the wrist is down the system stops the animation, so it draws the clip's still frame.
+/// Plays one clip. While the wrist is down the system stops the animation, so it draws the clip's still frame; with
+/// Reduce Motion it draws that frame too.
 private struct WatchPetClipView: View {
     let url: URL
     let clip: WatchPetManifest.Clip
@@ -93,10 +94,13 @@ private struct WatchPetClipView: View {
     let start: Date
 
     @Environment(\.isLuminanceReduced) private var dimmed
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var frames: WatchPetFrames?
 
+    private var still: Bool { dimmed || reduceMotion }
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / clip.fps, paused: dimmed)) { timeline in
+        TimelineView(.animation(minimumInterval: 1 / clip.fps, paused: still)) { timeline in
             if let images = frames?.images, let image = frame(images, at: timeline.date) {
                 Image(decorative: image, scale: 2).resizable().scaledToFit()
             }
@@ -108,7 +112,7 @@ private struct WatchPetClipView: View {
     }
 
     private func frame(_ images: [CGImage], at date: Date) -> CGImage? {
-        if dimmed { return images[min(clip.still, images.count - 1)] }
+        if still { return images[min(clip.still, images.count - 1)] }
         return images[max(0, Int(date.timeIntervalSince(start) * clip.fps)) % images.count]
     }
 }

@@ -958,9 +958,33 @@ iOS, Mac, visionOS, watch and extensions support Simplified Chinese, English and
     (circle logos fill, others `Theme.Brand.inCircle`). Boxes: Settings `icon`, detail header `wellM`, email account `wellXS`,
     source `wellS`, sign-in `iconXS`; new marks measure opaque bounds after `rsvg-convert` and crop viewBox whitespace.
   Lock Screen Live Activities capped at `.large` (~160pt height, clips beyond).
-- Motion (`Theme.Motion`: state `.snappy` 0.25, layout `.smooth` 0.3): continuous only Needs you dot breathing and system working spinner;
-  Reduce Motion (`accessibilityReduceMotion`) stops dot (and loading/preparing placeholders), working dot static outer ring.
-  No wobbling icons/spinning gears/pulsing avatars/spinning to-dos. Counts `.numericText`; no `.shadow` outside `.surface` (glass/Clay/Island already shadow,
+- Motion (`Theme.Motion`): one meaning, one motion. A page picks the row for what is happening; a new meaning gets a token and a row
+  here first, never an inline `.easeInOut(duration:)` (`TokenRatchetTests` counts those). Details and why: `docs/lessons/ios.md`, "Motion rules (#2943)".
+
+  | What happens | Motion |
+  | --- | --- |
+  | A value or state changes in place (toggle, tone, selection, a menu or card opening) | `state` / `standard`: `.snappy` 0.25 |
+  | Things take new places (rows in, out or reordered) | `layout`: `.smooth` 0.3 |
+  | A block grows in place and the eye follows its rows | `expand`: `.smooth` 0.4 |
+  | Something opens in the chat, or closes | `.unfolding`: `reveal` easeOut 0.28, `conceal` easeIn 0.2 |
+  | A number changes | `.contentTransition(.numericText)` |
+  | The finger lets go of a drawer / of something it dragged aside | `drawer(velocity:)` (no bounce) / `springBack` |
+  | Moving with the keyboard | `keyboard` (the system's spring) |
+  | The composer and the 「+」 panel | their `composer…` / `hold…` / `attach…` tokens, measured from Telegram |
+
+  Red lines:
+  - Leaving is quicker than arriving (`conceal` < `reveal`, `holdLeave` < `holdAppear`, `attachContentOut` < `attachContentIn`), and a
+    panel, card or row leaving fades and moves but does not shrink. Only a glyph swapped inside one control shrinks (`composerSwapScale`);
+    `composerAccessory` fading in quicker than out is Telegram's measured exception.
+  - Under the finger nothing animates: a drag follows it frame for frame, and the animation starts at release with the finger's speed.
+  - Only a few things move on their own, each listed with its reason in `apple/PersonaTests/ContinuousMotionTests.swift`: the Needs you
+    dot's breath, the persona while it works, typing dots, loading skeletons, the voice orb in a call, the recording dot, the watch's frog.
+    A loop changes only transform, opacity or color, never a frame, padding or font (that relays out every frame); it stops off screen,
+    in the background and with the wrist down; the persona and the voice orb also hold still in Low Power Mode.
+  - Reduce Motion (`accessibilityReduceMotion`, `Theme.Motion.reduced` outside a view): loops show one still frame (the working dot its
+    static ring); changes land at once or cross-fade, without sliding or scaling. The registry test fails for a loop whose file, or its
+    caller, never reads it.
+  - No wobbling icons, spinning gears, pulsing avatars or spinning to-dos. Counts `.numericText`; no `.shadow` outside `.surface` (glass/Clay/Island already shadow,
   doubling otherwise); neighboring glass keys/top Back/⋯ use `GlassEffectContainer`.
   - An extension's View drawn again (#37, as on the web and Android; `Views/Settings/ExtensionMotion.swift`): under the same key, a `metric`, `stat_grid`
     or row value whose numbers alone changed rolls (`.numericText`, counting down when the number fell); any other change of a value or a badge's words fades in,

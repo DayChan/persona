@@ -63,6 +63,26 @@ func TestExtensionAutoUpgradeMarketRemoved(t *testing.T) {
 				t.Fatalf("no candidate before removal: %v", up)
 			}
 
+			// The list names the market each extension upgrades from, before and after that market is removed, so a client
+			// can say which extensions removing it stops upgrading.
+			listedMarket := func() any {
+				t.Helper()
+				code, out := call(t, mux, "GET", "/api/v1/extensions", phone, "")
+				if code != 200 {
+					t.Fatalf("list: %d %v", code, out)
+				}
+				for _, x := range out["extensions"].([]any) {
+					if e := x.(map[string]any); e["id"] == "example-ui" {
+						return e["market"]
+					}
+				}
+				t.Fatalf("example-ui not listed: %v", out)
+				return nil
+			}
+			if m, d := listedMarket(), detail()["market"]; m != mid || d != mid {
+				t.Fatalf("market before removal: list %v, detail %v, want %s", m, d, mid)
+			}
+
 			if code, out := call(t, mux, "DELETE", "/api/v1/extensions/-/markets/"+mid, phone, ""); code != 200 {
 				t.Fatalf("remove: %d %v", code, out)
 			}
@@ -71,6 +91,9 @@ func TestExtensionAutoUpgradeMarketRemoved(t *testing.T) {
 				d := detail()
 				if d["auto_upgrade"] != tc.auto || d["auto_upgrade_paused"] != "market_removed" || d["upgrade"] != nil {
 					t.Fatalf("removed market: auto %v, paused %v, upgrade %v", d["auto_upgrade"], d["auto_upgrade_paused"], d["upgrade"])
+				}
+				if m := listedMarket(); m != mid || d["market"] != mid {
+					t.Fatalf("removed market: list names %v, detail %v, want %s", m, d["market"], mid)
 				}
 				if up := upgradeOf(t, mux, phone); up != nil {
 					t.Fatalf("removed market still offers a candidate: %v", up)

@@ -6,7 +6,7 @@
 import { api, enc, pastHub } from "./api";
 import { itemHeaders } from "./manager-choice";
 import { extRoot, listOf } from "./extension-api";
-import { changed, type HubExtensionDetail, type ExtensionPermission } from "./extensions";
+import { changed, type HubExtension, type HubExtensionDetail, type ExtensionPermission } from "./extensions";
 import { previewConsent, type DependencyState, type PackMember } from "./extension-model";
 import { t } from "../i18n";
 
@@ -157,6 +157,19 @@ export const uninstallExtension = (id: string, keepData = false, cascade = false
 export function marketOf(origin?: string): string {
   const m = /^market:([^/]+)\//.exec(origin ?? "");
   return m ? m[1] : "";
+}
+
+/**
+ * How many of `manager`'s installed extensions upgrade from its market `id`: removing the market stops their upgrades
+ * (docs/extensions/extensions.md "Auto-upgrade", #1895). The hub's merged list names every item's manager; another
+ * manager's copies are left out, since a market's id is the same wherever its address is registered, and an item
+ * without one is the manager's (a list from one manager). null when the hub does not say (one from before `market`: a
+ * market extension without it).
+ */
+export function upgradingFrom(id: string, list: Pick<HubExtension, "manager" | "auto_upgrade" | "market">[], manager: string): number | null {
+  const own = list.filter((e) => (e.manager ?? manager) === manager);
+  if (own.some((e) => e.auto_upgrade !== undefined && !e.market)) return null;
+  return own.filter((e) => e.market === id).length;
 }
 
 /**

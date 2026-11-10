@@ -1,7 +1,7 @@
 {
   "reread": "Reloaded \"{name}\"",
   "reread_failed": "Couldn't read \"{name}\": {error}",
-  "removed": "Removed \"{name}\". Extensions installed from it stay.",
+  "removed": "Removed \"{name}\". Extensions installed from it stay, but stop upgrading until it is added again with the same address.",
   "markets": "Extension markets",
   "add_market": "Add market",
   "markets_footer": "A market is an index of extensions (persona-extensions.json) published by a website or a git / GitHub repository. A GitHub market can take a read-only token: private repos need one to be read, and public repos get a higher rate limit so they're less likely to be throttled. The token is stored encrypted on the hub, sent only to that market and never shown again. git: markets use the hub machine's own SSH credentials. Removing a market doesn't affect extensions installed from it.",

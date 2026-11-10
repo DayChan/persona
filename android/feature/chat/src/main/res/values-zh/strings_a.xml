@@ -250,6 +250,11 @@
     <string name="chat_tasks_since_hours_minutes">%1$d 小时 %2$d 分</string>
     <string name="chat_tasks_default_title">任务</string>
     <string name="chat_tasks_routed_to">对「%1$s」说</string>
+    <string name="chat_tasks_sent_to">发给「%1$s」</string>
+    <string name="chat_tasks_sent_interrupting">打断「%1$s」后发送</string>
+    <plurals name="chat_tasks_sent_count">
+        <item quantity="other">已发 %1$d 条指令</item>
+    </plurals>
     <string name="chat_tasks_collapse">收起</string>
     <string name="chat_tasks_expand">展开</string>
     <string name="chat_tasks_expanded">已展开</string>

@@ -351,7 +351,8 @@ private fun ChatPage(
                     tasks == null -> it
                     renderStyle.compactToolSummary -> persona.core.domain.tasks.AssistantTaskCards.lines(it, feed, taskPlans,
                         taskTodos, taskCardProjection[key.sessionId].orEmpty())
-                    else -> persona.core.domain.tasks.AssistantLines.lines(it, feed)
+                    else -> persona.core.domain.tasks.AssistantLines.lines(it,
+                        persona.core.domain.tasks.SentToAgents.shown(feed))
                 }
             }.asReversed()
     }

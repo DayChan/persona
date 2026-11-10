@@ -250,6 +250,11 @@
     <string name="chat_tasks_since_hours_minutes">%1$d時間%2$d分</string>
     <string name="chat_tasks_default_title">タスク</string>
     <string name="chat_tasks_routed_to">「%1$s」へ</string>
+    <string name="chat_tasks_sent_to">「%1$s」に送信</string>
+    <string name="chat_tasks_sent_interrupting">「%1$s」を止めて送信</string>
+    <plurals name="chat_tasks_sent_count">
+        <item quantity="other">指示を%1$d件送信</item>
+    </plurals>
     <string name="chat_tasks_collapse">折りたたむ</string>
     <string name="chat_tasks_expand">展開</string>
     <string name="chat_tasks_expanded">展開済み</string>

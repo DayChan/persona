@@ -39,8 +39,11 @@ export interface HubExtension {
   /** An extension from a market (a hub with plugin_auto_upgrade): its own auto-upgrade switch, its newer version and what
    *  happened last with an upgrade (docs/extensions/extensions.md "Automatic upgrades"). */
   auto_upgrade?: boolean;
-  /** Why its own switch does not apply now: "disabled" while the extension is off (the switch is kept for when it is on). */
+  /** Why its own switch does not apply now (the switch is kept either way): "market_removed" once its market is no longer
+   *  registered, "disabled" while the extension is off. */
   auto_upgrade_paused?: string;
+  /** The market it upgrades from, kept after that market is removed (a hub from before it: none, though `auto_upgrade` is set). */
+  market?: string;
   upgrade?: ExtensionUpgrade;
   upgrade_note?: ExtensionUpgradeNote;
   /** An extension with a program on computers: how that program is on each machine it is switched on for. */

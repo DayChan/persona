@@ -12381,7 +12381,7 @@ def cua_config(pl):
 
 
 _PLUGIN_VIEW = ["id", "name", "kind", "status", "error", "version", "source", "enabled", "description", "contributes", "needs_setup", "warnings",
-                "auto_upgrade", "auto_upgrade_paused", "upgrade", "upgrade_note", "nodes"]
+                "auto_upgrade", "auto_upgrade_paused", "market", "upgrade", "upgrade_note", "nodes"]
 
 # ---------- MOCK_EXTENSIONS: declarative UI (docs/extensions/extensions.md "Declarative UI") ----------
 # example-gateway draws a page (plugin_page "home") and a section on every launcher's page (launcher_section "panel"),
@@ -12619,6 +12619,8 @@ MARKETS = {
                 "has_token": True, "plugins": 2, "warnings": ["第 3 个扩展：没有 manifest"], "fetched_at": "2026-11-04T05:30:00Z",
                 "added_at": "2026-11-02T08:00:00Z"},
 }
+# Markets removed in this run, by address: adding one again brings back its id.
+_REMOVED_MARKETS = {}
 _NET = lambda hosts: {"key": "network", "title": "访问网络", "detail": hosts + "（hub 暂不拦截别的地址）"}
 CATALOG = [
     {"market": _MARKET_A, "id": "example-gateway", "name": "Example 网关面板", "version": "1.1.0", "description": "在启动器页上显示 Example 网关的余额、Key 和用量。",
@@ -12700,17 +12702,26 @@ _UPGRADE_WHILE_ON = {}
 
 
 def _auto_upgrade_paused(pl):
-    """A market plugin switched off is not upgraded, as the hub says: auto_upgrade_paused, its newer version "off" (its
-    own switch stays); switched on again, both are as before."""
+    """A market plugin is not upgraded while switched off or once its market is removed, as the hub says (#1895): the
+    market it upgrades from, auto_upgrade_paused, and its newer version "off" while switched off or none while the market
+    is gone (its own switch stays); switched on again, or the market added back, both are as before."""
     if pl.get("auto_upgrade") is None:
         return
-    pl["auto_upgrade_paused"] = None if pl["enabled"] else "disabled"
+    m = re.match(r"market:([^/]+)/", pl.get("origin", ""))
+    pl["market"] = m.group(1) if m else None
+    removed = bool(pl["market"]) and pl["market"] not in MARKETS
+    pl["auto_upgrade_paused"] = "market_removed" if removed else None if pl["enabled"] else "disabled"
     up = pl.get("upgrade")
-    if not pl["enabled"] and up and pl["id"] not in _UPGRADE_WHILE_ON:
+    if up and pl["id"] not in _UPGRADE_WHILE_ON and (removed or not pl["enabled"]):
         _UPGRADE_WHILE_ON[pl["id"]] = up
-        pl["upgrade"] = {k: v for k, v in up.items() if k != "added_permissions"} | {
-            "state": "off", "detail": "扩展已关闭，自动升级暂停；重新打开后恢复你原来的设置"}  # i18n-ignore: the hub's words
-    elif pl["enabled"] and pl["id"] in _UPGRADE_WHILE_ON:
+    kept = _UPGRADE_WHILE_ON.get(pl["id"])
+    if removed:  # nothing is offered from a market the hub no longer reads
+        pl["upgrade"] = None
+    elif not pl["enabled"]:
+        if kept:
+            pl["upgrade"] = {k: v for k, v in kept.items() if k != "added_permissions"} | {
+                "state": "off", "detail": "扩展已关闭，自动升级暂停；重新打开后恢复你原来的设置"}  # i18n-ignore: the hub's words
+    elif kept:
         pl["upgrade"] = _UPGRADE_WHILE_ON.pop(pl["id"])
 
 
@@ -12741,7 +12752,7 @@ def _gateway_upgrade(state):
     if state == "disabled":
         up["state"] = "available"
         pl["enabled"], pl["status"] = False, "disabled"
-        _auto_upgrade_paused(pl)
+    _auto_upgrade_paused(pl)
 
 
 _gateway_upgrade(os.environ.get("MOCK_PLUGIN_UPGRADE", "needs_permission"))
@@ -13036,15 +13047,23 @@ def markets_route(handler, p, body):
             handler.send_json({"error": "市场的地址是 https://…、github:owner/repo 或 git:<地址>", "code": "market_failed"}, 400); return True
         if "private" in spec and not req.get("token"):
             handler.send_json({"error": "读不到 %s：找不到（404）：地址不对，或者是私有的，要填 token" % spec, "code": "market_failed"}, 400); return True
-        mid = "%010x" % (abs(hash(spec)) % (16 ** 10))
-        MARKETS[mid] = {"id": mid, "spec": spec, "name": spec.split("/")[-1] or spec, "has_token": bool(req.get("token")), "plugins": 0,
-                        "warnings": [], "fetched_at": "2026-11-04T07:00:00Z", "added_at": "2026-11-04T07:00:00Z"}
+        # The same address gives the same id, as the hub's id is a hash of it: a removed market added again is back (#1895).
+        back = _REMOVED_MARKETS.pop(spec, None)
+        mid = back["id"] if back else "%010x" % (abs(hash(spec)) % (16 ** 10))
+        MARKETS[mid] = back or {"id": mid, "spec": spec, "name": spec.split("/")[-1] or spec, "has_token": bool(req.get("token")), "plugins": 0,
+                                "warnings": [], "fetched_at": "2026-11-04T07:00:00Z", "added_at": "2026-11-04T07:00:00Z"}
+        for pl in PLUGINS.values():
+            _auto_upgrade_paused(pl)
         handler.send_json(MARKETS[mid]); return True
     parts = p.split("/")
     if p.startswith("/api/v1/plugins/-/markets/") and len(parts) >= 7 and parts[6] in MARKETS:
         mid = parts[6]
         if method == "DELETE" and len(parts) == 7:
-            MARKETS.pop(mid); handler.send_json({"ok": True}); return True
+            gone = MARKETS.pop(mid)
+            _REMOVED_MARKETS[gone["spec"]] = gone
+            for pl in PLUGINS.values():
+                _auto_upgrade_paused(pl)
+            handler.send_json({"ok": True}); return True
         if method == "POST" and parts[7:] == ["refresh"]:
             MARKETS[mid]["fetched_at"] = "2026-11-04T07:05:00Z"; handler.send_json(MARKETS[mid]); return True
         if method == "PUT" and parts[7:] == ["token"]:

@@ -28,7 +28,9 @@ export function ExtensionSettingsPage({ detail: d, manager, busy, offline = fals
   const marketManaged = d.source === "installed" && !d.attached && !d.read_only && !!market;
   const uninstallable = d.source === "installed" && !d.attached && !d.read_only && !!marketOf(d.origin);
   const automatic = d.source === "installed" && !d.attached && !d.read_only && d.auto_upgrade !== undefined;
-  const noUpdates = offline ? t("settings-extensions.manager_offline") : marketManaged && !automatic ? t("settings-extensions.action_unknown") : lifecycleReason(d, false);
+  // Its market was removed: there is nothing to check until the market is added again (#1895).
+  const marketRemoved = d.auto_upgrade_paused === "market_removed";
+  const noUpdates = offline ? t("settings-extensions.manager_offline") : marketRemoved ? t("settings-extensions.market_removed_check") : marketManaged && !automatic ? t("settings-extensions.action_unknown") : lifecycleReason(d, false);
   const noUninstall = offline ? t("settings-extensions.manager_offline") : lifecycleReason(d, true);
   const blocked = busy || offline;
   return (
@@ -49,7 +51,7 @@ export function ExtensionSettingsPage({ detail: d, manager, busy, offline = fals
         {information}
       </section>
       <section data-extension-section="updates" aria-label={t("settings-extensions.upgrade_title")}>
-        <Updates d={d} manager={manager} busy={blocked} market={market} canCheck={marketManaged && !offline} automatic={automatic} reason={noUpdates} onToggle={onAutoUpgrade} onUpgrade={onUpgrade} onChecked={onChecked} />
+        <Updates d={d} manager={manager} busy={blocked} market={market} canCheck={marketManaged && !offline && !marketRemoved} automatic={automatic} reason={noUpdates} onToggle={onAutoUpgrade} onUpgrade={onUpgrade} onChecked={onChecked} />
       </section>
       <section data-extension-section="danger" aria-label={t("settings-extensions.danger_title")}>
         <Group title={t("settings-extensions.danger_title")} footer={uninstallable && !offline ? t("settings-extensions.market_installed_footer") : noUninstall}>

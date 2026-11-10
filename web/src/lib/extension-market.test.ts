@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   addMarket, agreeLabel, canUninstall, catalogOf, catalogQuery, getCatalog, installPreview, isGitMarket, itemLine, itemState, listMarkets, MARKET_SPEC_HINT, marketView, marketKind, marketLine, marketOf,
-  extensionsRoute, previewFromMarket, previewVersion, renameConsent, refreshMarket, removeMarket, routeSub, setMarketToken, specLabel, uninstallExtension, upgradePreview, wantsGitHubToken,
+  extensionsRoute, previewFromMarket, previewVersion, renameConsent, refreshMarket, removeMarket, routeSub, setMarketToken, specLabel, uninstallExtension, upgradePreview, upgradingFrom, wantsGitHubToken,
   type CatalogItem, type Market, type MarketPreview, type ExtensionsRoute,
 } from "./extension-market";
 
@@ -195,5 +195,34 @@ describe("官方市场的名字", () => {
     expect(marketView(own).name).toBe("团队扩展");
     const c = catalogOf({ markets: [official, own], extensions: [item({ market: "o1" }), item({ market: "m2", market_name: "团队扩展" })] });
     expect(c.extensions.map((it) => it.market_name)).toEqual(["官方扩展", "团队扩展"]);
+  });
+});
+
+// Removing a market stops the upgrades of what was installed from it (#1895): the confirmation counts them.
+describe("upgradingFrom", () => {
+  it("counts the manager's own extensions that upgrade from the market", () => {
+    const list = [
+      { auto_upgrade: true, market: "m1" },
+      { auto_upgrade: false, market: "m1" },
+      { auto_upgrade: true, market: "m2" },
+      {}, // built in, or not from a market
+    ];
+    expect(upgradingFrom("m1", list, "assistant")).toBe(2);
+    expect(upgradingFrom("m3", list, "assistant")).toBe(0);
+  });
+
+  it("reads the hub's merged list, which names every item's manager, and leaves out another manager's copies", () => {
+    const merged = [
+      { manager: "assistant", auto_upgrade: true, market: "m1" },
+      { manager: "example-manager", auto_upgrade: true, market: "m1" }, // the same market id under another manager
+      { manager: "example-manager", auto_upgrade: true }, // another manager's old hub does not change this count
+    ];
+    expect(upgradingFrom("m1", merged, "assistant")).toBe(1);
+    expect(upgradingFrom("m1", merged, "example-manager")).toBeNull();
+  });
+
+  it("does not guess when the hub does not name the market", () => {
+    expect(upgradingFrom("m1", [{ auto_upgrade: true }], "assistant")).toBeNull();
+    expect(upgradingFrom("m1", [{}], "assistant")).toBe(0);
   });
 });

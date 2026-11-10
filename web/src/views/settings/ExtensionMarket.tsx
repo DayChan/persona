@@ -5,15 +5,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
 import { enc, errorText } from "../../lib/api";
-import { pinManagerAt } from "../../lib/manager-choice";
+import { defaultManager, pinManagerAt } from "../../lib/manager-choice";
 import { useRoster } from "../../lib/managers";
 import { ago } from "../../lib/format";
 import {
   addMarket, agreeLabel, canUninstall, getCatalog, installPreview, isGitMarket, itemLine, itemState, listMarkets, MARKET_SPEC_HINT, MARKET_SPEC_PLACEHOLDER, marketKind, marketLine, previewFromMarket,
-  previewVersion, renameConsent, refreshMarket, removeMarket, setMarketToken, specLabel, uninstallExtension, upgradePreview, wantsGitHubToken,
+  previewVersion, renameConsent, refreshMarket, removeMarket, setMarketToken, specLabel, uninstallExtension, upgradePreview, upgradingFrom, wantsGitHubToken,
   GITHUB_TOKEN_URL, isGitHubMarket, type Catalog, type CatalogItem, type Market, type MarketPreview,
 } from "../../lib/extension-market";
-import { extensionDetail, extensionUpgrades, pointText, setExtensionUpgrades, type ExtensionPermission } from "../../lib/extensions";
+import { extensionDetail, extensionUpgrades, listExtensions, pointText, setExtensionUpgrades, type ExtensionPermission } from "../../lib/extensions";
 import { Button, cx, Dialog, EASE, IconButton, Loading, Spinner, toast, useNow } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
 import { dependentError, dependencyText, previewBlocked, type Dependent, type PackMember } from "../../lib/extension-model";
@@ -675,6 +675,20 @@ export function UninstallDialog({ id, name, version, pack, onClose, onDone }: { 
 
 // ── the markets ─────────────────────────────────────────
 
+/** Under a market's delete confirmation: the hub stops reading it, and the extensions installed from it (`count`, null
+ *  when unknown) stay but stop upgrading until it is added again with the same address. */
+function RemovalNote({ count }: { count: number | null }) {
+  const text =
+    count === null ? t("settings-extensionmarket.remove_market_note")
+    : count === 0 ? t("settings-extensionmarket.remove_market_unused")
+    : t("settings-extensionmarket.remove_market_affected", { count });
+  return (
+    <p aria-live="polite" data-market-removal-note className={cx("mt-1.5 ml-12 text-[11.5px] leading-snug break-words", count === 0 ? "text-ink-3" : "text-orange")}>
+      {text}
+    </p>
+  );
+}
+
 export function Markets({ onBack }: { onBack: () => void }) {
   const [list, setList] = useState<Market[] | null>(null);
   const [error, setError] = useState("");
@@ -683,6 +697,20 @@ export function Markets({ onBack }: { onBack: () => void }) {
   const [tokenFor, setTokenFor] = useState<Market | null>(null);
   const [busy, setBusy] = useState<Record<string, "refresh" | "remove">>({});
   const [confirm, setConfirm] = useState("");
+  // What removing the market being confirmed does to the extensions installed from it (#1895): how many stop upgrading,
+  // counted when the confirmation opens (null while counting, or when the hub does not say).
+  const [affected, setAffected] = useState<{ market: string; count: number | null } | null>(null);
+  const asking = useRef("");
+  const askRemove = (m: Market) => {
+    asking.current = m.id;
+    setConfirm(m.id);
+    setAffected(null);
+    const settle = (count: number | null) => asking.current === m.id && setAffected({ market: m.id, count });
+    // the markets here are the default manager's (no manager header), so are the extensions counted
+    listExtensions().then((l) => settle(upgradingFrom(m.id, l, defaultManager())), () => settle(null));
+  };
+  const stopAsking = () => ((asking.current = ""), setConfirm(""));
+  const affectedBy = (id: string) => (affected?.market === id ? affected.count : null);
   // The switch for all market extensions (docs/extensions/extensions.md "Auto-upgrade"); null: a hub without it.
   const [auto, setAuto] = useState<boolean | null>(null);
   const [savingAuto, setSavingAuto] = useState(false);
@@ -716,14 +744,14 @@ export function Markets({ onBack }: { onBack: () => void }) {
       } else {
         await removeMarket(m.id);
         setList((l) => (l ?? []).filter((x) => x.id !== m.id));
-        toast(t("settings-extensionmarket.market_removed", { name: m.name }), "ok");
+        toast(t(affectedBy(m.id) === 0 ? "settings-extensionmarket.market_removed_unused" : "settings-extensionmarket.market_removed", { name: m.name }), "ok");
       }
     } catch (e) {
       toast(t(kind === "refresh" ? "settings-extensionmarket.refresh_failed" : "settings-extensionmarket.remove_failed", { name: m.name, error: errorText(e) }), "error");
       if (kind === "refresh") load();
     } finally {
       setBusy(({ [m.id]: _, ...rest }) => rest);
-      setConfirm("");
+      stopAsking();
     }
   };
 
@@ -813,7 +841,7 @@ export function Markets({ onBack }: { onBack: () => void }) {
               <span className="flex-1" />
               {confirm === m.id ? (
                 <span className="flex items-center gap-1" style={{ animation: `pop-in 160ms ${EASE} both` }}>
-                  <Button tone="quiet" onClick={() => setConfirm("")}>
+                  <Button tone="quiet" onClick={stopAsking}>
                     {t("common.cancel")}
                   </Button>
                   <Button tone="danger" busy={busy[m.id] === "remove"} onClick={() => void work(m, "remove")}>
@@ -821,11 +849,12 @@ export function Markets({ onBack }: { onBack: () => void }) {
                   </Button>
                 </span>
               ) : (
-                <Button tone="quiet" icon="trash" disabled={!!busy[m.id]} onClick={() => setConfirm(m.id)} className="text-red enabled:hover:text-red">
+                <Button tone="quiet" icon="trash" disabled={!!busy[m.id]} onClick={() => askRemove(m)} className="text-red enabled:hover:text-red">
                   {t("settings-extensionmarket.delete")}
                 </Button>
               )}
             </div>
+            {confirm === m.id && <RemovalNote count={affectedBy(m.id)} />}
           </div>
         ))}
       </Group>

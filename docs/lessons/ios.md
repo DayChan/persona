@@ -2,6 +2,48 @@
 
 Pitfalls, odd behavior and the decisions made at the time (formerly "Lessons" in `CLAUDE.md`; index in `docs/lessons/README.md`). Add new lessons to the relevant section, or create one if none fits.
 
+## Motion rules (#2943)
+
+The table and red lines are in `docs/apple/ios.md` ("Design language", Motion); this is why they read that way.
+
+- **One meaning, one motion.** Pages that each chose their own curve for the same thing (a card opening at 0.5 s here, 0.25 s there)
+  read as several apps. Picking a row by what happens, not by what looks nice on that page, keeps the app consistent and the reviews
+  short: a curve that is not in the table is a question, not a taste.
+- **Leaving is quicker than arriving.** Something arriving is news the eye wants to follow; something leaving is done with, and a slow exit
+  makes the next tap wait. Exits fade and move but do not shrink: a shrinking card looks like it is being sucked into something that is not
+  there. The two exceptions are measured ones: a glyph swapped inside the same round button (Telegram's send) and the quote bar fading in
+  quicker than out (Telegram's input panel), kept as measured.
+- **No easing under the finger.** An animation on a drag makes the content trail the finger, which reads as lag. Track the gesture with
+  `transaction.animation = nil` / plain state writes and hand the finger's speed to the release animation (`drawer(velocity:)`,
+  `attachOpen(velocity:)`), so the motion carries on instead of starting over.
+- **Continuous motion is registered.** Each loop costs battery and attention, and a loop nobody asked about is how a pulsing avatar or a
+  spinning gear ships. `ContinuousMotionTests` scans the app targets for `repeatForever`, `TimelineView(.animation…)`, `phaseAnimator`,
+  `repeatCount = .infinity` and `startAnimating()`; a new one fails until it is registered with its reason and the file that reads Reduce
+  Motion for it (a caller counts: `PersonaFace`'s blink is held by `AssistantAvatar`, the breathing rings by `StatusDot` in
+  `Components.swift`). A loop that is gone must leave the registry too, so the list stays the truth. `.periodic` timelines are clocks
+  (relative times, countdowns), not motion, and are not scanned; neither are SF Symbol effects or system spinners, which follow Reduce
+  Motion themselves. BeautifulUI's shimmer lives in its package and follows its own rules.
+- **What a loop may touch.** Transform, opacity and color are composited; a loop that changes a frame, padding or font relays out its
+  container every frame. On the Mac even an opacity-only `TimelineView(.animation)` relaid the whole window, which moved the
+  breathing ring to Core Animation (`docs/lessons/macos.md`). Prefer Core Animation
+  or a paused `TimelineView` that stops off screen (`VisibleWork`) and with the wrist down (`isLuminanceReduced`).
+- **Reduce Motion means still, not slower.** A loop shows one representative frame (the watch's frog its clip's `still` frame, the working
+  dot its static ring); a change lands at once or cross-fades. The watch's frog page was the one loop that ignored it and kept playing
+  (fixed with this registry).
+
+## Fog under a floating top bar (#2909)
+
+The Persona tab's top bar floats over the chat, and a fog under it (`TopFog`: material plus page color under a gradient mask) keeps text
+from colliding with its buttons.
+
+- **A hard edge slices text.** A fog solid down to a line and then a short linear fade cut lines of text in half as they scrolled under it.
+  The fade now runs 44 pt with an eased mask (eight smoothstep stops), so there is no visible edge.
+- **Blur over crisp text in the fade smears.** Text half under a full-strength blur looks out of focus rather than covered. The blur fades
+  out over the first half of the fade and the page color over all of it, so text first dims, then blurs as it goes under the bar.
+- **A second fog starts where the first stops being solid.** The manager switcher under the bar draws its own fog. Lifting it to the top of
+  the screen drew it over the bar and hid the bar's buttons; it starts at `AssistantTopBar.fogSolid`, the bar fog's solid end, and goes
+  down from there. The bar, the shell's moving bar and the switcher share `fogSolid` and `fade` so they cannot drift apart.
+
 ## Pages that move sideways under iPhone Duo's side bars (#2752)
 
 - Under iPhone Duo's vertical bars (the outer display, the inner one on its side), a view that hosts a `UINavigationController` and moves sideways makes the controller run its deferred transition on every layout pass and lay its top view controller out twice (`transitionConductor:didStartDeferredTransition:context:` → `_layoutTopViewControllerLookForNested:`, then `_computeAndApplyScrollContentInsetDeltaForViewController:` → `_updateTopViewFramesToMatchScrollOffsetInViewController:…`). The shell's slide between Assistant and Agents spent 28 ms a frame (p95), 140 ms of hitches a second. An `offset`, a render-only `transformEffect` and a page under a mask all cost the same; only not moving helps (`ShellPageSlide` cross-fades there). An ordinary iPhone runs the same passes cheaply, so measure on the Duo simulator.

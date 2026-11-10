@@ -97,8 +97,22 @@ describe("host-owned extension settings", () => {
 
   it("distinguishes a removed market from a disabled extension", async () => {
     render({ ...BASE, auto_upgrade_paused: "market_removed" }); await flush();
-    expect(host.textContent).toContain("扩展市场已移除");
+    expect(host.textContent).toContain("扩展市场已删除，自动升级暂停");
     expect(host.textContent).not.toContain("扩展关闭期间");
+  });
+
+  it("says how a removed market's upgrades come back, and checks nothing until then (#1895)", async () => {
+    render({ ...BASE, auto_upgrade_paused: "market_removed" }); await flush();
+    const updates = host.querySelector('[data-extension-section="updates"]')!.textContent;
+    // the switch keeps the saved preference, greyed out; its footer says the way back
+    expect(button("自动升级").getAttribute("aria-checked")).toBe("true");
+    expect(button("自动升级").disabled).toBe(true);
+    expect(document.getElementById(button("自动升级").getAttribute("aria-describedby")!)?.textContent).toContain("用同样的地址把市场加回来后恢复");
+    // a check would only read a market the hub no longer has
+    expect(button("检查更新").disabled).toBe(true);
+    expect(updates).toContain("用同样的地址把市场加回来，才能检查新版本");
+    expect(updates).not.toContain("扩展市场暂不可用");
+    expect(requests.some((r) => r.url.includes("/-/catalog"))).toBe(false);
   });
 
   it("reads the same manager's global preference and does not disguise it as the per-extension value", async () => {

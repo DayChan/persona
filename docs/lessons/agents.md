@@ -620,10 +620,12 @@ Closing is not durable merely because the card vanished: persist the interaction
 
 ## Text an agent is sent can press keys in its terminal
 
-- Much of what a caller sends an agent ends up typed into the agent's terminal: a message, a start's prompt, a rename,
-  a card's answer; a to-do, its decisions and a knowledge-base entry are kept and typed later, in a prompt. Control
-  characters in that text are keys to the terminal, and the program in it acts on them as on the user's own, which can
-  change what the agent may do.
+- Much of what a caller sends an agent ends up typed into the agent's terminal: a message, a start's prompt, a rename's
+  title (`/rename`, a prompt), a card's answer; a to-do, its decisions and a knowledge-base entry are kept and typed
+  later, in a prompt. Control characters in that text are keys to the terminal, and the program in it acts on them as
+  on the user's own, which can change what the agent may do. A rename's tab name is not typed: it goes to the host as
+  the tab's label (herdr, Orca, Herdr App), which the node does not make inert; herdr's renderer drops control
+  characters when it draws one.
 - So the hub refuses terminal control characters (Unicode `Cc` but newline, carriage return and tab) from callers whose
   grant is narrower than the user's, extension tokens, on the routes that type a caller's text into a terminal or keep
   it for a prompt (`server/internal/hub/terminal_controls.go`). Check kept text as it comes in, while the caller is
